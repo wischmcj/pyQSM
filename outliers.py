@@ -1,6 +1,6 @@
 import open3d as o3d
 import numpy as np
-from scipy.spatial import Delaunay
+import scipy.spatial as sps 
 
 s27d = "s32_downsample_0.04.pcd"
 
@@ -29,24 +29,15 @@ def clean_cloud(pcd):
     """Reduces the number of points in the point cloud via 
         voxel downsampling. Reducing noise via statistical outlier removal.
     """
-    print("Downsample the point cloud with a voxel of 0.02")
-
+    # print("Downsample the point cloud with a voxel of 0.02")
+    voxel_down_pcd = pcd
     # voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
     # del pcd
     # o3d.visualization.draw_geometries([voxel_down_pcd])
-
-
     print("Statistical oulier removal")
-    # voxel_down_pcd.paint_uniform_color([0.8, 0.8, 0.8])
-    # o3d.visualization.draw_geometries([voxel_down_pcd])
-    s27 ="/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
-    voxel_down_pcd = o3d.io.read_point_cloud(s27, format='xyz',print_progress=True)
-    
-    _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=20,
-                                                        std_ratio=2.0)
-    # breakpoint()
-    
-    display_inlier_outlier(voxel_down_pcd, ind)
+    _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=20,std_ratio=2.0)
+    inlier_cloud = voxel_down_pcd.select_by_index(ind)
+    return inlier_cloud
 
 
 # def make_triangle_mesh():
@@ -70,28 +61,12 @@ if __name__ == "__main__":
     pcd = o3d.io.read_point_cloud(s27, format='xyz',print_progress=True)
     voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
     del pcd
-
+    # voxel_down_pcd = clean_cloud(voxel_down_pcd)
     # voxel_down_pcd = o3d.io.read_point_cloud(s27, print_progress=True)
     
     # o3d.visualization.draw_geometries([voxel_down_pcd])
-    # breakpoint()
-    mesh = o3d.geometry.TriangleMesh
-    three_dv = o3d.utility.Vector3dVector
-    three_di = o3d.utility.Vector3iVector
-    
-    points = np.asarray(voxel_down_pcd.points)
-    test = Delaunay(points)
-    verts = o3d.utility.Vector3dVector(points)
-    tris = o3d.utility.Vector3iVector(np.array(test.simplices[:,0:3]))
-    mesh = o3d.geometry.TriangleMesh(verts, tris)
-    o3d.visualization.draw_geometries([mesh])
-    # del points
+    o3d.visualization.draw_geometries([voxel_down_pcd],point_show_normal=True)
     breakpoint()
-    # _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=20,
-    #                                                     std_ratio=2.0)
-    
-    # clean_pcd = voxel_down_pcd.select_by_index(ind)
-
 
 
     
