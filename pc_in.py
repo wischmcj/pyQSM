@@ -7,10 +7,13 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import scipy.spatial as sps 
 import scipy.cluster as spc 
+import matplotlib.colors as mcolors
 from sklearn.metrics import silhouette_score
 from sklearn.metrics import calinski_harabasz_score
 from sklearn.metrics import davies_bouldin_score
+from sklearn.cluster import DBSCAN
 
+from open3d.visualization import draw_geometries as draw
 
 from itertools import chain 
 
@@ -114,19 +117,27 @@ def filter_by_norm(pcd, angle_thresh=10):
 
 
 
-def clean_cloud(pcd, neighbors=20, ratio=2.0):
+def clean_cloud(pcd, voxels = None,
+                neighbors=20, ratio=2.0,
+                iters=3):
     """Reduces the number of points in the point cloud via 
         voxel downsampling. Reducing noise via statistical outlier removal.
     """
-    print("Downsample the point cloud with voxels")
-    print(f"orig {pcd}")
-    voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
-    print(f"downed {voxel_down_pcd}")
+    if voxels:
+        print("Downsample the point cloud with voxels")
+        print(f"orig {pcd}")
+        voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
+        print(f"downed {voxel_down_pcd}")
+    else: 
+        voxel_down_pcd = pcd
 
     print("Statistical oulier removal")
-    _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=neighbors,std_ratio=ratio)
-    inlier_cloud = voxel_down_pcd.select_by_index(ind)
-    return inlier_cloud
+    for i in range(iters):
+        neighbors= neighbors*1.5
+        ratio = ratio/1.5
+        _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=10,std_ratio=.1)
+        voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
+    return voxel_down_pcd
 
 def get_k_smallest(arr,k):
     idx = np.argpartition(arr, k)
@@ -159,9 +170,9 @@ def get_radius(points, center_type = 'centroid'):
     r = np.average([np.sqrt(np.sum((xy_pt - xy_center)**2)) for xy_pt in xy_pts])
     return r
 
-def get_sphere(pts):
+def get_sphere(pts, radius_multiplier = 1.25):
     new_center = get_center(pts)
-    new_radius = get_radius(pts)*1.25
+    new_radius = get_radius(pts)*1.1
     sphere = o3d.geometry.TriangleMesh.create_sphere(radius=new_radius)
     sphere.translate(new_center)
     sphere_pts = sphere.sample_points_uniformly()
@@ -184,7 +195,7 @@ def get_neighbors_in_tree(sub_pcd, full_tree, radius):
     # neighbors.extend(sub_pcd_idxs)
     return neighbors
 
-def cluster_neighbors(points,current_clusters ):
+def spc_cluster_neighbors(points,current_clusters ):
     """
     https://www.comet.com/site/blog/how-to-evaluate-clustering-models-in-python/
     """
@@ -216,110 +227,266 @@ def cluster_neighbors(points,current_clusters ):
             ret = res
     return ret[0]
 
+def cluster_neighbors(pts_idxs, points,dist=.3, min_samples=5):
+    clustering = DBSCAN(eps=dist, min_samples=min_samples).fit(points)
+    labels = clustering.labels_
 
+    n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+    n_noise_ = list(labels).count(-1)
+    print("Estimated number of clusters: %d" % n_clusters_)
+    print("Estimated number of noise points: %d" % n_noise_)
 
-def climb_neighbors(sub_pcd, sub_pcd_idxs, main_pcd,
-                        initial_radius = 0.2):
+    unique_labels = set(labels)
+    core_samples_mask = np.zeros_like(labels, dtype=bool)
+    core_samples_mask[clustering.core_sample_indices_] = True
+    idxs = []
+    noise = []
+    # converting ids for 'points' to ids
+    #   in main_pcd stored in pts_idxs
+    for k in unique_labels:
+        class_member_mask = labels == k
+        if k == -1:
+            idx_bool = class_member_mask & (core_samples_mask==False)
+            pt_idxs = np.where((np.array(idx_bool)==True))
+            noise = pts_idxs[pt_idxs]
+        else:
+            idx_bool = class_member_mask & core_samples_mask
+            pt_idxs = np.where((np.array(idx_bool)==True))
+            neighbor_idxs = pts_idxs[pt_idxs]
+            idxs.append(neighbor_idxs)
+
+    return unique_labels, idxs, noise
+
+def cluster_and_draw(sub_pcd,new_neighbors,nn_points,total_found,main_pcd):
+    labels, cluster_idxs, noise = cluster_neighbors(new_neighbors, nn_points,dist =.07)
+    sub_pcd.paint_uniform_color([0,0,0])
+    geos =[sub_pcd]
+    # if ((current_clusters > 1 and -1 not in labels)
+    #     or (current_clusters > 2  and -1 in labels)):
+    if len(labels) <6:
+        colors = [[0,1,0],[0,0,1],[1,0,0],[0,1,1],[1,0,1],[1,1,0]]
+    else:
+        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(labels))]
+    i=0
+    geos_label = ['']
+    if labels == {-1}:
+        cluster_idxs.append(noise)
+    for label, idxs in zip(labels,cluster_idxs):
+        total_found.extend(idxs)
+        cluster_cloud = main_pcd.select_by_index(np.asarray(idxs))    
+        col= colors[i]
+        cluster_cloud.paint_uniform_color(mcolors.to_rgb(col))
+        if len(idxs)!=0:
+            geos.append(cluster_cloud)
+            geos_label.append(label)
+            i+=1
+    o3d.visualization.draw_geometries(geos)
+
+def sphere_step(sub_pcd, radius, main_pcd,
+                curr_neighbors, branch_num, 
+                total_found, run=0,branches = [[]]):
     neighbors = 20
     ratio = 0.25
     min_sphere_radius = 0.1
     epsilon_radius = 0.25
     current_clusters = 1
-    radius = initial_radius
-    
-    main_pts = np.asarray(main_pcd.points)
+    radius_multiplier = 1.5
+    res = []
+    main_pts = np.asarray(main_pcd.points)  
     full_tree = sps.KDTree(main_pts)
-    sub_pcd.paint_uniform_color([1.0,0,0])
 
-    curr_neighbors = sub_pcd_idxs
-    sets_of_neighbors = [curr_neighbors]
-    breakpt = 5
-    for i in range(100):
+    # get all points within radius of a current neighbor
+    #   exclude any that have already been found
+    new_neighbors = get_neighbors_in_tree(sub_pcd, full_tree,radius)
+    print(f"found {len(new_neighbors)} new neighbors")
+    new_neighbors = np.setdiff1d(new_neighbors, curr_neighbors)
+    print(f"found {len(new_neighbors)} not in current")
+    new_neighbors = np.setdiff1d(new_neighbors, np.array(total_found)) 
+    print(f"found {len(new_neighbors)} not in total_found")
 
-        new_neighbors = get_neighbors_in_tree(sub_pcd, full_tree,radius)
-        new_neighbors = np.setdiff1d(new_neighbors, curr_neighbors)
-        curr_neighbors = np.concatenate([curr_neighbors, new_neighbors])
-        neighbor_cloud = main_pcd.select_by_index(curr_neighbors)   
-        _, ind = neighbor_cloud.remove_statistical_outlier(nb_neighbors=neighbors,std_ratio=ratio)
-        neighbor_cloud = highlight_inliers(neighbor_cloud,ind,draw=False, color = [0,1.0,0])
+    nn_points= main_pts[new_neighbors]
 
-        nn_locations = main_pts[new_neighbors]  
+    labels, cluster_idxs, noise = cluster_neighbors(new_neighbors, nn_points,dist =.07)
+    sub_pcd.paint_uniform_color([0,0,0])
+    geos =[sub_pcd]
+    # if ((current_clusters > 1 and -1 not in labels)
+    #     or (current_clusters > 2  and -1 in labels)):
+    if len(labels) <6:
+        colors = [[0,1,0],[0,0,1],[1,0,0],[0,1,1],[1,0,1],[1,1,0]]
+    else:
+        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(labels))]
+    i=0
+    geos_label = ['']
+    if labels == {-1}:
+        cluster_idxs.append(noise)
+    for label, idxs in zip(labels,cluster_idxs):
+        total_found.extend(idxs)
+        cluster_cloud = main_pcd.select_by_index(np.asarray(idxs))    
+        col= colors[i]
+        cluster_cloud.paint_uniform_color(mcolors.to_rgb(col))
+        if len(idxs)!=0:
+            geos.append(cluster_cloud)
+            geos_label.append(label)
+            i+=1
+    
+    # o3d.visualization.draw_geometries(geos)
+    
+    points = main_pts[new_neighbors]
+    sphere_pts = get_sphere(points)
+    sphere_pts.paint_uniform_color([0,0,0])
 
-        codes,book,num = cluster_neighbors(nn_locations,current_clusters)
-        current_clusters = num
-        if num > 1:
-            breakpoint()
-            c1_idxs = new_neighbors[np.where(book==1)[0]]
-            c0_idxs = new_neighbors[np.where(book!=1)[0]]
+    clusters = [x for x in zip(labels,cluster_idxs) if x[0] != -1 and len(x[1])>0]
+    # sets_of_neighbors.append(clusters)
+    noise = [x for x in zip(labels,cluster_idxs) if x[0] == -1]
 
-            c1_cloud = main_pcd.select_by_index(np.asarray(c1_idxs))    
-            c0_cloud = main_pcd.select_by_index(np.asarray(c0_idxs))  
-            c1_cloud.paint_uniform_color([0,0,1.0])
-            c0_cloud.paint_uniform_color([1.0,0,0])  
-            o3d.visualization.draw_geometries([c1_cloud,c0_cloud])
-        else:
-            sets_of_neighbors.append(new_neighbors)
+    for label, cluster_idxs in clusters:
+        cluster_branch = branch_num
+        if label!=0:
+            cluster_branch+=1
+            branches.append([])
+
+        branches[cluster_branch].extend(cluster_idxs)
+        print(f"cluster_branch: {cluster_branch}")
+        curr_plus_cluster = np.concatenate([curr_neighbors, cluster_idxs]) 
+        cluster_cloud = main_pcd.select_by_index(np.asarray(cluster_idxs))
+        # o3d.visualization.draw_geometries([cluster_cloud]) 
+
+        new_points = main_pts[curr_plus_cluster]
+        new_radius = get_radius(new_points)*radius_multiplier
+        print(f"""len(curr_plus_cluster): {len(curr_plus_cluster)}, len(cluster_idxs): {len(cluster_idxs)}, len(curr_neighbors): {len(curr_neighbors)} len(new_neighbors): {len(new_neighbors)}""")
+        # main_less_foud = main_pcd.select_by_index(curr_plus_cluster,invert=True)
+        # main_less_points = np.asarray(main_less_foud.points)
+        # o3d.visualization.draw_geometries([main_less_foud])
         
-        # points = main_pts[new_neighbors]
-        # sphere_pts = get_sphere(points)
-
-        # neighbor_cloud.paint_uniform_color([0,0,1.0])
-        # sub_pcd.paint_uniform_color([1.0,0,0])
-        # len([n for n in neighbors if n in min_idxs])
-
-        if i % breakpt == 0:
-            points = main_pts[new_neighbors]
-            sphere_pts = get_sphere(points)
-            neighbor_cloud.paint_uniform_color([0,0,1.0])
-            sub_pcd.paint_uniform_color([1.0,0,0])
-            o3d.visualization.draw_geometries([neighbor_cloud,sub_pcd,sphere_pts])
+        if run%30 == 0:
+            test = main_pcd.select_by_index(total_found)
+            o3d.visualization.draw_geometries([test])
+            # test = main_pcd.select_by_index(branches[0])
+            # o3d.visualization.draw_geometries([test])
             breakpoint()
+        res.append(sphere_step(cluster_cloud, new_radius, main_pcd,
+                                    curr_plus_cluster, cluster_branch, 
+                                    total_found, run+1,branches))
+    return(res)
 
-        sub_pcd = neighbor_cloud
-    return neighbors
+def climb_neighbors(sub_pcd, sub_pcd_idxs, main_pcd,
+                        initial_radius = 0.2):
+
+    
+    breakpoint()
+    
+    # points = main_pts[new_neighbors]
+    # sphere_pts = get_sphere(points)
+
+    # neighbor_cloud.paint_uniform_color([0,0,1.0])
+    # sub_pcd.paint_uniform_color([1.0,0,0])
+    # len([n for n in neighbors if n in min_idxs])
+
+    # if i % breakpt == 0:
+    #     points = main_pts[new_neighbors]
+    #     sphere_pts = get_sphere(points)
+    #     neighbor_cloud.paint_uniform_color([0,0,1.0])
+    #     sub_pcd.paint_uniform_color([1.0,0,0])
+    #     o3d.visualization.draw_geometries([neighbor_cloud,sub_pcd,sphere_pts])
+    #     breakpoint()
+
+    return res
 
 def get_ball_mesh(pcd):
     radii = [0.005, 0.01, 0.02, 0.04]
     rec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(just_trunk, o3d.utility.DoubleVector(radii))
     return rec_mesh
 
-
-pcd = o3d.io.read_point_cloud("s27_downsample_0.04.pcd",print_progress=True)
-
-pcd = clean_cloud(pcd)
-# o3d.visualization.draw_geometries([pcd])#, point_show_normal=True)
-pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-
-stem_cloud = filter_by_norm(pcd,10)
-# _, ind = stem_cloud.remove_statistical_outlier(nb_neighbors=neighbors,std_ratio=ratio)
-# inlier_cloud = stem_cloud.select_by_index(ind)
-# o3d.visualization.draw_geometries([stem_cloud])#, point_show_normal=True)
-
-k=1000
-mins, min_idxs = get_lowest_points(stem_cloud,k)
-low_cloud = highlight_inliers(stem_cloud, min_idxs, draw = False)
-
-neighbors = 20
-ratio = 0.25
-_, ind = low_cloud.remove_statistical_outlier(nb_neighbors=neighbors,std_ratio=ratio)
-just_trunk = highlight_inliers(low_cloud,ind,draw=False, color = [1.0,0,0])
-trunk_points = np.asarray(just_trunk.points)
-# sphere_pts=get_sphere(trunk_points)
-# o3d.visualization.draw_geometries([just_trunk,sphere_pts])
+if __name__ == "__main__":
+    # ***********************
+    # IDEAS FOR CLEANING RESULTS
+    # Mutliple iterations of statistical outlier removal
+    #    start with latge std ratio, and low num neighbors(4?)
+    # Larger Voxel size for Stem Filtering - more representitive normals
+    #
+    # ***********************
 
 
-radius = get_radius(trunk_points)
+    # Reading in cloud and smooth
+    # pcd = o3d.io.read_point_cloud("s27_downsample_0.04.pcd",print_progress=True)
+    # pcd = clean_cloud(pcd)
+    # pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    pcd = o3d.io.read_point_cloud("clean27.pcd",print_progress=True)
+    stat_down=pcd
+    neighbors = 3
+    ratio = 4 
+    stat_down = clean_cloud(pcd, voxels=None, neighbors=5, ratio=6)
+    # voxel_down_pcd = stat_down.voxel_down_sample(voxel_size=0.04)
+    # old_stem_cloud = o3d.io.read_point_cloud("stem_cloud.pcd",print_progress=True)
+    stat_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    stem_cloud = filter_by_norm(stat_down,20)
+    # draw([stem_cloud])
 
-idxs = climb_neighbors(just_trunk,min_idxs,stem_cloud,radius)
-breakpoint()
+    # test = stem_cloud.voxel_down_sample(voxel_size=0.04)
+    # _, ind = test.remove_statistical_outlier(nb_neighbors=10,std_ratio=4)
+    # test = test.select_by_index(ind)
+    # draw([test])
+    
+    k=500
+    mins, min_idxs = get_lowest_points(stem_cloud,k)
+    low_cloud = stem_cloud.select_by_index(min_idxs)
+
+    neighbors = 10
+    ratio = 0.25
+    _, ind = low_cloud.remove_statistical_outlier(nb_neighbors=neighbors,std_ratio=ratio)
+    just_trunk = low_cloud.select_by_index(ind)
+    
+    trunk_pts = np.asarray(just_trunk.points)
+    sphere_pts = get_sphere(trunk_pts)
+    radius = get_radius(trunk_pts)
 
 
-# mesh = map_density(stem_cloud)
-# mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(stem_cloud, depth=4)
-# densities = np.asarray(densities)
-# vertices_to_remove = densities < np.quantile(densities, 0.01)
-# mesh.remove_vertices_by_mask(vertices_to_remove)
-# o3d.visualization.draw_geometries([mesh])
-breakpoint()
+    # converting ids from low_cloud stat reduction
+    #   To ids in stem_cloud    
+    stem_pts =  list(map(tuple,np.asarray(stem_cloud.points)))
+    trunk_pts = list(map(tuple,np.asarray(just_trunk.points)))
+    trunk_stem_idxs = []
+    for idx, val in enumerate(stem_pts):
+        if val in trunk_pts:
+            trunk_stem_idxs.append(idx)
 
-o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, o3d.utility.DoubleVector(radii))
+    # just_trunk = stem_cloud.select_by_index(trunk_stem_idxs)
+
+    ## reading in saved output of above code
+    # from past_run_vars import min_idxs, jt_radius
+    # just_trunk = o3d.io.read_point_cloud("just_trunk.pcd",print_progress=True)
+    # stem_cloud = o3d.io.read_point_cloud("stem_cloud.pcd",print_progress=True)
+    # radius = jt_radius
+
+    just_trunk.paint_uniform_color([1.0,0,0])
+
+    curr_neighbors = trunk_stem_idxs
+
+    res = sphere_step(just_trunk, radius, stem_cloud, 
+                        curr_neighbors,branch_num=0,
+                        total_found = list(curr_neighbors))
+    breakpoint()
+
+
+    ## KDTree neighbor finding 
+    # stem_pts = np.asarray(pcd.points)
+    # full_tree = sps.KDTree(stem_pts)
+    # connd = full_tree.query(trunk_points, 50)
+    # pairs = full_tree.query_pairs(r=.02)
+    # trunk_connected = trunk_tree.sparse_distance_matrix(full_tree, max_distance=radius)
+    # neighbors_idx =np.array(list(set(chain.from_iterable(connd[1]))))
+
+    # tc_idxs = np.array(list(set(chain.from_iterable(trunk_connected))))
+    # trunk_connected_cloud = stem_cloud.select_by_index(neighbors_idx)  
+    # o3d.visualization.draw_geometries([trunk_connected_cloud])
+
+    ## removing non dense areas of points
+    # mesh = map_density(stem_cloud)
+    # mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(stem_cloud, depth=4)
+    # densities = np.asarray(densities)
+    # vertices_to_remove = densities < np.quantile(densities, 0.01)
+    # mesh.remove_vertices_by_mask(vertices_to_remove)
+    # o3d.visualization.draw_geometries([mesh])
+    breakpoint()
+
+    o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, o3d.utility.DoubleVector(radii))

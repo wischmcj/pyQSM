@@ -63,7 +63,7 @@ if __name__ == "__main__":
     del pcd
     # voxel_down_pcd = clean_cloud(voxel_down_pcd)
     # voxel_down_pcd = o3d.io.read_point_cloud(s27, print_progress=True)
-    
+    # o3d.io.write_point_cloud(s27d,voxel_down_pcd)
     # o3d.visualization.draw_geometries([voxel_down_pcd])
     o3d.visualization.draw_geometries([voxel_down_pcd],point_show_normal=True)
     breakpoint()
