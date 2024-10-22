@@ -16,7 +16,7 @@ from sklearn.cluster import DBSCAN
 import pyransac3d as pyrsc
 from open3d.visualization import draw_geometries as draw
 
-from utils import get_radius
+from utils import get_radius, get_center
 from vectors_shapes import get_shape
 
 
@@ -82,36 +82,72 @@ def cluster_neighbors(pts_idxs, points,dist=.3, min_samples=5):
 
     return unique_labels, idxs, noise
 
-def fit_cylinder(pcd=None, pts=None, threshold=0.1):
+def fit_shape(pcd=None, pts=None, 
+                 threshold=0.1, draw_pcd = False,
+                 lower_bound= None,
+                 shape = 'circle'):
     if pts is None:
         pts = np.asarray(pcd.points)
+    if lower_bound:
+        for pt in pts:
+            if pt[2] < lower_bound:
+                pt[2] = lower_bound
+    
+    lowest, heighest = min(pts[:,2]), max(pts[:,2])
 
-    # sphere_pts = get_sphere(trunk_pts)
+
     radius = get_radius(pts)
-    cyl = pyrsc.Cylinder()
-    center, axis, fit_radius, inliers = cyl.fit( pts = np.asarray(pts), thresh = threshold)
+    fit_pts = np.asarray(pts.copy())
+    if shape == 'circle':
+        for pt in fit_pts:
+            pt[2] = 0
+        shape = pyrsc.Circle()
+    if shape == 'cylinder':
+        shape = pyrsc.Cylinder()
+
+    center, axis, fit_radius, inliers = shape.fit(pts = np.asarray(fit_pts), thresh = threshold)
     print(f'fit_cyl = center: {center}, axis: {axis}, radius: {fit_radius}')
+
     if len(center)==0:
-        breakpoint()
-        print(f'no no fit cyl found')
-
-
+        print(f'no no fit {shape} found')
+        return None, None, None, None
+    
     in_pts = pts[inliers]
     lowest, heighest = min(in_pts[:,2]), max(in_pts[:,2])
     height= heighest-lowest
     center_height = (height/2) + lowest
     test_center = [center[0],center[1],center_height]
-    
-    cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False, 
-                         center=tuple(test_center), radius=fit_radius*1.2, 
-                         height=height)    
+
+    # test_center = center
+    if height<=0:
+        breakpoint()
+        return None, None, None, None
+
+    if ((axis[0] == 0 and axis[1] == 0 and axis[2] == 1) or
+        (axis[0] == 0 and axis[1] == 0 and axis[2] == -1)):
+        print(f'No Rotation Needed')
+        cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,  
+                            center=tuple(test_center), 
+                            radius=fit_radius*1.2,  
+                            height=height)    
+    else:
+        print(f'Rotation Needed')
+        cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,  
+                            center=tuple(test_center), 
+                            radius=fit_radius*1.2,  
+                            height=height,
+                            axis=axis)    
+    # cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,  
+    #                         center=tuple(test_center), 
+    #                         radius=fit_radius*1.2,  
+    #                         height=height)    
     in_pcd=None
-    if pcd:
-        draw([pcd, cyl_mesh])
-        
+    if pcd is not None:
         in_pcd = pcd.select_by_index(inliers)
         pcd.paint_uniform_color([1.0,0,0])
         in_pcd.paint_uniform_color([0,1.0,0])
-        draw([pcd, in_pcd])
+        if draw_pcd:
+            draw([pcd, cyl_mesh])
+            draw([pcd, in_pcd])
 
-    return cyl_mesh, in_pcd, inliers
+    return cyl_mesh, in_pcd, inliers, fit_radius, axis

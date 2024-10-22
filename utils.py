@@ -2,7 +2,7 @@ import numpy as np
 
 
 
-def rotation_matrix_from_arr(b: np.array):
+def rotation_matrix_from_arr(a, b: np.array):
     if np.linalg.norm(b) == 0:
         return np.eye(3)
     if np.linalg.norm(b) != 1:
@@ -10,19 +10,31 @@ def rotation_matrix_from_arr(b: np.array):
     # Algorithm from https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula#Matrix_notation
     # b must be unit vector
     # a is the z unit vector
-    a = [0, 0, 1]
+    # a = [0, 0, -1]
     v = np.cross(a, b)
     s = np.linalg.norm(v)
     c = np.dot(a, b)
     # The skew-symmetric cross product matrix of v
     vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]]) * -1
     # Rotation matrix as per Rodregues formula
-    R = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c) / (s**2))
+    R = np.eye(3) - vx + np.dot(-vx, -vx) * ((1 - c) / (s**2))
     return R
+
+
+def get_k_smallest(arr,k):
+    idx = np.argpartition(arr, k)
+    return arr[idx[:k]], idx[:k]
+
+def get_lowest_points(pcd,k):
+    pts = np.asarray(pcd.points)
+    z_vals = pts[:,2]
+    mins, idxs = get_k_smallest(z_vals,k)
+    return mins, idxs
 
 
 def unit_vector(vector):
     """ Returns the unit vector of the vector.  """
+    print(f'norm: {np.linalg.norm(vector)}')
     return vector / np.linalg.norm(vector)
 
 def angle_from_xy(v1):
