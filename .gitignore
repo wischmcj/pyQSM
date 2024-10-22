@@ -164,3 +164,7 @@ s32_downsample_0.04.pcd
 s27_downsample_0.01.pcd
 s27_downsample_0.04.pcd
 copy_of_fragment.pcd
+pic*
+27_vox_pt02_sta_6-4-3.pcd
+.gitignore
+*.pcd
