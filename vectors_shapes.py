@@ -2,7 +2,7 @@ import open3d as o3d
 import numpy as np
 import scipy.spatial as sps
 
-from utils import get_angles, get_center, get_radius
+from utils import get_angles, get_center, get_radius, rotation_matrix_from_arr, unit_vector
 
 def hull_to_mesh(voxel_down_pcd, type = 'ConvexHull'):
 
@@ -50,9 +50,23 @@ def get_shape(pts,
         shape = o3d.geometry.TriangleMesh.create_sphere(center=kwargs['center'], 
                                                         radius=kwargs['radius'])
     elif shape == 'cylinder':
-        shape = o3d.geometry.TriangleMesh.create_cylinder(radius=kwargs['radius'],
+        try: 
+            shape = o3d.geometry.TriangleMesh.create_cylinder(radius=kwargs['radius'],
                                                           height=kwargs['height'])
+        except Exception as e:
+            breakpoint()
+            print(f'error getting cylinder {e}')
+    
+    print(f'Starting Translation/Rotation')
+    
     shape.translate(kwargs['center'])
+    arr = kwargs.get('axis')
+    if arr is not None:
+        vector = unit_vector(arr)
+        R = rotation_matrix_from_arr([0,0,1],vector)
+        print(f'{vector=}')
+        shape.rotate(R, center=kwargs['center'])
+
     if as_pts:
         shape_pts = shape.sample_points_uniformly()
         shape_pts.paint_uniform_color([0,1.0,0])

@@ -12,7 +12,7 @@ def iter_draw(idxs_list, pcd):
     for idxs in idxs_list: 
         if len(idxs)>0:
             pcds.append(pcd.select_by_index(idxs))
-
+    print(f'iterdraw: drawing {len(pcds)} pcds')
     pcd.paint_uniform_color([0,0,0.2])
     colors = [mcolors.to_rgb(plt.cm.Spectral(each)) for each in np.linspace(0, 1, len(pcds))]
 
