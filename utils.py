@@ -1,11 +1,19 @@
 import numpy as np
 
 
+def poprow(my_array,pr):
+    """ row popping in numpy arrays
+    Input: my_array - NumPy array, pr: row index to pop out
+    Output: [new_array,popped_row] """
+    i = pr
+    pop = my_array[i]
+    new_array = np.vstack((my_array[:i],my_array[i+1:]))
+    return new_array,pop
 
 def rotation_matrix_from_arr(a, b: np.array):
     if np.linalg.norm(b) == 0:
         return np.eye(3)
-    if np.linalg.norm(b) != 1:
+    if np.linalg.norm(b) <.99 or np.linalg.norm(b) > 1.01:
         raise ValueError("b must be a unit vector")
     # Algorithm from https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula#Matrix_notation
     # b must be unit vector
@@ -34,7 +42,6 @@ def get_lowest_points(pcd,k):
 
 def unit_vector(vector):
     """ Returns the unit vector of the vector.  """
-    print(f'norm: {np.linalg.norm(vector)}')
     return vector / np.linalg.norm(vector)
 
 def angle_from_xy(v1):

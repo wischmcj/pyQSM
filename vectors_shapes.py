@@ -2,7 +2,36 @@ import open3d as o3d
 import numpy as np
 import scipy.spatial as sps
 
-from utils import get_angles, get_center, get_radius, rotation_matrix_from_arr, unit_vector
+from utils import get_angles, get_center, get_radius, rotation_matrix_from_arr, unit_vector, poprow
+
+
+def orientation_from_norms(norms, 
+                            samples = 10,
+                            max_iter = 100):
+    """Attempts to find the orientation of a cylindrical point cloud
+    given the normals of the points. Attempts to find <samples> number
+    of vectors that are orthogonal to the normals and then averages
+    the third ortogonal vector (the cylinder axis) to estimate orientation.
+    """
+    sum_of_vectors = [0,0,0]    
+    found=0 
+    iter_num=0
+    while found<samples and iter_num<max_iter and len(norms)>1:
+        iter_num+=1
+        rand_id = np.random.randint(len(norms)-1)
+        norms, vect = poprow(norms,rand_id)
+        dot_products = abs(np.dot(norms, vect))
+        most_normal_val = min(dot_products)
+        if most_normal_val <=.001:
+            idx_of_normal = np.where(dot_products == most_normal_val)[0][0]
+            most_normal = norms[idx_of_normal]
+            approx_axis = np.cross(unit_vector(vect), 
+                                unit_vector(most_normal))
+            sum_of_vectors+=approx_axis
+            found+=1
+    print(f'found {found} in {iter_num} iterations')
+    axis_guess = np.asarray(sum_of_vectors)/found
+    return axis_guess
 
 def hull_to_mesh(voxel_down_pcd, type = 'ConvexHull'):
 
