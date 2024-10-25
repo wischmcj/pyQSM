@@ -168,3 +168,4 @@ pic*
 27_vox_pt02_sta_6-4-3.pcd
 .gitignore
 *.pcd
+.vscode/settings.json

@@ -24,37 +24,47 @@ def kmeans(points,min_clusters ):
     """
     https://www.comet.com/site/blog/how-to-evaluate-clustering-models-in-python/
     """
-    # silhouette_score_co = 0.3
     # ch_max = 50
     clusters_to_try = [ min_clusters, 
                         min_clusters+1, 
-                        min_clusters+2]
-    results = []
+                        min_clusters+2, 
+                        min_clusters+3]
     codes,book = None,None
     pts_2d = points[:,:2]
+    best_score = 0.4
+    best = None
     for num in clusters_to_try:
         if num>0:
             codes, book = spc.vq.kmeans2(pts_2d, num)
             cluster_sizes = np.bincount(book)
             if num ==1:
-                results.append(((codes,book,num),[.5,0,0]))
+               best =book
             else:
-                sh_score =  silhouette_score(points,book)
-                ch_score = calinski_harabasz_score(points,book)
-                db_score = davies_bouldin_score(points,book)
-                print(f'''num clusters: {num}, sizes: {cluster_sizes}, 
-                            sh_score: {sh_score}, ch_score: {ch_score}, db_score: {db_score}''') 
-                results.append(((codes,book,num),[sh_score,ch_score,db_score]))
-    plt.scatter(pts_2d[:,0],pts_2d[:,1],c=book)
-    plt.show()
-    breakpoint()
-    # ret = results[0]
-    # for res in results:
-    #     # if res[1][1] >= ch_max:
-    #     #     pass
-    #     if res[1][2]<.7 and res[1][0] >= silhouette_score_co:
-    #         ret = res
-    return results
+                try:
+                    sh_score =  silhouette_score(points,book)
+                except ValueError as err:
+                    print(f'Error in silhouette_score {err}')
+                    sh_score = 0
+                # ch_score = calinski_harabasz_score(points,book)
+                # db_score = davies_bouldin_score(points,book)
+                # print(f'''num clusters: {num}, sizes: {cluster_sizes}, 
+                #              sh_score: {sh_score}, ch_score: {ch_score}, db_score: {db_score}''') 
+                # results.append(((codes,book,num),[sh_score,ch_score,db_score]))
+                if sh_score > best_score:
+                    best = book
+    cluster_idxs = []
+    labels=[]
+    try:
+        plt.scatter(pts_2d[:,0],pts_2d[:,1],c=best)
+        plt.show()
+    except Exception as err:
+        print(f'Error in plotting {err}')
+    for i in range(max(best)):
+        
+        ids_group_i = [idx for idx,val in enumerate(best) if val == i]
+        cluster_idxs.append(ids_group_i)
+        labels.append(i)
+    return labels, cluster_idxs
 
 def cluster_neighbors(pts_idxs, points,dist=.3, min_samples=5):
     clustering = DBSCAN(eps=dist, min_samples=min_samples).fit(points)
