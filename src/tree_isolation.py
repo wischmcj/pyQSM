@@ -19,7 +19,7 @@ from fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from lib_integration import find_neighbors_in_ball
 from mesh_processing import define_conn_comps, get_surface_clusters, map_density
 from point_cloud_processing import ( filter_by_norm,
-    clean_cloud,
+ clean_cloud,
     crop,
     orientation_from_norms,
     filter_by_norm,
@@ -295,12 +295,10 @@ def find_low_order_branches():
     # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
     stem_cloud = get_stem_pcd(stat_down)
 
-
     algo_pcd_pts = np.asarray(algo_source_pcd.points)
     not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 1)
     low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
     low_cloud_pts = np.asarray(low_cloud.points)
-
     algo_source_pcd = stem_cloud
     print("Identifying trunk ...")
     print("Identifying based layer for search ...")
@@ -338,9 +336,6 @@ def find_low_order_branches():
         print("error" + e)
 
     breakpoint()
-
-    breakpoint()
-
 if __name__ == "__main__":
     find_low_order_branches()
 
