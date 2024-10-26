@@ -37,3 +37,29 @@ dist = 0.07
 
 # clustering
 #  doubling dist leads to low branch order sensitivity, less branches found
+
+
+
+
+##### Ball Mesh conn comps 
+
+[0.02, 0.04, 0.08, 0.16]
+# Rather sparse near the top and on opposite side of the trunk
+[ 0.08, 0.12, 0.16]
+# Ends up with larger conn comps consisting of what I assume are leaves 
+
+
+
+### poisson map density
+
+# s27_norm_10_poisson_12.ply
+## When filtering density we loose too much branch, 
+## still have trailing leaves
+### bolbuos
+
+# s27_norm_20_poisson_8.ply
+# 8 is not enough depth, density of leaves not differentiated from branches 
+
+# s27_norm_20_poisson_10.ply
+# depth 10 works really well, clear distinction between branches and leaves
+#  
