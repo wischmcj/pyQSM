@@ -15,17 +15,23 @@ from itertools import chain
 from collections import defaultdict
 
 from src.fit import cluster_DBSCAN, fit_shape, kmeans
-from src.point_cloud_processing import crop, get_percentile, orientation_from_norms
-from src.viz import iter_draw
-from src.utils import get_center, get_radius, get_angles, rotation_matrix_from_arr, unit_vector, get_k_smallest, get_lowest_points
+from src.point_cloud_processing import (
+                                    crop, get_percentile, 
+                                    orientation_from_norms, filter_by_norm,
+                                    clean_cloud)
+from src.viz import iter_draw, draw
+from src.utils import ( get_center, get_radius, 
+                        get_angles, rotation_matrix_from_arr, 
+                        unit_vector, get_k_smallest, get_lowest_points,
+                        get_percentile)
 
 
 skeletor ="/code/code/Research/lidar/converted_pcs/skeletor.pts"
 s27 ="/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
 s32 ="/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
 
-s27d = "s32_downsample_0.04.pcd"
-s32d = "s32_downsample_0.04.pcd"
+s27d = "data/input/s27_downsample_0.04.pcd"
+s32d = "data/input/s32_downsample_0.04.pcd"
 
 config= {
 
@@ -57,45 +63,6 @@ config= {
     ,'min_contained_points':  8
 }
 
-def draw(pcds,raw = True, **kwargs):
-    if raw: 
-         draw_geometries(pcds)
-    else:
-        draw_geometries(pcds, mesh_show_wireframe=True, zoom=0.7,front=[0,2,0], lookat=[3,-3,4], up=[0,-1,1 ],**kwargs)
-
-
-def filter_by_norm(pcd, angle_thresh=10):
-    norms = np.asarray(pcd.normals) 
-    angles = np.apply_along_axis(get_angles,1,norms)
-    angles = np.degrees(angles)
-    stem_idxs = np.where((angles>-angle_thresh) & (angles<angle_thresh))[0]
-    stem_cloud = pcd.select_by_index(stem_idxs)
-    return stem_cloud
-
-
-def clean_cloud(pcd, voxels = None,
-                neighbors=20, ratio=2.0,
-                iters=3):
-    """Reduces the number of points in the point cloud via 
-        voxel downsampling. Reducing noise via statistical outlier removal.
-    """
-    if voxels:
-        print("Downsample the point cloud with voxels")
-        print(f"orig {pcd}")
-        voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
-        print(f"downed {voxel_down_pcd}")
-    else: 
-        voxel_down_pcd = pcd
-
-    print("Statistical oulier removal")
-    for i in range(iters):
-        neighbors= neighbors*1.5
-        ratio = ratio/1.5
-        _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=10,std_ratio=.1)
-        voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
-    return voxel_down_pcd
-
-
 def highlight_inliers(pcd, inlier_idxs, color = [1.0, 0, 0], draw =False):
     inlier_cloud = pcd.select_by_index(inlier_idxs)
     inlier_cloud.paint_uniform_color(color)
@@ -110,9 +77,7 @@ def get_neighbors_in_tree(sub_pcd_pts, full_tree, radius):
     neighbors = np.array(list(set(chain.from_iterable(pairs))))
     return neighbors
 
-
 def evaluate_axis(pcd):
-
     # Get normals and align to Z axis
     pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=.1, max_nn=20))
     pcd.normalize_normals()
@@ -139,9 +104,22 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
     draw([mesh_pts,pcd])
     return mesh, _, inliers, fit_radius, _ 
 
-def ball_based_search(base_pts, points_to_search,
+def find_neighbors_in_ball(base_pts, points_to_search,
                             points_idxs, radius = None,
                             center = None):
+    """
+    _summary_
+
+    Args:
+        base_pts: _description_
+        points_to_search: _description_
+        points_idxs: _description_
+        radius: _description_. Defaults to None.
+        center: _description_. Defaults to None.
+
+    Returns:
+        _description_
+    """
     if not center:
         center = get_center(base_pts)
     if not radius:
@@ -175,6 +153,10 @@ def ball_based_search(base_pts, points_to_search,
 
 def choose_and_cluster(new_neighbors, main_pts,
                       cluster_type):
+    """
+        Determines the appropriate clustering algorithm to use
+        and returns the result of said algorithm
+    """
     returned_clusters = []
     try:
         nn_points = main_pts[new_neighbors]
@@ -197,7 +179,6 @@ def choose_and_cluster(new_neighbors, main_pts,
                                                              nn_points, 
                                                              eps = config['epsilon'],
                                                              min_pts = config['min_neighbors'])
-
 
 def sphere_step(curr_pts, last_radius, main_pcd,
                 curr_pts_idxs, branch_order, branch_num,
@@ -247,7 +228,7 @@ def sphere_step(curr_pts, last_radius, main_pcd,
     # get all points within radius of the former neighbor
     #    group's center point.
     # Exclude any that have already been found
-    sphere, new_neighbors = ball_based_search(curr_pts, 
+    sphere, new_neighbors = find_neighbors_in_ball(curr_pts, 
                                                 main_pts, 
                                                 total_found)
     spheres.append(sphere)
@@ -258,30 +239,6 @@ def sphere_step(curr_pts, last_radius, main_pcd,
         clusters = choose_and_cluster(np.asarray(new_neighbors), main_pts, cluster_type)
     if (clusters == [] or
         len(new_neighbors)<config['min_contained_points']):
-        # print(f'Zero or few new neighbors found')
-        # if last_radius*2<config['max_radius']:
-        #     sphere_step(curr_pts, last_radius*2
-        #                             ,main_pcd
-        #                             ,curr_pts_idxs
-        #                             ,branch_order
-        #                             ,branch_num
-        #                             ,total_found
-        #                             ,run+1
-        #                             ,branches
-        #                             ,id_to_num
-        #                             ,cyls
-        #                             ,cyl_details
-        #                             ,spheres)
-        # else:
-        #     print(f'radius too large to retry')
-        #     mask = []
-        #     for val in total_found:
-        #         if val in curr_pts_idxs:
-        #             mask.append(False)
-        #         else:
-        #             mask.append(True)
-        #     total_found = np.asarray(total_found)[mask]
-        #     return []
         return []
     else:
         if len(clusters[0])>2:
@@ -354,7 +311,6 @@ def sphere_step(curr_pts, last_radius, main_pcd,
             returned_pts.extend(cluster_idxs)
         branch_num+=1 
     print('reached end of function, returning')
-    print('')
     return branches, id_to_num, cyls, cyl_details
 
 
@@ -368,16 +324,14 @@ def find_low_order_branches():
     
     # ***********************
     # IDEAS FOR CLEANING RESULTS
-    # Mutliple iterations of statistical outlier removal
+    # - Mutliple iterations of statistical outlier removal
     #    start with latge std ratio, and low num neighbors(4?)
-    # Larger Voxel size for Stem Filtering - more representitive normals
-    # Fit plane to ground, remove ground before finiding lowest
+    # - Larger Voxel size for Stem Filtering - more representitive normals
+    #      - also look into k_nearest_neighbor smoothing
+    # - Fit plane to ground, remove ground before finiding lowest
+    #       - ended up removing the bottom .5 meters
 
     # ***********************
-
-    ## starting with trunk we check for neighbors within sphere radius
-    ## then cluster those neighbors with dist being the minimum distance between
-    ##   two clusters
 
     # Reading in cloud and smooth
     # pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
@@ -401,55 +355,49 @@ def find_low_order_branches():
 
     # voxel_down_pcd = stat_down.voxel_down_sample(voxel_size=0.04)
     stat_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    
     stem_cloud = filter_by_norm(stat_down,config['angle_cutoff'])
     print('IDd stem_cloud')
-    
     if config['stem_voxel_size']:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=config['stem_voxel_size'])
     if config['post_id_stat_down']:
         _, ind = stem_cloud.remove_statistical_outlier(nb_neighbors=config['stem_neighbors'],
                                                        std_ratio=config['stem_ratio'])
         stem_cloud = stem_cloud.select_by_index(ind)
-        # stem_cloud =clean_cloud(stem_cloud, 
-        #                     voxels=stem_voxel_size, 
-        #                     neighbors=stem_neighbors, 
-        #                     ratio=stem_ratio,
-        #                     iters = stem_iters)
-    # draw([stem_cloud])
-    print('Cleaned stem_cloud')
-    stat_down_pts = np.asarray(stat_down.points)
-    not_so_low_idxs,_ = get_percentile(stat_down_pts, 0,.25)
+
+    algo_source_pcd = stat_down
+
+    print('Identifying trunk ...')
+    algo_pcd_pts = np.asarray(algo_pcd_pts.points)
+    not_so_low_idxs,_ = get_percentile(algo_pcd_pts, 0,.25)
     low_cloud = stat_down.select_by_index(not_so_low_idxs)
     low_cloud_pts = np.asarray(low_cloud.points)
 
-    print('IDd trunk')
-    # stem_tree = KDTree(stem_cloud.points)
-    # neighbors = get_neighbors_in_tree(np.asarray(trunk_pcd.points),stem_tree,.1)
-    # trunk_pts = np.asarray(stem_cloud.points)[neighbors]
-    
-    # neighbors = get_neighbors_in_tree(np.asarray(low_cloud.points),stat_down_tree,.1)
-    sphere, neighbors = ball_based_search(low_cloud_pts, stat_down_pts, not_so_low_idxs)
+    print('Identifying based layer for search ...')
+    sphere, neighbors = find_neighbors_in_ball(low_cloud_pts, algo_pcd_pts, not_so_low_idxs)
     new_neighbors = np.setdiff1d(neighbors, not_so_low_idxs)
     total_found = np.concatenate([not_so_low_idxs,new_neighbors])
 
-    nn_pcd = stat_down.select_by_index(new_neighbors)
-    nn_pts = np.asarray(stat_down.points)[new_neighbors]
+    print('Fitting cyl to trunk ...')
+    nn_pcd = algo_pcd_pts.select_by_index(new_neighbors)
+    nn_pts = np.asarray(algo_pcd_pts.points)[new_neighbors]
     mesh, trunk_pcd, inliers, fit_radius, axis = fit_shape(pcd = nn_pcd, shape = 'circle')
 
 
-    res, id_to_num, cyls, cyl_details = sphere_step(nn_pts, fit_radius, stat_down 
+    print('Running sphere algo')
+    res, id_to_num, cyls, cyl_details = sphere_step(nn_pts, fit_radius, algo_pcd_pts 
                                                         ,inliers, branch_order=0
                                                         ,branch_num=0
                                                         ,total_found=list(total_found)
                                                     )
     breakpoint()
-    iter_draw(res[0], stem_cloud)
+    iter_draw(res[0], algo_pcd_pts)
 
     branch_index = defaultdict(list)
     for  idx, branch_num in id_to_num.items(): 
         branch_index[branch_num].append(idx)
     try:
-        iter_draw(list(branch_index.values()),stem_cloud )
+        iter_draw(list(branch_index.values()),algo_pcd_pts )
     except Exception as e:  
         print('error'+ e)
 

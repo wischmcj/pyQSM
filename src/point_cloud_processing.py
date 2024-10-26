@@ -21,19 +21,37 @@ from src.utils import get_angles, get_center, get_radius, rotation_matrix_from_a
 #     #draw([density_mesh])
 #     return density_mesh
 
-def get_percentile(pts,low,high):
-    z_vals = pts[:,2]
+
+def clean_cloud(pcd, voxels = None,
+                neighbors=20, ratio=2.0,
+                iters=3):
+    """Reduces the number of points in the point cloud via 
+        voxel downsampling. Reducing noise via statistical outlier removal.
+    """
+    if voxels:
+        print("Downsample the point cloud with voxels")
+        print(f"orig {pcd}")
+        voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
+        print(f"downed {voxel_down_pcd}")
+    else: 
+        voxel_down_pcd = pcd
+
+    print("Statistical oulier removal")
+    for i in range(iters):
+        neighbors= neighbors*1.5
+        ratio = ratio/1.5
+        _, ind = voxel_down_pcd.remove_statistical_outlier(nb_neighbors=10,std_ratio=.1)
+        voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
+    return voxel_down_pcd
 
 
-    lower  = np.percentile(z_vals, low)
-    upper  = np.percentile(z_vals, high)
-    all_idxs =  np.where(z_vals)
-    too_low_idxs = np.where(z_vals<=lower)
-    too_high_idxs = np.where(z_vals>=upper)
-    not_too_low_idxs = np.setdiff1d(all_idxs ,too_low_idxs)
-    select_idxs = np.setdiff1d(not_too_low_idxs ,too_high_idxs)
-    vals =  z_vals[select_idxs]
-    return select_idxs, vals 
+def filter_by_norm(pcd, angle_thresh=10):
+    norms = np.asarray(pcd.normals) 
+    angles = np.apply_along_axis(get_angles,1,norms)
+    angles = np.degrees(angles)
+    stem_idxs = np.where((angles>-angle_thresh) & (angles<angle_thresh))[0]
+    stem_cloud = pcd.select_by_index(stem_idxs)
+    return stem_cloud
 
 def crop(pts, 
          minx = None, maxx = None, 
