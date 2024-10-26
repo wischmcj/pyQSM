@@ -15,10 +15,13 @@ from itertools import chain
 from collections import defaultdict
 
 from fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from point_cloud_processing import (
+from mesh_processing import define_conn_comps
+from point_cloud_processing import clean_cloud (
+    clean_cloud,
     crop,
     orientation_from_norms,
     filter_by_norm,
+    get_ball_mesh
 )
 from viz import iter_draw, draw
 from utils import (
@@ -28,6 +31,7 @@ from utils import (
     unit_vector,
     get_percentile,
 )
+from octree import color_node_pts, draw_leaves, cloud_to_octree, nodes_from_point_idxs, nodes_to_pcd
 
 
 skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
@@ -44,7 +48,7 @@ config = {
     "iters": 3,
     "voxel_size": None,
     # stem
-    "angle_cutoff": 20,
+    "angle_cutoff": 10,
     "stem_voxel_size": None,  # .04
     "post_id_stat_down": True,
     "stem_neighbors": 10,
@@ -356,6 +360,36 @@ def find_normal(a, norms):
         if np.dot(a, norm) < 0.01:
             return norm
 
+def internal_node(node):
+    pass
+
+def get_ancestors(node, node_info, parent_dict):
+    early_stop = False
+    if isinstance(node, o3d.geometry.OctreeInternalNode):
+        if isinstance(node, o3d.geometry.OctreeInternalPointNode):
+            n = 0
+            for child in node.children:
+                if child is not None:
+                    n += 1
+            print(
+                "{}{}: Internal node at depth {} has {} children and {} points ({})"
+                .format('    ' * node_info.depth,
+                        node_info.child_index, node_info.depth, n,
+                        len(node.indices), node_info.origin))
+
+            # we only want to process nodes / spatial regions with enough points
+            early_stop = len(node.indices) < 250
+    elif isinstance(node, o3d.geometry.OctreeLeafNode):
+        if isinstance(node, o3d.geometry.OctreePointColorLeafNode):
+            print("{}{}: Leaf node at depth {} has {} points with origin {}".
+                  format('    ' * node_info.depth, node_info.child_index,
+                         node_info.depth, len(node.indices), node_info.origin))
+    else:
+        raise NotImplementedError('Node type not recognized!')
+
+    # early stopping: if True, traversal of children of the current node will be skipped
+    return early_stop
+    
 
 def find_low_order_branches():
     # ***********************
@@ -366,7 +400,8 @@ def find_low_order_branches():
     #      - also look into k_nearest_neighbor smoothing
     # - Fit plane to ground, remove ground before finiding lowest
     #       - ended up removing the bottom .5 meters
-
+    # - Using density calculations to inform radius for fit
+    #       - more dense areas -> smaller radius
     # ***********************
 
     # Reading in cloud and smooth
@@ -383,39 +418,104 @@ def find_low_order_branches():
     #                         ratio=vatio,
     #                         iters = iters)
 
+    # print("IDing stem_cloud")
     stat_down = read_point_cloud("data/results/saves/27_vox_pt02_sta_6-4-3.pcd")
-    print("cleaned cloud")
-    stat_down_pts = np.asarray(stat_down.points)
-    stat_down_cropped_idxs = crop(stat_down_pts, minz=np.min(stat_down_pts[:, 2]) + 0.5)
-    stat_down = stat_down.select_by_index(stat_down_cropped_idxs)
-
-    # voxel_down_pcd = stat_down.voxel_down_sample(voxel_size=0.04)
-    stat_down.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
-    )
-
-    stem_cloud = filter_by_norm(stat_down, config["angle_cutoff"])
+    # print("cleaned cloud")
+    # stat_down_pts = np.asarray(stat_down.points)
+    # stat_down_cropped_idxs = crop(stat_down_pts, minz=np.min(stat_down_pts[:, 2]) + 0.5)
+    # stat_down = stat_down.select_by_index(stat_down_cropped_idxs)
+    # stat_down.estimate_normals(
+    #     search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+    # )
+    
+    
     print("IDd stem_cloud")
+    stem_cloud = filter_by_norm(stat_down,20 ) #config["angle_cutoff"])
     if config["stem_voxel_size"]:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=config["stem_voxel_size"])
     if config["post_id_stat_down"]:
-        _, ind = stem_cloud.remove_statistical_outlier(
-            nb_neighbors=config["stem_neighbors"], std_ratio=config["stem_ratio"]
-        )
+        _, ind = stem_cloud.remove_statistical_outlier(    nb_neighbors=config["stem_neighbors"], std_ratio=config["stem_ratio"])
         stem_cloud = stem_cloud.select_by_index(ind)
 
-    algo_source_pcd = stat_down
+    # stem_cloud = clean_cloud(stem_cloud,
+    #                             voxels=     config['stem_voxel_size'],
+    #                             neighbors=  config['stem_neighbors'],
+    #                             ratio=      config['stem_ratio'],
+    #                             iters=      config['stem_iters'])
 
+    # breakpoint()
+    # nodes = map(octree.locate_leaf_node,stem_cloud_pts)
+    #  octree.locate_leaf_node(
+
+    algo_source_pcd = stem_cloud
+    # algo_source_pcd = stat_down
     print("Identifying trunk ...")
-    algo_pcd_pts = np.asarray(algo_source_pcd.points)
-    not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 0.25)
-    low_cloud = stat_down.select_by_index(not_so_low_idxs)
-    low_cloud_pts = np.asarray(low_cloud.points)
+    # algo_pcd_pts = np.asarray(algo_source_pcd.points)
+    # not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 1)
+    # low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
+    # low_cloud_pts = np.asarray(low_cloud.points)
+
+    # print("Creating octree ...")
+    # octree= cloud_to_octree(algo_source_pcd,9)
+    # unique_nodes = nodes_from_point_idxs(octree,algo_pcd_pts,not_so_low_idxs)
+
+    # node_pts,node_pcd = nodes_to_pcd(unique_nodes, algo_source_pcd)
+    # algo_source_pcd.paint_uniform_color([0,1,0])
+    # node_pcd.paint_uniform_color([1,0,0])
+    # node_pcd = color_node_pts(unique_nodes, algo_source_pcd, [1,0,0])
+    # draw([algo_source_pcd,node_pcd])
+    # draw([octree])
+    pmesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(algo_source_pcd,depth=10)
+    densities = np.asarray(densities)
+    density_colors = plt.get_cmap('plasma')((densities - densities.min()) / (densities.max() - densities.min()))
+    density_colors = density_colors[:, :3]
+    density_mesh = o3d.geometry.TriangleMesh()
+    density_mesh.vertices = pmesh.vertices
+    density_mesh.triangles = pmesh.triangles
+    density_mesh.triangle_normals = pmesh.triangle_normals
+    density_mesh.vertex_colors = o3d.utility.Vector3dVector(density_colors)
+    o3d.visualization.draw_geometries([density_mesh])
+    breakpoint()
+    o3d.io.write_triangle_mesh('s27_norm_20_poisson_10.ply',mesh)
+    vertices_to_remove = densities < np.quantile(densities, 0.8)
+    mesh = copy.deepcopy(density_mesh)
+    mesh.remove_vertices_by_mask(vertices_to_remove)
+    o3d.visualization.draw_geometries([mesh])
+
+    breakpoint()
+
+    dense_pcd = mesh.sample_points_uniformly(number_of_points=20000)
+    o3d.visualization.draw_geometries([dense_pcd])
+    dense_pcd_clean = clean_cloud(dense_pcd, voxels=     None, neighbors=  config['stem_neighbors'], ratio=      config['stem_ratio'], iters=      config['stem_iters']) 
+    o3d.visualization.draw_geometries([dense_pcd_clean])
+
+
+
+    radii = [0.01, 0.02, 0.03, 0.04]
+    radii = [0.08, 0.04]
+    # mesh = get_ball_mesh(algo_source_pcd,radii)
+    mesh =o3d.io.read_triangle_mesh('s27_norm_10_ball_mesh_radii_pt01pt02pt03pt04.ply')
+    o3d.io.read_triangle_mesh
+    o3d.visualization.draw_geometries([mesh])
+    # breakpoint()
+    mesh = define_conn_comps(mesh)
+    print("Show input mesh")
+
+    breakpoint()
+    triangle_clusters, cluster_n_triangles, cluster_area = (mesh.cluster_connected_triangles())
+    triangle_clusters = np.asarray(triangle_clusters)
+    cluster_n_triangles = np.asarray(cluster_n_triangles)
+    cluster_area = np.asarray(cluster_area)
+    mesh_0 = copy.deepcopy(mesh)
+    triangles_to_remove = cluster_n_triangles[triangle_clusters] < 100
+    mesh_0.remove_triangles_by_mask(triangles_to_remove)
+    o3d.visualization.draw_geometries([mesh_0])
+    o3d.io.write_triangle_mesh('s27_norm_30_ball_mesh_radii_pt01pt02pt04_gt100.ply',mesh_0)
+    breakpoint()
+    
 
     print("Identifying based layer for search ...")
-    sphere, neighbors = find_neighbors_in_ball(
-        low_cloud_pts, algo_pcd_pts, not_so_low_idxs
-    )
+    sphere, neighbors = find_neighbors_in_ball(low_cloud_pts, algo_pcd_pts, not_so_low_idxs)
     new_neighbors = np.setdiff1d(neighbors, not_so_low_idxs)
     total_found = np.concatenate([not_so_low_idxs, new_neighbors])
 
@@ -445,43 +545,7 @@ def find_low_order_branches():
     except Exception as e:
         print("error" + e)
 
-    # converting ids from low_cloud stat reduction
-    #   To ids in stem_cloud
-    # stem_pts  = list(map(tuple,np.asarray(stem_cloud.points)))
-    # trunk_pts = list(map(tuple,np.asarray(trunk_pcd.points)))
-    # trunk_stem_idxs = []
-    # for idx, val in enumerate(stem_pts):
-    #     if val in trunk_pts:
-    #         trunk_stem_idxs.append(idx)
-
-    # just_trunk = stem_cloud.select_by_index(trunk_stem_idxs)
-    # draw([trunk_pcd])
-
-    # draw([stem_cloud]+pcds)
-
-    ## KDTree neighbor finding
-    # stem_pts = np.asarray(pcd.points)
-    # full_tree = KDTree(stem_pts)
-    # connd = full_tree.query(trunk_points, 50)
-    # pairs = full_tree.query_pairs(r=.02)
-    # trunk_connected = trunk_tree.sparse_distance_matrix(full_tree, max_distance=radius)
-    # neighbors_idx =np.array(list(set(chain.from_iterable(connd[1]))))
-
-    # tc_idxs = np.array(list(set(chain.from_iterable(trunk_connected))))
-    # trunk_connected_cloud = stem_cloud.select_by_index(neighbors_idx)
-    # draw([trunk_connected_cloud])
-
-    ## removing non dense areas of points
-    # mesh = map_density(stem_cloud)
-    # mesh, densities = TriangleMesh.create_from_point_cloud_poisson(stem_cloud, depth=4)
-    # densities = np.asarray(densities)
-    # vertices_to_remove = densities < np.quantile(densities, 0.01)
-    # mesh.remove_vertices_by_mask(vertices_to_remove)
-    # draw([mesh])
     breakpoint()
-
-    # TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, o3d.utility.DoubleVector(radii))
-
 
 if __name__ == "__main__":
     find_low_order_branches()

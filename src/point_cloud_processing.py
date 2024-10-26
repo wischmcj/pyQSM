@@ -11,22 +11,6 @@ from utils import (
     poprow,
 )
 
-# def map_density(pcd, remove_outliers=True):
-#     mesh, densities = TriangleMesh.create_from_point_cloud_poisson(pcd, depth=9)
-#     densities = np.asarray(densities)
-#     if remove_outliers:
-#         vertices_to_remove = densities < np.quantile(densities, 0.01)
-#         mesh.remove_vertices_by_mask(vertices_to_remove)
-#     density_colors = plt.get_cmap('plasma')(
-#         (densities - densities.min()) / (densities.max() - densities.min()))
-#     density_colors = density_colors[:, :3]
-#     density_mesh = TriangleMesh()
-#     density_mesh.vertices = mesh.vertices
-#     density_mesh.triangles = mesh.triangles
-#     density_mesh.triangle_normals = mesh.triangle_normals
-#     density_mesh.vertex_colors = o3d.utility.Vector3dVector(density_colors)
-#     #draw([density_mesh])
-#     return density_mesh
 
 
 def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
@@ -133,8 +117,7 @@ def filter_by_norm(pcd, angle_thresh=10):
     return stem_cloud
 
 
-def get_ball_mesh(pcd):
-    radii = [0.005, 0.01, 0.02, 0.04]
+def get_ball_mesh(pcd,radii= [0.005, 0.01, 0.02, 0.04]):
     rec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
         pcd, o3d.utility.DoubleVector(radii)
     )
