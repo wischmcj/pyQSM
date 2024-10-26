@@ -1,6 +1,7 @@
 import open3d as o3d
 import numpy as np
 import scipy.spatial as sps 
+from open3d.visualization import draw_geometries
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
@@ -21,6 +22,11 @@ def iter_draw(idxs_list, pcd):
 
     # o3d.visualization.draw_geometries([stem_cloud]+pcds)
     o3d.visualization.draw_geometries(pcds)
-    return pcds
-
+    return pcd
     
+
+def draw(pcds,raw = True, **kwargs):
+    if raw: 
+         draw_geometries(pcds)
+    else:
+        draw_geometries(pcds, mesh_show_wireframe=True, zoom=0.7,front=[0,2,0], lookat=[3,-3,4], up=[0,-1,1 ],**kwargs)
