@@ -2,8 +2,58 @@ import open3d as o3d
 import numpy as np
 import scipy.spatial as sps
 
-from utils import get_angles, get_center, get_radius, rotation_matrix_from_arr, unit_vector, poprow
+from src.utils import get_angles, get_center, get_radius, rotation_matrix_from_arr, unit_vector, poprow
 
+# def map_density(pcd, remove_outliers=True):
+#     mesh, densities = TriangleMesh.create_from_point_cloud_poisson(pcd, depth=9)
+#     densities = np.asarray(densities)
+#     if remove_outliers:
+#         vertices_to_remove = densities < np.quantile(densities, 0.01)
+#         mesh.remove_vertices_by_mask(vertices_to_remove)
+#     density_colors = plt.get_cmap('plasma')(
+#         (densities - densities.min()) / (densities.max() - densities.min()))
+#     density_colors = density_colors[:, :3]
+#     density_mesh = TriangleMesh()
+#     density_mesh.vertices = mesh.vertices
+#     density_mesh.triangles = mesh.triangles
+#     density_mesh.triangle_normals = mesh.triangle_normals
+#     density_mesh.vertex_colors = o3d.utility.Vector3dVector(density_colors)
+#     #draw([density_mesh])
+#     return density_mesh
+
+def get_percentile(pts,low,high):
+    z_vals = pts[:,2]
+
+
+    lower  = np.percentile(z_vals, low)
+    upper  = np.percentile(z_vals, high)
+    all_idxs =  np.where(z_vals)
+    too_low_idxs = np.where(z_vals<=lower)
+    too_high_idxs = np.where(z_vals>=upper)
+    not_too_low_idxs = np.setdiff1d(all_idxs ,too_low_idxs)
+    select_idxs = np.setdiff1d(not_too_low_idxs ,too_high_idxs)
+    vals =  z_vals[select_idxs]
+    return select_idxs, vals 
+
+def crop(pts, 
+         minx = None, maxx = None, 
+         miny = None, maxy = None, 
+         minz = None, maxz = None):
+    x_vals = pts[:,0]
+    y_vals = pts[:,1]
+    z_vals = pts[:,2]
+    to_remove = []
+    all_idxs = [idx for idx,_ in enumerate(pts)]
+    for min_val,max_val,pt_vals in [(minx, maxx, x_vals),
+                                    (miny, maxy, y_vals),
+                                    (minz, maxz, z_vals)]:
+        if min_val:
+            to_remove.append(np.where(pt_vals<=min_val))
+        if max_val:
+            to_remove.append(np.where(pt_vals>=max_val))
+
+    select_idxs = np.setdiff1d(all_idxs, to_remove)
+    return select_idxs
 
 def orientation_from_norms(norms, 
                             samples = 10,
@@ -69,6 +119,7 @@ def get_ball_mesh(pcd):
 def get_shape(pts, 
               shape = 'sphere', 
               as_pts = True,
+              rotate = 'axis',
                 **kwargs):
     if not kwargs.get('center'):
         kwargs['center'] = get_center(pts)
@@ -76,8 +127,7 @@ def get_shape(pts,
         kwargs['radius'] = get_radius(pts)
     
     if shape == 'sphere':
-        shape = o3d.geometry.TriangleMesh.create_sphere(center=kwargs['center'], 
-                                                        radius=kwargs['radius'])
+        shape = o3d.geometry.TriangleMesh.create_sphere(radius=kwargs['radius'])
     elif shape == 'cylinder':
         try: 
             shape = o3d.geometry.TriangleMesh.create_cylinder(radius=kwargs['radius'],
@@ -88,20 +138,26 @@ def get_shape(pts,
     
     # print(f'Starting Translation/Rotation')
     
-    shape.translate(kwargs['center'])
-    # arr = kwargs.get('axis')
-    # if arr is not None:
-    #     vector = unit_vector(arr)
-    #     R = rotation_matrix_from_arr([0,0,1],vector)
-    #     print(f'{vector=}')
-    #     shape.rotate(R, center=kwargs['center'])
-
     if as_pts:
-        shape_pts = shape.sample_points_uniformly()
-        shape_pts.paint_uniform_color([0,1.0,0])
-        return shape_pts
-    else:
+        shape = shape.sample_points_uniformly()
+        shape.paint_uniform_color([0,1.0,0])
+
+
+    shape.translate(kwargs['center'])
+    arr = kwargs.get('axis')
+    if arr is not None:
+        vector = unit_vector(arr)       
+        print(f'rotate vector {arr}')
+        if rotate == 'axis':   
+            R = shape.get_rotation_matrix_from_axis_angle(kwargs['axis'])
+        else:
+            R = rotation_matrix_from_arr([0,0,1],vector)
+        shape.rotate(R, center=kwargs['center'])
+    elif rotate == 'axis':
+        print('no axis given for rotation, not rotating')
         return shape
+
+    return shape
 
 
 # def sphere_step(sub_pcd_pts, radius, main_pcd,
