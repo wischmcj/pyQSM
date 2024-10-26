@@ -29,17 +29,6 @@ def rotation_matrix_from_arr(a, b: np.array):
     return R
 
 
-def get_k_smallest(arr,k):
-    idx = np.argpartition(arr, k)
-    return arr[idx[:k]], idx[:k]
-
-def get_lowest_points(pcd,k):
-    pts = np.asarray(pcd.points)
-    z_vals = pts[:,2]
-    mins, idxs = get_k_smallest(z_vals,k)
-    return mins, idxs
-
-
 def unit_vector(vector):
     """ Returns the unit vector of the vector.  """
     return vector / np.linalg.norm(vector)
@@ -73,18 +62,6 @@ def get_angles(tup,radians=False):
             return np.degrees(radians)
     else:
         return 0
-
-def get_k_smallest(arr,k):
-    idx = np.argpartition(arr, k)
-    return arr[idx[:k]], idx[:k]
-
-def get_lowest_points(pcd,k):
-    pts = np.asarray(pcd.points)
-    z_vals = pts[:,2]
-    k_mins, mins_idxs = get_k_smallest(z_vals,k)
-    return k_mins, mins_idxs
-
-
 
 def get_center(points, center_type = 'centroid'):
     if len(points[0]) !=3:
