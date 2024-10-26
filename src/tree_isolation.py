@@ -16,8 +16,9 @@ from collections import defaultdict
 
 from fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from mesh_processing import define_conn_comps
+
 from point_cloud_processing import ( filter_by_norm,
-    clean_cloud,
+                                    clean_cloud,
     crop,
     orientation_from_norms,
     filter_by_norm,
@@ -41,7 +42,34 @@ s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
 s27d = "data/input/s27_downsample_0.04.pcd"
 s32d = "data/input/s32_downsample_0.04.pcd"
 
-
+config = {
+    "whole_voxel_size": 0.02,
+    "neighbors": 6,
+    "ratio": 4,
+    "iters": 3,
+    "voxel_size": None,
+    # stem
+    "angle_cutoff": 10,
+    "stem_voxel_size": None,  # .04
+    "post_id_stat_down": True,
+    "stem_neighbors": 10,
+    "stem_ratio": 2,
+    "stem_iters": 3,
+    # trunk
+    "num_lowest": 2000,
+    "trunk_neighbors": 10,
+    "trunk_ratio": 0.25,
+    # DBSCAN
+    "epsilon": 0.1,
+    "min_neighbors": 10,
+    # sphere
+    "min_sphere_radius": 0.01,
+    "max_radius": 1.5,
+    "radius_multiplier": 1.75,
+    "dist": 0.07,
+    "bad_fit_radius_factor": 2.5,
+    "min_contained_points": 8,
+}
 
 def highlight_inliers(pcd, inlier_idxs, color=[1.0, 0, 0], draw=False):
     inlier_cloud = pcd.select_by_index(inlier_idxs)
@@ -363,7 +391,6 @@ def get_ancestors(node, node_info, parent_dict):
 
     # early stopping: if True, traversal of children of the current node will be skipped
     return early_stop
-    
 
 config = {
     "whole_voxel_size": 0.02,
@@ -431,8 +458,6 @@ def find_low_order_branches():
     #     search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
     # )
 
-    breakpoint()
-    
     print("IDd stem_cloud")
     stem_cloud = filter_by_norm(stat_down,20 ) #config["angle_cutoff"])
     if config["stem_voxel_size"]:
