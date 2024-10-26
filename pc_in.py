@@ -18,10 +18,10 @@ from open3d.visualization import draw_geometries as draw
 from itertools import chain 
 from collections import defaultdict
 
-from fit import fit_shape, cluster_neighbors, kmeans
-from vectors_shapes import orientation_from_norms
-from viz import iter_draw
-from utils import get_center, get_radius, get_angles, rotation_matrix_from_arr, unit_vector, get_k_smallest, get_lowest_points
+from src.fit import cluster_DBSCAN, fit_shape, kmeans
+from src.point_cloud_processing import crop, get_percentile, orientation_from_norms
+from src.viz import iter_draw
+from src.utils import get_center, get_radius, get_angles, rotation_matrix_from_arr, unit_vector, get_k_smallest, get_lowest_points
 
 
 skeletor ="/code/code/Research/lidar/converted_pcs/skeletor.pts"
@@ -305,7 +305,7 @@ def sphere_step(sub_pcd_pts, last_radius, main_pcd,
                 for pcd in cyl_pts: pcd.paint_uniform_color([0,1,0])
                 draw([test]+cyl_pts)
             except Exception as e:
-                print(f'error in iterdraw {e}')
+                print(f'error in checkpoint_draw {e}')
             breakpoint()
         sphere_step(cluster_pcd_pts, cluster_radius, main_pcd,
                                     curr_plus_cluster, cluster_branch, 
