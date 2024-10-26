@@ -17,8 +17,8 @@ import pyransac3d as pyrsc
 from open3d.visualization import draw_geometries as draw
 from matplotlib import pyplot as plt
 
-from utils import get_radius, get_center
-from vectors_shapes import get_shape
+from src.utils import get_radius, get_center
+from src.point_cloud_processing import get_shape
 
 def kmeans(points,min_clusters ):
     """
@@ -66,14 +66,17 @@ def kmeans(points,min_clusters ):
         labels.append(i)
     return labels, cluster_idxs
 
-def cluster_neighbors(pts_idxs, points,dist=.3, min_samples=5):
-    clustering = DBSCAN(eps=dist, min_samples=min_samples).fit(points)
+def cluster_DBSCAN(pts_idxs, points, eps, min_pts):
+    """
+    Attepts to cluster by finding a minimal set of points
+       s.t. all points in the set are within a distance,
+       epsilon (eps), of at least on point
+    """
+    clustering = DBSCAN(eps=eps, min_samples=min_pts).fit(points)
     labels = clustering.labels_
 
-    n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
-    n_noise_ = list(labels).count(-1)
-    print("Estimated number of clusters: %d" % n_clusters_)
-    print("Estimated number of noise points: %d" % n_noise_)
+    num_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+    num_noise = list(labels).count(-1)
 
     unique_labels = set(labels)
     core_samples_mask = np.zeros_like(labels, dtype=bool)
@@ -86,20 +89,23 @@ def cluster_neighbors(pts_idxs, points,dist=.3, min_samples=5):
         class_member_mask = labels == k
         if k == -1:
             idx_bool = class_member_mask & (core_samples_mask==False)
-            pt_idxs = np.where((np.array(idx_bool)==True))
-            noise = pts_idxs[pt_idxs]
+            c_pt_idxs = np.where((np.array(idx_bool)==True))
+            noise = pts_idxs[c_pt_idxs]
         else:
             idx_bool = class_member_mask & core_samples_mask
-            pt_idxs = np.where((np.array(idx_bool)==True))
-            neighbor_idxs = pts_idxs[pt_idxs]
+            c_pt_idxs = np.where((np.array(idx_bool)==True))
+            neighbor_idxs = pts_idxs[c_pt_idxs]
             idxs.append(neighbor_idxs)
 
+    print(f"Estimated number of clusters: {num_clusters}")  
+    print("Estimated number of noise points: %d" % num_noise)
     return unique_labels, idxs, noise
 
-def fit_shape(pcd=None, pts=None, 
+def fit_shape_RANSAC(pcd=None, pts=None, 
                  threshold=0.1, draw_pcd = False,
                  lower_bound= None,max_radius=None,
-                 shape = 'circle'):
+                 shape = 'circle',
+                 **kwargs):
     if pts is None:
         pts = np.asarray(pcd.points)
     if lower_bound:
@@ -161,7 +167,9 @@ def fit_shape(pcd=None, pts=None,
     cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,  
                             center=tuple(test_center), 
                             radius=shape_radius,
-                            height=height)    
+                            height=height,
+                            axis=axis,
+                            **kwargs)    
     in_pcd=None
     if pcd is not None:
         in_pcd = pcd.select_by_index(inliers)
