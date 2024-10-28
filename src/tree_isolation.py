@@ -16,7 +16,7 @@ from collections import defaultdict
 
 from fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from mesh_processing import define_conn_comps
-from point_cloud_processing import clean_cloud (
+from point_cloud_processing import ( filter_by_norm,
     clean_cloud,
     crop,
     orientation_from_norms,
@@ -41,34 +41,6 @@ s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
 s27d = "data/input/s27_downsample_0.04.pcd"
 s32d = "data/input/s32_downsample_0.04.pcd"
 
-config = {
-    "whole_voxel_size": 0.02,
-    "neighbors": 6,
-    "ratio": 4,
-    "iters": 3,
-    "voxel_size": None,
-    # stem
-    "angle_cutoff": 10,
-    "stem_voxel_size": None,  # .04
-    "post_id_stat_down": True,
-    "stem_neighbors": 10,
-    "stem_ratio": 2,
-    "stem_iters": 3,
-    # trunk
-    "num_lowest": 2000,
-    "trunk_neighbors": 10,
-    "trunk_ratio": 0.25,
-    # DBSCAN
-    "epsilon": 0.1,
-    "min_neighbors": 10,
-    # sphere
-    "min_sphere_radius": 0.01,
-    "max_radius": 1.5,
-    "radius_multiplier": 1.75,
-    "dist": 0.07,
-    "bad_fit_radius_factor": 2.5,
-    "min_contained_points": 8,
-}
 
 
 def highlight_inliers(pcd, inlier_idxs, color=[1.0, 0, 0], draw=False):
@@ -202,7 +174,6 @@ def sphere_step(
     curr_pts,
     last_radius,
     main_pcd,
-    curr_pts_idxs,
     branch_order,
     branch_num,
     total_found,
@@ -212,6 +183,8 @@ def sphere_step(
     cyls=[],
     cyl_details=[],
     spheres=[],
+    draw_every=10,
+    debug=False,
 ):
     """
     1. Takes in points from a neighbor cluster found in previous run
@@ -274,7 +247,8 @@ def sphere_step(
     if clusters == [] or len(new_neighbors) < config["min_contained_points"]:
         return []
     else:
-        if len(clusters[0]) > 2:
+        if (len(clusters[0]) > 2
+            or debug):
             try:
                 test = iter_draw(clusters[1], main_pcd)
             except Exception as e:
@@ -311,8 +285,9 @@ def sphere_step(
             cluster_radius = config["max_radius"]
         if cluster_radius < last_radius / 2:
             cluster_radius = last_radius / 2
-
-        if len(cyls) % 10 == 0:
+ 
+        if (len(cyls) % draw_every == 0 
+            or debug):
             try:
                 test = main_pcd.select_by_index(total_found)
                 draw([test])
@@ -335,7 +310,6 @@ def sphere_step(
             cluster_pcd_pts,
             cluster_radius,
             main_pcd,
-            cluster_idxs,
             cluster_branch,
             branch_num,
             total_found,
@@ -391,6 +365,35 @@ def get_ancestors(node, node_info, parent_dict):
     return early_stop
     
 
+config = {
+    "whole_voxel_size": 0.02,
+    "neighbors": 6,
+    "ratio": 4,
+    "iters": 3,
+    "voxel_size": None,
+    # stem
+    "angle_cutoff": 10,
+    "stem_voxel_size": .03,
+    "post_id_stat_down": True,
+    "stem_neighbors": 10,
+    "stem_ratio": 2,
+    "stem_iters": 3,
+    # trunk
+    "num_lowest": 2000,
+    "trunk_neighbors": 10,
+    "trunk_ratio": 0.25,
+    # DBSCAN
+    "epsilon": 0.1,
+    "min_neighbors": 10,
+    # sphere
+    "min_sphere_radius": 0.01,
+    "max_radius": 1.5,
+    "radius_multiplier": 1.75,
+    "dist": 0.07,
+    "bad_fit_radius_factor": 2.5,
+    "min_contained_points": 8,
+}
+
 def find_low_order_branches():
     # ***********************
     # IDEAS FOR CLEANING RESULTS
@@ -427,7 +430,8 @@ def find_low_order_branches():
     # stat_down.estimate_normals(
     #     search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
     # )
-    
+
+    breakpoint()
     
     print("IDd stem_cloud")
     stem_cloud = filter_by_norm(stat_down,20 ) #config["angle_cutoff"])
