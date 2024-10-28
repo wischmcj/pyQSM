@@ -5,7 +5,17 @@ from open3d.visualization import draw_geometries
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
+from scipy.spatial.transform import Rotation as R
 s27d = "s32_downsample_0.04.pcd"
+
+
+def highlight_inliers(pcd, inlier_idxs, color=[1.0, 0, 0], draw=False):
+    inlier_cloud = pcd.select_by_index(inlier_idxs)
+    inlier_cloud.paint_uniform_color(color)
+    if draw:
+        outlier_cloud = pcd.select_by_index(inlier_idxs, invert=True)
+        draw([inlier_cloud, outlier_cloud])
+    return inlier_cloud
 
 
 def iter_draw(idxs_list, pcd):
@@ -28,6 +38,9 @@ def iter_draw(idxs_list, pcd):
 
 
 def draw(pcds, raw=True, **kwargs):
+    if (not(isinstance(pcds, list))
+        and not(isinstance(pcds, np.ndarray))):
+        pcds = [pcds]
     if raw:
         draw_geometries(pcds)
     else:
