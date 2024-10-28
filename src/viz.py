@@ -39,7 +39,7 @@ def iter_draw(idxs_list, pcd):
 
 
 def draw(pcds, raw=False, side_by_side=False, **kwargs):
-    if (not(isinstance(pcds, list))
+ if (not(isinstance(pcds, list))
         and not(isinstance(pcds, np.ndarray))):
         pcds = [pcds]
     if raw:

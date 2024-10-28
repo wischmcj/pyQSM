@@ -20,7 +20,7 @@ from lib_integration import find_neighbors_in_ball
 from mesh_processing import define_conn_comps, get_surface_clusters, map_density
 from point_cloud_processing import ( filter_by_norm,
  clean_cloud,
-    crop,
+ crop,
     orientation_from_norms,
     filter_by_norm,
     get_ball_mesh
@@ -34,7 +34,6 @@ from utils import (
     get_percentile,
 )
 from octree import color_node_pts, draw_leaves, cloud_to_octree, nodes_from_point_idxs, nodes_to_pcd
-
 
 
 config = {
@@ -67,7 +66,6 @@ config = {
     "bad_fit_radius_factor": 2.5,
     "min_contained_points": 8,
 }
-
 
 skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
 s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
@@ -294,7 +292,6 @@ def find_low_order_branches():
                             iters = config['iters'])
     # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
     stem_cloud = get_stem_pcd(stat_down)
-
     algo_pcd_pts = np.asarray(algo_source_pcd.points)
     not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 1)
     low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
