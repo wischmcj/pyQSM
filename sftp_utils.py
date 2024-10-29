@@ -5,15 +5,14 @@ import glob
 import logging 
 log = logging.getLogger(__name__)   
 
-local_dir = '/code/code/pyQSM/'
-remote_dir = '/home/wischmcj/Desktop/pyQSM/'
-host = '192.168.0.157'
+config_local_dir = '/code/code/pyQSM/'
+config_remote_dir = '/home/wischmcj/Desktop/pyQSM/'
+config_host = '192.168.0.157'
 
-def put_file(file, sftp):
+def put_file(file, sftp, remote_dir, local_dir):
     start_loc = f'{local_dir}{file}'
-    end_loc = f'{remote_dir}'
+    end_loc = f'{remote_dir}{file}'
     print(f'attempting sftp from {start_loc} to {end_loc}')
-    breakpoint()
     try:
         put_result = sftp.put(start_loc, end_loc)
         msg = f'sftp put from {start_loc} to {end_loc}: {put_result}'
@@ -22,9 +21,9 @@ def put_file(file, sftp):
     return msg
 
 
-def get_file(file, sftp):
-    start_loc = f'/home/wischmcj/Desktop/pyQSM/{file}'
-    end_loc = f'./{file}'
+def get_file(file, sftp, remote_dir, local_dir):
+    start_loc = f'{remote_dir}{file}'
+    end_loc = f'{local_dir}{file}'
     try:
         get_result = sftp.get(start_loc,end_loc)
     except FileNotFoundError as e:
@@ -34,11 +33,12 @@ def get_file(file, sftp):
 
 def sftp(file,
          wild_card = True,
-         action='put'):
+         action='put',
+         remote_dir = config_remote_dir, local_dir=config_local_dir,
+         host = config_host):
     ssh = paramiko.SSHClient() 
     print(f'ssh client to {host} created')
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    # ssh.connect(host, username='penguaman', password='')
     paramiko.Agent()
     ssh.connect(host, username='',password='')
     print('connected')
@@ -63,4 +63,4 @@ def sftp(file,
     print(msg)   
 
 if __name__=='__main__':
-    sftp(file='src_pcs/*.py', action='put')
+    sftp(file='test.py', action='put')
