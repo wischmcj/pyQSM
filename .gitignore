@@ -1,6 +1,4 @@
 *known_hosts*
-data/*
-*.ply
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -163,21 +161,14 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
-s32_downsample_0.04.pcd
-s27_downsample_0.01.pcd
-s27_downsample_0.04.pcd
-copy_of_fragment.pcd
-pic*
-27_vox_pt02_sta_6-4-3.pcd
-.gitignore
-*.pcd
+data/*
 .vscode/settings.json
 
-meshes/s27_ball_mesh_radii_pt01pt02pt04pt08_gt200.ply
-meshes/s27_ball_mesh_radii_pt02pt04pt08pt16.ply
-meshes/s27_norm_10_poisson_10_density_gt30.ply
-meshes/s27_norm_20_poisson_10.ply
-meshes/s27_norm_30_ball_mesh_radii_pt01pt02pt03pt04.ply
-meshes/s27_norm_30_ball_mesh_radii_pt01pt02pt04_gt100.ply
+*.ply
+*.pcd
+*.pcd
+*.pts
+
 test.py
 src/graph.py
+.envrc

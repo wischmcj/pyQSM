@@ -3,6 +3,7 @@ import paramiko
 # from src.config import log
 import glob
 import logging 
+import os
 log = logging.getLogger(__name__)   
 
 config_local_dir = '/code/code/pyQSM/'
@@ -32,7 +33,7 @@ def get_file(file, sftp, remote_dir, local_dir):
     return msg
 
 def sftp(file,
-         wild_card = True,
+         wildcard = True,
          action='put',
          remote_dir = config_remote_dir, local_dir=config_local_dir,
          host = config_host):
@@ -40,27 +41,32 @@ def sftp(file,
     print(f'ssh client to {host} created')
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     paramiko.Agent()
-    ssh.connect(host, username='',password='')
+    ssh.connect(host, username=os.environ.get("SFTP_USER"),password=os.environ.get("SFTP_TEMP_PASS"))
     print('connected')
     sftp = ssh.open_sftp()
     print('sftp open')
-    if wild_card:
+    if wildcard:
         to_send = glob.glob(file)
     else:
         to_send = [file]
     msg='sftp not yet run'
+    print(to_send)
     for file in to_send:
+        file = file.replace('./','')
         try:
             if action == 'get':
                 print(f'getting files {to_send}')
-                msg = get_file(file, sftp)
+                msg = get_file(file, sftp,remote_dir,local_dir)
             else:
                 print(f'sending files {to_send}')
-                msg = put_file(file, sftp)
+                msg = put_file(file, sftp,remote_dir,local_dir)
         except Exception as e:
             msg=f'Error sftping {file}, {e}, {msg}'
             print(msg)
     print(msg)   
 
 if __name__=='__main__':
-    sftp(file='test.py', action='put')
+    sftp(file='fragment.ply',
+          action='put',
+          wildcard=False,
+          local_dir='/home/penguaman/open3d_data/download/PLYPointCloud/',)

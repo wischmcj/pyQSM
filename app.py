@@ -77,8 +77,9 @@ def load_page(page):
     return current_app.send_static_file('{}.html'.format(page))
 
 @app.route('/')
-def hello_world():
-    return current_app.send_static_file('index.html')
+def main():
+    return render_template('index.html')
+    # return current_app.send_static_file('imgs/index.html')
 
 @app.route('/get/<string:file>')
 def sftp_get(file):
