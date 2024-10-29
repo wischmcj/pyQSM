@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import os
@@ -5,23 +6,13 @@ import io
 import sys
 import time
 import debugpy
-# from random import randint
-
-# from timeit import timeit
-# from time import time 
-debugpy.listen(("0.0.0.0", 5678))
-# import geopandas as geo
 # import matplotlib.pyplot as plt
-
 # import numpy as np
-from flask import Flask, render_template
-# import pytest
-
+from flask import Flask, render_template, current_app
 
 from sftp_utils import sftp
 # from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 # from matplotlib.figure import Figure
-import os
 import paramiko
 
 
@@ -31,16 +22,63 @@ sys.path.insert(0, os.path.dirname(os.getcwd()))
 
 app = Flask(__name__)
 
-@app.route('/time/<string:file>')
-def time(file):
-    string = compare(file)
-    return  render_template('index.html', strings=[string])
 
-@app.route('/cases')
-def run_cases():
-    log.info('Starting something')
 
-    return ''
+@app.route('/models/<model>')
+def load_model(model):
+    htmlpage = '''
+    <!doctype HTML>
+    <html>
+    <script src="../static/js/aframe.min.js"></script>
+    <script src="../static/js/aframe-ar.js"></script>
+
+    <body style='margin : 0px; overflow: hidden;'>
+        <a-scene embedded arjs>
+            <a-marker id="memarker" type="pattern" url="../static/patterns/pattern-kanji_qr.patt" vidhandler>
+                <a-entity obj-model="obj: url(../static/models/{}.obj); mtl: url(../static/models/{}.mtl)" scale="0.1 0.1 0.1"> </a-entity>
+            </a-marker>
+            <a-entity camera></a-entity>
+        </a-scene>
+    </body>
+
+    </html>
+    '''.format(model,model)
+    return htmlpage
+
+@app.route('/poly/<model>')
+def load_poly(model):
+   #see https://github.com/daavoo/aframe-pointcloud-component
+    htmlpage = '''
+    <!doctype HTML>
+    <html>
+        <head>
+        <title>My Point Cloud Scene</title>
+        <script src="https://aframe.io/releases/0.6.0/aframe.min.js"></script>
+        <script src="https://unpkg.com/aframe-pointcloud-component/dist/aframe-pointcloud-component.min.js"></script>
+    </head>
+    <body>
+        <a-scene>
+            <a-pointcloud
+                scale="0.5 0.5 0.5"
+                position="1.5 2 0.5"
+                src="url({}.ply)"
+                size="0.05"
+                depthWrite="false">
+            </a-pointcloud>
+        </a-scene>
+    </body>
+    </html>
+    '''.format(model)
+    return htmlpage
+
+
+@app.route('/<page>')
+def load_page(page):
+    return current_app.send_static_file('{}.html'.format(page))
+
+@app.route('/')
+def hello_world():
+    return current_app.send_static_file('index.html')
 
 @app.route('/get/<string:file>')
 def sftp_get(file):
