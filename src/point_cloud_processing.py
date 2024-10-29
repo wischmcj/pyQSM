@@ -10,6 +10,7 @@ from utils import (
     unit_vector,
     poprow,
 )
+from config import log
 
 
 
@@ -17,23 +18,30 @@ def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
     """Reduces the number of points in the point cloud via
     voxel downsampling. Reducing noise via statistical outlier removal.
     """
-    if voxels:
+    run_voxels = voxels
+    run_stat = all([neighbors, ratio, iters])
+    voxel_down_pcd = pcd
+
+    if run_voxels:
         print("Downsample the point cloud with voxels")
         print(f"orig {pcd}")
-        voxel_down_pcd = pcd.voxel_down_sample(voxel_size=0.04)
+        voxel_down_pcd = pcd.voxel_down_sample(voxel_size=voxels)
         print(f"downed {voxel_down_pcd}")
+    if run_stat:
+        print("Statistical oulier removal")
+        for i in range(iters):
+            neighbors = neighbors * 1.5
+            ratio = ratio / 1.5
+            _, ind = voxel_down_pcd.remove_statistical_outlier(
+                nb_neighbors=10, std_ratio=0.1
+            )
+            voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
+        final = voxel_down_pcd
     else:
-        voxel_down_pcd = pcd
-
-    print("Statistical oulier removal")
-    for i in range(iters):
-        neighbors = neighbors * 1.5
-        ratio = ratio / 1.5
-        _, ind = voxel_down_pcd.remove_statistical_outlier(
-            nb_neighbors=10, std_ratio=0.1
-        )
-        voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
-    return voxel_down_pcd
+        final = pcd
+    if not run_voxels and not run_stat:
+        log.warning("No cleaning steps were run")        
+    return final
 
 def crop(pts, minx=None, maxx=None, miny=None, maxy=None, minz=None, maxz=None):
     x_vals = pts[:, 0]
