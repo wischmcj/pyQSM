@@ -1,3 +1,4 @@
+from copy import deepcopy
 import open3d as o3d
 import numpy as np
 import scipy.spatial as sps
@@ -27,13 +28,30 @@ def iter_draw(idxs_list, pcd):
     return pcd
 
 
-def draw(pcds, raw=True, **kwargs):
+def draw(pcds, raw=False, side_by_side=False, **kwargs):
+    if (not(isinstance(pcds, list))
+        and not(isinstance(pcds, np.ndarray))):
+        pcds = [pcds]
     if raw:
         draw_geometries(pcds)
+    if side_by_side:
+        trans = 0
+        pcds_to_draw = []
+        for pcd in pcds:
+            to_draw = deepcopy(pcd)
+            to_draw.translate([trans,0,0])
+            pcds_to_draw.append(to_draw)
+            min_bound = to_draw.get_axis_aligned_bounding_box().get_min_bound()
+            max_bound = to_draw.get_axis_aligned_bounding_box().get_max_bound()
+            bounds = max_bound - min_bound
+            trans+=bounds[0]
     else:
-        draw_geometries(
-            pcds,
-            mesh_show_wireframe=True,
+        pcds_to_draw = pcds
+    #below config used for main dev
+    # tree, Secrest27
+    draw_geometries(
+            pcds_to_draw,
+            # mesh_show_wireframe=True,
             zoom=0.7,
             front=[0, 2, 0],
             lookat=[3, -3, 4],
