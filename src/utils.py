@@ -1,5 +1,6 @@
 import numpy as np
-
+from config import log
+from scipy.special import skspatial.objects.Cylinder
 
 def get_percentile(pts, low, high):
     """
@@ -67,6 +68,15 @@ def angle_from_xy(v1):
     v2_u = unit_vector(v2)
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
+def dist_point_to_line(start:np.array, 
+                       end:np.array, 
+                       point:np.array):
+    line_length = np.linalg.norm(end-start)
+    if line_length == 0:
+        log.error("Line length (denominator) is zero") 
+    dist=np.cross(end-start,point-start)/line_length
+    return dist
+
 
 def get_angles(tup, radians=False):
     """Gets the angle of a vector with the XY axis"""
@@ -82,15 +92,28 @@ def get_angles(tup, radians=False):
             return np.degrees(radians)
     else:
         return 0
+    
+def project_cylinder():
+# https://scikit-spatial.readthedocs.io/en/stable/gallery/projection/plot_point_plane.html#sphx-glr-gallery-projection-plot-point-plane-py
+    raise NotImplementedError
 
-
-def get_center(points, center_type="centroid"):
+def get_center(points, 
+                center_type="centroid",
+                projection=None):
     """Attempts to find a representitiver 'center' given a
     set of 3D points.
     """
     if len(points[0]) != 3:
         breakpoint()
         print("not 3 points")
+    if dimentions == 2:
+        x = points[:, 0]
+        y = points[:, 1]
+        if center_type == "centroid":
+            centroid = np.average(x), np.average(y)
+            return centroid
+        if center_type == "middle":
+            middle = middle(x), middle(y)
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]

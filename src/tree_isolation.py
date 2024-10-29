@@ -406,6 +406,10 @@ def find_low_order_branches():
 
     algo_source_pcd = stat_down
 
+    ****
+    from scipy.special import pbdv
+    ****
+    
     print("Identifying trunk ...")
     algo_pcd_pts = np.asarray(algo_source_pcd.points)
     not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 0.25)
