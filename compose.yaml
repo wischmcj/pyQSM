@@ -3,6 +3,8 @@ version: '3'
 services:
   server:
     container_name: pyQSM
+    devices:
+      - "/dev/dri:/dev/dri" 
     build: .
     deploy:
         resources:
@@ -17,4 +19,3 @@ services:
       FLASK_DEBUG: 1
     extra_hosts:
       - "host.docker.internal:host-gateway"
-

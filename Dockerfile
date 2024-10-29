@@ -1,13 +1,19 @@
+
 FROM python:3.9
 
 ARG ssh_prv_key
 ARG ssh_pub_key
 
-RUN apt-get update && \
-    apt-get install -y \
-        git \
-        openssh-server 
-        # \libmysqlclient-dev
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    libegl1 \
+    libgl1 \
+    libgomp1 \
+    python3-pip \
+    gfortran \
+    build-essential \
+    git \
+    openssh-server \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /root/.ssh && \
     chmod 0700 /root/.ssh
@@ -31,8 +37,12 @@ ENV FLASK_APP app.py
 ENV FLASK_RUN_HOST 0.0.0.0
 ENV RUN_ENVIRONMENT docker
 
-RUN apk add --no-cache gcc musl-dev linux-headers
-RUN pip install --upgrade pip
+# Install Open3D from the PyPI repositories
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir --upgrade open3d
+
+#RUN apk add --no-cache gcc musl-dev linux-headers
+#RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt 
 
 # Remove SSH keys

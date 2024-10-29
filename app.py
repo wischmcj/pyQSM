@@ -18,7 +18,7 @@ from flask import Flask, render_template
 # import pytest
 
 
-from scripts.sftp_utils import sftp
+from sftp_utils import sftp
 # from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 # from matplotlib.figure import Figure
 import os
