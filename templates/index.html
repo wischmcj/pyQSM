@@ -5,12 +5,10 @@
     <meta charset="utf-8">
     <title>A-Frame Point Cloud Component - Basic</title>
     <meta name="description" content="Basic example for Point Cloud component."></meta>
-    <link rel="stylesheet" href="{{ url_for('static', filename= 'css/style.css') }}">
     <script src="https://aframe.io/releases/0.6.0/aframe.min.js"></script>
     <script src="/static/javascript/aframe-pointcloud-component.min.js"></script>
   </head>
   <body>
-    {% extends 'base.html' %}
     <a-scene>
       <a-assets>
         <img id="groundTexture" src="https://cdn.aframe.io/a-painter/images/floor.jpg">
@@ -35,17 +33,6 @@
         src="/static/imgs/Sphere.ply" 
         size="0.05"
         depthWrite="false">
-      </a-pointcloud>
-    
-        {% block content %}
-            <h1>{% block title %} Welcome to MySpace (TM){% endblock %}</h1>
-            {% for string in strings %}
-                    <h2>{{string}}</h2>
-                <hr>
-            {% endfor %}
-        {% endblock %}
-    </body>
-    </html>
-    
+      </a-pointcloud>    
   </body>
 </html>
