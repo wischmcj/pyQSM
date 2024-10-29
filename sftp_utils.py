@@ -1,57 +1,66 @@
 import __future__
 import paramiko
-from src.canhydro.global_vars import log, output_dir, data_dir
+# from src.config import log
 import glob
+import logging 
+log = logging.getLogger(__name__)   
+
+local_dir = '/code/code/pyQSM/'
+remote_dir = '/home/wischmcj/Desktop/pyQSM/'
+host = '192.168.0.157'
 
 def put_file(file, sftp):
-    file.replace('./','')
-    start_loc = f'./{file}'
-    end_loc = f'/code/code/canopyHydrodynamics/{file}'
-    log.info(f'attempting sftp from {start_loc} to {end_loc}')
+    start_loc = f'{local_dir}{file}'
+    end_loc = f'{remote_dir}'
+    print(f'attempting sftp from {start_loc} to {end_loc}')
+    breakpoint()
     try:
-        put_result = sftp.put(start_loc,end_loc)
-        msg = f'sftp put success from {start_loc} to {end_loc}'
+        put_result = sftp.put(start_loc, end_loc)
+        msg = f'sftp put from {start_loc} to {end_loc}: {put_result}'
     except FileNotFoundError as e:
         msg =f'Error putting to {end_loc} from {start_loc} to: {e}'
     return msg
 
 
 def get_file(file, sftp):
-    start_loc = f'/home/wischmcj/Desktop/canopyHydrodynamics/data/output/{file}'
+    start_loc = f'/home/wischmcj/Desktop/pyQSM/{file}'
     end_loc = f'./{file}'
     try:
         get_result = sftp.get(start_loc,end_loc)
     except FileNotFoundError as e:
-        log.info('Error getting file: {e}')
+        print('Error getting file: {e}')
     msg = f'sftp get success from {start_loc} to {end_loc} '
     return msg
 
-def sftp(file, get=False, host = '192.168.0.105' ):
+def sftp(file,
+         wild_card = True,
+         action='put'):
     ssh = paramiko.SSHClient() 
-    log.info(f'ssh client to {host} created')
+    print(f'ssh client to {host} created')
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     # ssh.connect(host, username='penguaman', password='')
     paramiko.Agent()
-    ssh.connect(host, username='penguaman',password='Alpha@Romeo@13')
-    log.info('connected')
+    ssh.connect(host, username='',password='')
+    print('connected')
     sftp = ssh.open_sftp()
-    log.info('sftp open')
-    if file:
-    	to_send = [file]
+    print('sftp open')
+    if wild_card:
+        to_send = glob.glob(file)
     else:
-        from itertools import chain
-        stats_files = glob.glob('./data/output/statistics/*.csv')
-        flow_files = glob.glob('./data/output/flows/*.csv')
-        to_send = [x for x in chain(stats_files,flow_files)]
-    log.info(f'sending files {to_send}')
-    log.info(f'sending files {to_send}')
+        to_send = [file]
+    msg='sftp not yet run'
     for file in to_send:
         try:
-            if get:
+            if action == 'get':
+                print(f'getting files {to_send}')
                 msg = get_file(file, sftp)
             else:
+                print(f'sending files {to_send}')
                 msg = put_file(file, sftp)
         except Exception as e:
-            log.info(f'Error sftping {file}, {e}, {msg}')
-    log.info(msg)
+            msg=f'Error sftping {file}, {e}, {msg}'
+            print(msg)
+    print(msg)   
 
+if __name__=='__main__':
+    sftp(file='src_pcs/*.py', action='put')
