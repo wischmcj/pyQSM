@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import os
+import io
+import sys
+import time
+import debugpy
+# import matplotlib.pyplot as plt
+# import numpy as np
+from flask import Flask, render_template, current_app
+
+from sftp_utils import sftp
+# from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+# from matplotlib.figure import Figure
+import paramiko
+
+
+
+
+sys.path.insert(0, os.path.dirname(os.getcwd()))
+
+app = Flask(__name__)
+
+
+
+@app.route('/models/<model>')
+def load_model(model):
+    htmlpage = '''
+    <!doctype HTML>
+    <html>
+    <script src="../static/js/aframe.min.js"></script>
+    <script src="../static/js/aframe-ar.js"></script>
+
+    <body style='margin : 0px; overflow: hidden;'>
+        <a-scene embedded arjs>
+            <a-marker id="memarker" type="pattern" url="../static/patterns/pattern-kanji_qr.patt" vidhandler>
+                <a-entity obj-model="obj: url(../static/models/{}.obj); mtl: url(../static/models/{}.mtl)" scale="0.1 0.1 0.1"> </a-entity>
+            </a-marker>
+            <a-entity camera></a-entity>
+        </a-scene>
+    </body>
+
+    </html>
+    '''.format(model,model)
+    return htmlpage
+
+@app.route('/poly/<model>')
+def load_poly(model):
+    htmlpage = '''
+    <!doctype HTML>
+    <html>
+    <script src="../static/js/aframe.min.js"></script>
+    <script src="../static/js/aframe-ar.js"></script>
+    <script src="../static/js/aframe-google-poly-component.min.js"></script>
+    <body style='margin : 0px; overflow: hidden;'>
+        <a-scene embedded arjs google-poly="api_key:AIzaSyCz39baiiaQ6cT146JzAN91YbHVIyf0fz4">
+            <a-marker id="memarker" type="pattern" url="../static/patterns/pattern-kanji_qr.patt" vidhandler>
+                <a-google-poly src="{}" scale="0.5 0.5 0.5" rotation="0 180 0"></a-google-poly>
+            </a-marker>
+            <a-entity camera></a-entity>
+        </a-scene>
+    </body>
+
+    </html>    return htmlpage
+
+
+@app.route('/<page>')
+def load_page(page):
+    return current_app.send_static_file('{}.html'.format(page))
+
+@app.route('/')
+def hello_world():
+    return current_app.send_static_file('index.html')
+
+@app.route('/get/<string:file>')
+def sftp_get(file):
+    msg = sftp(file, get=True)
+    return  msg
+
+@app.route('/put/<string:file>')
+def sftp_put(file):
+    msg = sftp(file, get=False)
+    return  msg
+
+
+
+@app.route('/hello')
+def hello():
+    return 'Hello, World!'
+
+
+# removed to allow removal of plotting functions 
+# @app.route('/plot/<string:file>')
+# def plot_png(file):
+#     output = io.BytesIO()
+#     FigureCanvas(fig).print_png(output)
+#     return Response(output.getvalue(), mimetype='image/png')
+
+
+# @app.route('/test')
+# def test():
+#     args_str = "test/test_collection_integration.py"
+#     args = args_str.split(" ")
+#     pytest.main(args)
+#     return 'Tested'
+
+
+
+if __name__ == '__main__':
+    # pre_populate_cache()
+    app.run(debug=True, host='0.0.0.0')
+
+
+# if __name__ == "__main__":
+#     print("Waiting for client to attach...4")
+#     min_number = int(input('Please enter the min number: '))
+#     max_number = int(input('Please enter the max number: '))
+#     if (max_number < min_number):
+#             print('Invalid input - shutting down...')
+#     else:
+#         print('Thanks.'(
+#     debugpy.wait_for_client()
+#     time.sleep(5)

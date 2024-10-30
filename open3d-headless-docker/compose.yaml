@@ -1,0 +1,20 @@
+version: '3'
+services:
+  server:
+    container_name: o3d-headless
+    devices:
+      - "/dev/dri:/dev/dri"
+    build: .
+    deploy:
+        resources:
+            limits:
+                cpus: '3.5'
+                memory: 7.5gb
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/code
+      - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
+      - /home/wischmcj/Desktop/open3d-headless-docker:/root
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,10 +1,9 @@
-
 version: '3'
 services:
   server:
     container_name: pyQSM
     devices:
-      - "/dev/dri:/dev/dri" 
+      - "/dev/dri/card0:/dev/dri/card0" 
     build: .
     deploy:
         resources:
@@ -15,7 +14,7 @@ services:
       - "5000:5000"
     volumes:
       - .:/code
-    environment:
-      FLASK_DEBUG: 1
+      - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
+      - /home/wischmcj/Desktop/pyQSM:/root
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -14,6 +14,7 @@ from sftp_utils import sftp
 # from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 # from matplotlib.figure import Figure
 import paramiko
+import open3d as o3d
 
 
 
@@ -95,7 +96,12 @@ def sftp_put(file):
 
 @app.route('/hello')
 def hello():
-    return 'Hello, World!'
+   o3d.visualization.webrtc_server.enable_webrtc()
+   cube_red = o3d.geometry.TriangleMesh.create_box(1, 2, 4)
+   cube_red.compute_vertex_normals()
+   cube_red.paint_uniform_color((1.0, 0.0, 0.0))
+   o3d.visualization.draw(cube_red)
+
 
 
 # removed to allow removal of plotting functions 
@@ -117,7 +123,12 @@ def hello():
 
 if __name__ == '__main__':
     # pre_populate_cache()
-    app.run(debug=True, host='0.0.0.0')
+    #app.run(debug=True, host='0.0.0.0')
+   o3d.visualization.webrtc_server.enable_webrtc()
+   cube_red = o3d.geometry.TriangleMesh.create_box(1, 2, 4)
+   cube_red.compute_vertex_normals()
+   cube_red.paint_uniform_color((1.0, 0.0, 0.0))
+   o3d.visualization.draw(cube_red)
 
 
 # if __name__ == "__main__":
