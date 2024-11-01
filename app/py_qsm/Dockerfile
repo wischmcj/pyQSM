@@ -42,29 +42,22 @@ RUN echo "$ssh_prv_key" > /root/.ssh/id_rsa && \
 
 # Avoid cache purge by adding requirements first
 ADD ./requirements.txt /code/requirements.txt
-# COPY requirements.txt requirements.txt
-
-# Install Open3D from the PyPI repositories
-RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir --upgrade open3d
 
 # Setup env
 WORKDIR /code
-#ENV FLASK_APP app.py
-#ENV FLASK_RUN_HOST 0.0.0.0
-#ENV RUN_ENVIRONMENT docker
-ENV WEBRTC_IP=0.0.0.0
-ENV WEBRTC_PORT=5000
+ENV FLASK_APP app.py
+ENV FLASK_RUN_HOST 0.0.0.0
+ENV RUN_ENVIRONMENT docker
 
 # Install Open3D from the PyPI repositories
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir --upgrade -r requirements.txt
 
+CMD gunicorn --bind 0.0.0.0:5000 py-qsm:py-qsm
 # Remove SSH keys for security reasons
 RUN rm -rf /root/.ssh/
 
 # Copy code over and run 
-# ADD . .
 COPY / /code
-#CMD ["flask", "run"]
-CMD ["python3","test_server.py"]
+RUN ls
+CMD ["flask", "run"]

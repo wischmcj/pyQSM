@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -96,11 +95,12 @@ def sftp_put(file):
 
 @app.route('/hello')
 def hello():
-   o3d.visualization.webrtc_server.enable_webrtc()
-   cube_red = o3d.geometry.TriangleMesh.create_box(1, 2, 4)
-   cube_red.compute_vertex_normals()
-   cube_red.paint_uniform_color((1.0, 0.0, 0.0))
-   o3d.visualization.draw(cube_red)
+   return '<p>Science Bitch!</p>'
+   #o3d.visualization.webrtc_server.enable_webrtc()
+   #cube_red = o3d.geometry.TriangleMesh.create_box(1, 2, 4)
+   #cube_red.compute_vertex_normals()
+   #cube_red.paint_uniform_color((1.0, 0.0, 0.0))
+   #o3d.visualization.draw(cube_red)
 
 
 
@@ -111,25 +111,9 @@ def hello():
 #     FigureCanvas(fig).print_png(output)
 #     return Response(output.getvalue(), mimetype='image/png')
 
-
-# @app.route('/test')
-# def test():
-#     args_str = "test/test_collection_integration.py"
-#     args = args_str.split(" ")
-#     pytest.main(args)
-#     return 'Tested'
-
-
-
 if __name__ == '__main__':
-    # pre_populate_cache()
     #app.run(debug=True, host='0.0.0.0')
-   o3d.visualization.webrtc_server.enable_webrtc()
-   cube_red = o3d.geometry.TriangleMesh.create_box(1, 2, 4)
-   cube_red.compute_vertex_normals()
-   cube_red.paint_uniform_color((1.0, 0.0, 0.0))
-   o3d.visualization.draw(cube_red)
-
+    app.run()
 
 # if __name__ == "__main__":
 #     print("Waiting for client to attach...4")
@@ -140,4 +124,3 @@ if __name__ == '__main__':
 #     else:
 #         print('Thanks.'(
 #     debugpy.wait_for_client()
-#     time.sleep(5)

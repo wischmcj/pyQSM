@@ -1,0 +1,5 @@
+debugpy
+flask
+open3d
+paramiko
+gunicorn

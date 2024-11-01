@@ -1,20 +1,46 @@
 version: '3'
 services:
-  server:
+  py-qsm:
     container_name: pyQSM
     devices:
       - "/dev/dri/card0:/dev/dri/card0" 
-    build: .
+    build: ./py_qsm
     deploy:
         resources:
             limits:
-                cpus: '3.5'
-                memory: 7.5gb
+                cpus: '1'
+                memory: 3gb
     ports:
-      - "5000:5000"
+      - '5000:5000'
+      - '81:5000'
     volumes:
-      - .:/code
+      - ./py_qsm:/py_qsm
       - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
-      - /home/wischmcj/Desktop/pyQSM:/root
-    extra_hosts:
+    hostname: py-qsm
+  o3d-rtc:
+    container_name: o3dRTC
+    #devices:
+    #  - "/dev/dri:/dev/dri"
+    build: ./o3d_rtc
+    deploy:
+        resources:
+            limits:
+                cpus: '2.5'
+                memory: 3gb
+    ports:
+      - "5001:5001"
+      - "82:5001"
+    volumes:
+      - ./o3d_rtc:/o3d_rtc/
+      - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
+      #- /home/wischmcj/Desktop/open3d-headless-docker:/root
+    hostname: o3d-rtc
+  nginx:
+    build: ./nginx
+    ports:
+    - '80:80'
+    depends_on:
+    - py-qsm
+    - o3d-rtc
+    extra_hosts: 
       - "host.docker.internal:host-gateway"

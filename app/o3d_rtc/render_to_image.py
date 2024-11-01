@@ -4,12 +4,15 @@
 # Copyright (c) 2018-2023 www.open3d.org
 # SPDX-License-Identifier: MIT
 # ----------------------------------------------------------------------------
-
+import os
 import open3d as o3d
 import open3d.visualization.rendering as rendering
 from sftp_utils import sftp
 
 def main():
+    files = [f for f in os.listdir('.') if os.path.isfile(f)]
+    for f in files:
+       print(f)
     render = rendering.OffscreenRenderer(640, 480)
 
     yellow = rendering.MaterialRecord()
@@ -27,14 +30,14 @@ def main():
     white = rendering.MaterialRecord()
     white.base_color = [1.0, 1.0, 1.0, 1.0]
     white.shader = "defaultLit"
-
+    print('Colors defined')
     cyl = o3d.geometry.TriangleMesh.create_cylinder(.05, 3)
     cyl.compute_vertex_normals()
     cyl.translate([-2, 0, 1.5])
     sphere = o3d.geometry.TriangleMesh.create_sphere(.2)
     sphere.compute_vertex_normals()
     sphere.translate([-2, 0, 3])
-
+    print('Shapes created ')
     box = o3d.geometry.TriangleMesh.create_box(2, 2, 1)
     box.compute_vertex_normals()
     box.translate([-1, -1, 0])
@@ -42,7 +45,7 @@ def main():
     solid.compute_triangle_normals()
     solid.compute_vertex_normals()
     solid.translate([0, 0, 1.75])
-
+    print('rendering')
     render.scene.add_geometry("cyl", cyl, green)
     render.scene.add_geometry("sphere", sphere, yellow)
     render.scene.add_geometry("box", box, grey)
@@ -62,7 +65,7 @@ def main():
     print("Saving image at test2.png")
     o3d.io.write_image("test2.png", img, 9)
     print("SFTPing images")
-    sftp('test2.png', wildcard=False, local_dir='./')
+    #sftp('test2.png', wildcard=False, local_dir='./')
 
 
 if __name__ == "__main__":
