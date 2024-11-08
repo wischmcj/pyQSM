@@ -1,3 +1,4 @@
+
 version: '3'
 services:
   py-qsm:
@@ -9,7 +10,7 @@ services:
         resources:
             limits:
                 cpus: '1'
-                memory: 3gb
+                memory: 2gb
     ports:
       - '5000:5000'
       - '81:5000'
@@ -17,30 +18,48 @@ services:
       - ./py_qsm:/py_qsm
       - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
     hostname: py-qsm
+    links:
+      - 'o3d-rtc:rtc'
+    #networks:
+    #  - rtc-net
   o3d-rtc:
     container_name: o3dRTC
-    #devices:
-    #  - "/dev/dri:/dev/dri"
+    devices:
+      - "/dev/dri/card0:/dev/dri/card0"
     build: ./o3d_rtc
     deploy:
         resources:
             limits:
-                cpus: '2.5'
-                memory: 3gb
+                cpus: '2'
+                memory: 5gb
     ports:
-      - "5001:5001"
-      - "82:5001"
+      - "5002:5002"
+      - "82:5002"
     volumes:
       - ./o3d_rtc:/o3d_rtc/
       - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
       #- /home/wischmcj/Desktop/open3d-headless-docker:/root
     hostname: o3d-rtc
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    #networks:
+    #  - rtc-net
   nginx:
+    container_name: nginx
     build: ./nginx
     ports:
     - '80:80'
+    #networks:
+    #- rtc-net
     depends_on:
     - py-qsm
     - o3d-rtc
     extra_hosts: 
       - "host.docker.internal:host-gateway"
+
+#networks:
+#  rtc-net:
+    # Specify driver options
+#    driver: bridge
+#    driver_opts:
+#      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"

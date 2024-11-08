@@ -22,29 +22,6 @@ sys.path.insert(0, os.path.dirname(os.getcwd()))
 
 app = Flask(__name__)
 
-
-
-@app.route('/models/<model>')
-def load_model(model):
-    htmlpage = '''
-    <!doctype HTML>
-    <html>
-    <script src="../static/js/aframe.min.js"></script>
-    <script src="../static/js/aframe-ar.js"></script>
-
-    <body style='margin : 0px; overflow: hidden;'>
-        <a-scene embedded arjs>
-            <a-marker id="memarker" type="pattern" url="../static/patterns/pattern-kanji_qr.patt" vidhandler>
-                <a-entity obj-model="obj: url(../static/models/{}.obj); mtl: url(../static/models/{}.mtl)" scale="0.1 0.1 0.1"> </a-entity>
-            </a-marker>
-            <a-entity camera></a-entity>
-        </a-scene>
-    </body>
-
-    </html>
-    '''.format(model,model)
-    return htmlpage
-
 @app.route('/poly/<model>')
 def load_poly(model):
    #see https://github.com/daavoo/aframe-pointcloud-component
@@ -54,7 +31,7 @@ def load_poly(model):
         <head>
         <title>My Point Cloud Scene</title>
         <script src="https://aframe.io/releases/0.6.0/aframe.min.js"></script>
-        <script src="https://unpkg.com/aframe-pointcloud-component/dist/aframe-pointcloud-component.min.js"></script>
+        <script src="templates/static/js/aframe-pointcloud-component.min.js"></script>
     </head>
     <body>
         <a-scene>

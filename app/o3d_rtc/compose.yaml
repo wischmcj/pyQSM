@@ -1,0 +1,21 @@
+#services:
+#  o3d-rtc:
+#    container_name: o3dRTC_test
+#    devices:
+#      - "/dev/dri/card0:/dev/dri/card0"
+#    build: .
+#    deploy:
+#        resources:
+#            limits:
+#                cpus: '2'
+#                memory: 5gb
+#    ports:
+#      - "5000:5000"
+ #     - "82:5001"
+#    volumes:
+#      - .:/o3d_rtc/
+#      - /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY
+      #- /home/wischmcj/Desktop/open3d-headless-docker:/root
+#    hostname: o3d-rtc
+#    extra_hosts:
+#      - "host.docker.internal:host-gateway"

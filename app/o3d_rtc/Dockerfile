@@ -51,8 +51,9 @@ ENV WEBRTC_PORT=5001
 #RUN rm -rf /root/.ssh/
 
 # Configure Mesa EGL for headless rendering
+#ENV LIBGL_ALWAYS_SOFTWARE=true
 ENV EGL_PLATFORM=surfaceless
-
 COPY / /o3d_rtc
 
-ENTRYPOINT ["python3", "rtc_server.py"]
+#ENTRYPOINT ["python3", "rtc_server.py"]
+CMD ["python3","rtc_server.py"]
