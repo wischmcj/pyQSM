@@ -53,7 +53,7 @@ ENV RUN_ENVIRONMENT docker
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir --upgrade -r requirements.txt
 
-CMD gunicorn --bind 0.0.0.0:5000 py-qsm:py-qsm
+#CMD gunicorn --bind 0.0.0.0:5000 py-qsm:py-qsm
 # Remove SSH keys for security reasons
 RUN rm -rf /root/.ssh/
 

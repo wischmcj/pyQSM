@@ -1,0 +1,6 @@
+altair
+streamlit
+open3d
+stpyvista
+pyvista
+numpy
