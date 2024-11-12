@@ -169,3 +169,7 @@ pic*
 .gitignore
 *.pcd
 .vscode/settings.json
+.envrc
+meshes/*
+*.pts
+src/test.py

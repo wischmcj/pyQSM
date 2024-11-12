@@ -61,16 +61,6 @@ def get_surface_clusters(mesh,
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
     return mesh_0
 
-def cluster_and_remove_triangles(mesh ):
-    triangle_clusters, cluster_n_triangles, cluster_area = (mesh.cluster_connected_triangles())
-    triangle_clusters = np.asarray(triangle_clusters)
-    cluster_n_triangles = np.asarray(cluster_n_triangles)
-    cluster_area = np.asarray(cluster_area)
-    mesh_0 = copy.deepcopy(mesh)
-    triangles_to_remove = cluster_n_triangles[triangle_clusters] < 200
-    mesh_0.remove_triangles_by_mask(triangles_to_remove)
-    o3d.visualization.draw_geometries([mesh_0])
-
 def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=True):
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=depth)
     densities = np.asarray(densities)
