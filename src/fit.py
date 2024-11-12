@@ -1,14 +1,8 @@
 # import open3d as o3d
 import copy
 
-
-# import scipy.spatial as sps
-# import matplotlib.colors as mcolors
-# import matplotlib.pyplot as plt
-
 import numpy as np
 import open3d as o3d
-import scipy.spatial as sps
 import scipy.cluster as spc
 from sklearn.metrics import silhouette_score
 # from sklearn.metrics import calinski_harabasz_score
