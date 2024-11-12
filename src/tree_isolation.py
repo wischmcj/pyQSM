@@ -280,6 +280,17 @@ def find_low_order_branches():
     #       - more dense areas -> smaller radius
     # ***********************
 
+
+     # stem_cloud = clean_cloud(stem_cloud,
+    #                             voxels=     config['stem_voxel_size'],
+    #                             neighbors=  config['stem_neighbors'],
+    #                             ratio=      config['stem_ratio'],
+    #                             iters=      config['stem_iters'])
+
+    # breakpoint()
+    # nodes = map(octree.locate_leaf_node,stem_cloud_pts)
+    #  octree.locate_leaf_node(
+
     # Reading in cloud and smooth
     pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
     write_point_cloud("27_pt02.pcd",pcd)
