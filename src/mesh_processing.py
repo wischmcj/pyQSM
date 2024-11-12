@@ -70,7 +70,6 @@ def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=True):
     density_colors = plt.get_cmap('plasma')(
         (densities - densities.min()) / (densities.max() - densities.min()))
     density_colors = density_colors[:, :3]
-
     density_mesh = o3d.geometry.TriangleMesh()
     density_mesh.vertices = mesh.vertices
     density_mesh.triangles = mesh.triangles
