@@ -282,17 +282,6 @@ def find_low_order_branches():
     #       - more dense areas -> smaller radius
     # ***********************
 
-
-     # stem_cloud = clean_cloud(stem_cloud,
-    #                             voxels=     config['stem_voxel_size'],
-    #                             neighbors=  config['stem_neighbors'],
-    #                             ratio=      config['stem_ratio'],
-    #                             iters=      config['stem_iters'])
-
-    # breakpoint()
-    # nodes = map(octree.locate_leaf_node,stem_cloud_pts)
-    #  octree.locate_leaf_node(
-
     # Reading in cloud and smooth
     pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
     write_point_cloud("27_pt02.pcd",pcd)
@@ -303,7 +292,7 @@ def find_low_order_branches():
                             neighbors=config['neighbors'],
                             ratio=config['ratio'],
                             iters = config['iters'])
-    # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" #post-clean pre-stem
+    # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
     stem_cloud = get_stem_pcd(stat_down)
 
 
@@ -335,6 +324,9 @@ def find_low_order_branches():
         total_found=list(total_found),
     )
     breakpoint()
+
+    # Coloring and drawing the results of 
+    #  sphere step
     iter_draw(res[0], algo_source_pcd)
 
     branch_index = defaultdict(list)
@@ -344,6 +336,8 @@ def find_low_order_branches():
         iter_draw(list(branch_index.values()), algo_pcd_pts)
     except Exception as e:
         print("error" + e)
+
+    breakpoint()
 
     breakpoint()
 
