@@ -66,6 +66,49 @@ config = {
     "min_contained_points": 8,
 }
 
+
+skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
+s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
+s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
+
+s27d = "data/input/s27_downsample_0.04.pcd"
+s32d = "data/input/s32_downsample_0.04.pcd"
+
+
+def get_stem_pcd(pcd=None, source_file=None
+                ,normals_radius   = config["normals_radius"]
+                ,normals_nn       = config["normals_nn"]    
+                ,nb_neighbors   = config["stem_neighbors"]
+                ,std_ratio      = config["stem_ratio"]
+                ,voxel_size     = config["stem_voxel_size"]
+                ,post_id_stat_down = config["post_id_stat_down"]
+                ,):
+    """
+        filters the point cloud to only those 
+        points with normals implying an approximately
+        vertical orientation 
+    """
+    if source_file:
+    # print("IDing stem_cloud")
+        pcd = read_point_cloud(source_file)
+    print("cleaned cloud")
+    # cropping out ground points
+    pcd_pts = np.asarray(pcd.points)
+    pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
+    pcd = pcd.select_by_index(pcd_cropped_idxs)
+    pcd.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn)
+    )
+
+    stem_cloud = filter_by_norm(pcd, config["angle_cutoff"])
+    if voxel_size:
+        stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
+    if post_id_stat_down:
+        _, ind = stem_cloud.remove_statistical_outlier(nb_neighbors= nb_neighbors,
+                                                       std_ratio=std_ratio)
+        stem_cloud = stem_cloud.select_by_index(ind)
+    return stem_cloud
+
 def sphere_step(
     curr_pts,
     last_radius,
@@ -234,49 +277,38 @@ def find_low_order_branches():
 
     # ***********************
 
+
+     # stem_cloud = clean_cloud(stem_cloud,
+    #                             voxels=     config['stem_voxel_size'],
+    #                             neighbors=  config['stem_neighbors'],
+    #                             ratio=      config['stem_ratio'],
+    #                             iters=      config['stem_iters'])
+
+    # breakpoint()
+    # nodes = map(octree.locate_leaf_node,stem_cloud_pts)
+    #  octree.locate_leaf_node(
+
     # Reading in cloud and smooth
-    # pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
-    # pcd = pcd.voxel_down_sample(voxel_size=config['whole_voxel_size'])
-    # pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-    # write_point_cloud("27_pt02.pcd",pcd)
+    pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
+    write_point_cloud("27_pt02.pcd",pcd)
+    print('read in cloud')
+    stat_down=pcd
+    stat_down = clean_cloud(pcd,
+                            voxels=config['voxel_size'],
+                            neighbors=config['neighbors'],
+                            ratio=config['ratio'],
+                            iters = config['iters'])
+    # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" #post-clean pre-stem
+    stem_cloud = get_stem_pcd(stat_down)
 
-    # print('read in cloud')
-    # stat_down=pcd
-    # stat_down = clean_cloud(pcd,
-    #                         voxels=voxel_size,
-    #                         neighbors=neighbors,
-    #                         ratio=vatio,
-    #                         iters = iters)
 
-    stat_down = read_point_cloud("data/results/saves/27_vox_pt02_sta_6-4-3.pcd")
-    print("cleaned cloud")
-    stat_down_pts = np.asarray(stat_down.points)
-    stat_down_cropped_idxs = crop(stat_down_pts, minz=np.min(stat_down_pts[:, 2]) + 0.5)
-    stat_down = stat_down.select_by_index(stat_down_cropped_idxs)
-
-    # voxel_down_pcd = stat_down.voxel_down_sample(voxel_size=0.04)
-    stat_down.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
-    )
-
-    stem_cloud = filter_by_norm(stat_down, config["angle_cutoff"])
-    print("IDd stem_cloud")
-    if config["stem_voxel_size"]:
-        stem_cloud = stem_cloud.voxel_down_sample(voxel_size=config["stem_voxel_size"])
-    if config["post_id_stat_down"]:
-        _, ind = stem_cloud.remove_statistical_outlier(
-            nb_neighbors=config["stem_neighbors"], std_ratio=config["stem_ratio"]
-        )
-        stem_cloud = stem_cloud.select_by_index(ind)
-
-    algo_source_pcd = stat_down
-
-    print("Identifying trunk ...")
     algo_pcd_pts = np.asarray(algo_source_pcd.points)
-    not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 0.25)
-    low_cloud = stat_down.select_by_index(not_so_low_idxs)
+    not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 1)
+    low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
     low_cloud_pts = np.asarray(low_cloud.points)
 
+    algo_source_pcd = stem_cloud
+    print("Identifying trunk ...")
     print("Identifying based layer for search ...")
     sphere, neighbors = find_neighbors_in_ball(
         low_cloud_pts, algo_pcd_pts, not_so_low_idxs
