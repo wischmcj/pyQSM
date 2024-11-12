@@ -277,17 +277,6 @@ def find_low_order_branches():
 
     # ***********************
 
-
-     # stem_cloud = clean_cloud(stem_cloud,
-    #                             voxels=     config['stem_voxel_size'],
-    #                             neighbors=  config['stem_neighbors'],
-    #                             ratio=      config['stem_ratio'],
-    #                             iters=      config['stem_iters'])
-
-    # breakpoint()
-    # nodes = map(octree.locate_leaf_node,stem_cloud_pts)
-    #  octree.locate_leaf_node(
-
     # Reading in cloud and smooth
     pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
     write_point_cloud("27_pt02.pcd",pcd)
@@ -298,7 +287,7 @@ def find_low_order_branches():
                             neighbors=config['neighbors'],
                             ratio=config['ratio'],
                             iters = config['iters'])
-    # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" #post-clean pre-stem
+    # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
     stem_cloud = get_stem_pcd(stat_down)
 
 
@@ -332,6 +321,9 @@ def find_low_order_branches():
         total_found=list(total_found),
     )
     breakpoint()
+
+    # Coloring and drawing the results of 
+    #  sphere step
     iter_draw(res[0], algo_source_pcd)
 
     branch_index = defaultdict(list)
@@ -342,43 +334,9 @@ def find_low_order_branches():
     except Exception as e:
         print("error" + e)
 
-    # converting ids from low_cloud stat reduction
-    #   To ids in stem_cloud
-    # stem_pts  = list(map(tuple,np.asarray(stem_cloud.points)))
-    # trunk_pts = list(map(tuple,np.asarray(trunk_pcd.points)))
-    # trunk_stem_idxs = []
-    # for idx, val in enumerate(stem_pts):
-    #     if val in trunk_pts:
-    #         trunk_stem_idxs.append(idx)
-
-    # just_trunk = stem_cloud.select_by_index(trunk_stem_idxs)
-    # draw([trunk_pcd])
-
-    # draw([stem_cloud]+pcds)
-
-    ## KDTree neighbor finding
-    # stem_pts = np.asarray(pcd.points)
-    # full_tree = KDTree(stem_pts)
-    # connd = full_tree.query(trunk_points, 50)
-    # pairs = full_tree.query_pairs(r=.02)
-    # trunk_connected = trunk_tree.sparse_distance_matrix(full_tree, max_distance=radius)
-    # neighbors_idx =np.array(list(set(chain.from_iterable(connd[1]))))
-
-    # tc_idxs = np.array(list(set(chain.from_iterable(trunk_connected))))
-    # trunk_connected_cloud = stem_cloud.select_by_index(neighbors_idx)
-    # draw([trunk_connected_cloud])
-
-    ## removing non dense areas of points
-    # mesh = map_density(stem_cloud)
-    # mesh, densities = TriangleMesh.create_from_point_cloud_poisson(stem_cloud, depth=4)
-    # densities = np.asarray(densities)
-    # vertices_to_remove = densities < np.quantile(densities, 0.01)
-    # mesh.remove_vertices_by_mask(vertices_to_remove)
-    # draw([mesh])
     breakpoint()
 
-    # TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, o3d.utility.DoubleVector(radii))
-
+    breakpoint()
 
 if __name__ == "__main__":
     find_low_order_branches()
