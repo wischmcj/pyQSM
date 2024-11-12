@@ -15,10 +15,11 @@ from itertools import chain
 from collections import defaultdict
 
 from fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from mesh_processing import define_conn_comps
-
+from fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from lib_integration import find_neighbors_in_ball
+from mesh_processing import define_conn_comps, get_surface_clusters, map_density
 from point_cloud_processing import ( filter_by_norm,
-                                    clean_cloud,
+    clean_cloud,
     crop,
     orientation_from_norms,
     filter_by_norm,
@@ -35,12 +36,6 @@ from utils import (
 from octree import color_node_pts, draw_leaves, cloud_to_octree, nodes_from_point_idxs, nodes_to_pcd
 
 
-skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
-s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
-s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
-
-s27d = "data/input/s27_downsample_0.04.pcd"
-s32d = "data/input/s32_downsample_0.04.pcd"
 
 config = {
     "whole_voxel_size": 0.02,
@@ -49,8 +44,10 @@ config = {
     "iters": 3,
     "voxel_size": None,
     # stem
+    "normals_radius": 0.1,
+    "normals_nn": 30,
     "angle_cutoff": 10,
-    "stem_voxel_size": None,  # .04
+    "stem_voxel_size": .03,
     "post_id_stat_down": True,
     "stem_neighbors": 10,
     "stem_ratio": 2,
@@ -70,133 +67,6 @@ config = {
     "bad_fit_radius_factor": 2.5,
     "min_contained_points": 8,
 }
-
-def highlight_inliers(pcd, inlier_idxs, color=[1.0, 0, 0], draw=False):
-    inlier_cloud = pcd.select_by_index(inlier_idxs)
-    inlier_cloud.paint_uniform_color(color)
-    if draw:
-        outlier_cloud = pcd.select_by_index(inlier_idxs, invert=True)
-        draw([inlier_cloud, outlier_cloud])
-    return inlier_cloud
-
-
-def get_neighbors_in_tree(sub_pcd_pts, full_tree, radius):
-    trunk_tree = KDTree(sub_pcd_pts)
-    pairs = trunk_tree.query_ball_tree(full_tree, r=radius)
-    neighbors = np.array(list(set(chain.from_iterable(pairs))))
-    return neighbors
-
-
-def evaluate_axis(pcd):
-    # Get normals and align to Z axis
-    pcd.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=20)
-    )
-    pcd.normalize_normals()
-    norms = np.array(pcd.normals)
-    axis_guess = orientation_from_norms(norms, samples=100, max_iter=1000)
-    return axis_guess
-
-
-def z_align_and_fit(pcd, axis_guess, **kwargs):
-    R_to_z = rotation_matrix_from_arr(unit_vector(axis_guess), [0, 0, 1])
-    R_from_z = rotation_matrix_from_arr([0, 0, 1], unit_vector(axis_guess))
-    # align with z-axis
-    pcd_r = copy.deepcopy(pcd)
-    pcd_r.rotate(R_to_z)
-    # approx via circle
-    mesh, _, inliers, fit_radius, _ = fit_shape_RANSAC(pcd=pcd_r, **kwargs)
-    # Rotate mesh and pcd back to original orientation'
-    # pcd.rotate(R_from_z)
-    if mesh is None:
-        # draw([pcd])
-        return mesh, _, inliers, fit_radius, _
-    mesh_pts = mesh.sample_points_uniformly(1000)
-    mesh_pts.paint_uniform_color([0, 1.0, 0])
-    mesh_pts.rotate(R_from_z)
-    draw([mesh_pts, pcd])
-    return mesh, _, inliers, fit_radius, _
-
-
-def find_neighbors_in_ball(
-    base_pts, points_to_search, points_idxs, radius=None, center=None
-):
-    """
-    _summary_
-
-    Args:
-        base_pts: _description_
-        points_to_search: _description_
-        points_idxs: _description_
-        radius: _description_. Defaults to None.
-        center: _description_. Defaults to None.
-
-    Returns:
-        _description_
-    """
-    if not center:
-        center = get_center(base_pts)
-    if not radius:
-        radius = get_radius(base_pts) * config["radius_multiplier"]
-
-    if radius < config["min_sphere_radius"]:
-        radius = config["min_sphere_radius"]
-    if radius > config["max_radius"]:
-        radius = config["max_radius"]
-    print(f"{radius=}")
-
-    center = [center[0], center[1], max(base_pts[:, 2])]  # - (radius/4)])
-
-    full_tree = KDTree(points_to_search)
-    neighbors = full_tree.query_ball_point(center, r=radius)
-    res = []
-    # ax = plt.figure().add_subplot(projection='3d')
-    # ax.scatter(center_points[:,0], center_points[:,1], center_points[:,2], 'r')
-    for results in neighbors:
-        new_points = np.setdiff1d(results, points_idxs)
-        res.extend(new_points)
-    #     nearby_points = points_to_search[new_points]
-    #     ax.plot(nearby_points[:,0], nearby_points[:,1], nearby_points[:,2], 'o')
-    sphere = TriangleMesh.create_sphere(radius=radius)
-    sphere.translate(center)
-    # sphere_pts=sphere.sample_points_uniformly(500)
-    # sphere_pts.paint_uniform_color([0,1,0])
-    # ax.plot(sphere_pts[:,0], sphere_pts[:,1], sphere_pts[:,2], 'o')
-    # plt.show()
-    return sphere, res
-
-
-def choose_and_cluster(new_neighbors, main_pts, cluster_type):
-    """
-    Determines the appropriate clustering algorithm to use
-    and returns the result of said algorithm
-    """
-    returned_clusters = []
-    try:
-        nn_points = main_pts[new_neighbors]
-    except Exception as e:
-        breakpoint()
-        print(f"error in choose_and_cluster {e}")
-    if cluster_type == "kmeans":
-        # in these cases we expect the previous branch
-        #     has split into several new branches. Kmeans is
-        #     better at characterizing this structure
-        print("clustering via kmeans")
-        labels, returned_clusters = kmeans(nn_points, 1)
-        # labels = [idx for idx,_ in enumerate(returned_clusters)]
-        # ax = plt.figure().add_subplot(projection='3d')
-        # for cluster in returned_clusters: ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
-        # plt.show()
-    if cluster_type != "kmeans" or len(returned_clusters) < 2:
-        print("clustering via DBSCAN")
-        labels, returned_clusters, noise = cluster_DBSCAN(
-            new_neighbors,
-            nn_points,
-            eps=config["epsilon"],
-            min_pts=config["min_neighbors"],
-        )
-    return labels, returned_clusters
-
 
 def sphere_step(
     curr_pts,
@@ -355,71 +225,6 @@ def sphere_step(
         branch_num += 1
     print("reached end of function, returning")
     return branches, id_to_num, cyls, cyl_details
-
-
-def find_normal(a, norms):
-    for norm in norms[1:]:
-        if np.dot(a, norm) < 0.01:
-            return norm
-
-def internal_node(node):
-    pass
-
-def get_ancestors(node, node_info, parent_dict):
-    early_stop = False
-    if isinstance(node, o3d.geometry.OctreeInternalNode):
-        if isinstance(node, o3d.geometry.OctreeInternalPointNode):
-            n = 0
-            for child in node.children:
-                if child is not None:
-                    n += 1
-            print(
-                "{}{}: Internal node at depth {} has {} children and {} points ({})"
-                .format('    ' * node_info.depth,
-                        node_info.child_index, node_info.depth, n,
-                        len(node.indices), node_info.origin))
-
-            # we only want to process nodes / spatial regions with enough points
-            early_stop = len(node.indices) < 250
-    elif isinstance(node, o3d.geometry.OctreeLeafNode):
-        if isinstance(node, o3d.geometry.OctreePointColorLeafNode):
-            print("{}{}: Leaf node at depth {} has {} points with origin {}".
-                  format('    ' * node_info.depth, node_info.child_index,
-                         node_info.depth, len(node.indices), node_info.origin))
-    else:
-        raise NotImplementedError('Node type not recognized!')
-
-    # early stopping: if True, traversal of children of the current node will be skipped
-    return early_stop
-
-config = {
-    "whole_voxel_size": 0.02,
-    "neighbors": 6,
-    "ratio": 4,
-    "iters": 3,
-    "voxel_size": None,
-    # stem
-    "angle_cutoff": 10,
-    "stem_voxel_size": .03,
-    "post_id_stat_down": True,
-    "stem_neighbors": 10,
-    "stem_ratio": 2,
-    "stem_iters": 3,
-    # trunk
-    "num_lowest": 2000,
-    "trunk_neighbors": 10,
-    "trunk_ratio": 0.25,
-    # DBSCAN
-    "epsilon": 0.1,
-    "min_neighbors": 10,
-    # sphere
-    "min_sphere_radius": 0.01,
-    "max_radius": 1.5,
-    "radius_multiplier": 1.75,
-    "dist": 0.07,
-    "bad_fit_radius_factor": 2.5,
-    "min_contained_points": 8,
-}
 
 def find_low_order_branches():
     # ***********************
