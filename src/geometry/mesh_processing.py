@@ -32,6 +32,16 @@ def define_conn_comps(mesh, max_num_comps):
     mesh.compute_vertex_normals()
     return mesh
 
+def cluster_and_remove_triangles(mesh ):
+    triangle_clusters, cluster_n_triangles, cluster_area = (mesh.cluster_connected_triangles())
+    triangle_clusters = np.asarray(triangle_clusters)
+    cluster_n_triangles = np.asarray(cluster_n_triangles)
+    cluster_area = np.asarray(cluster_area)
+    mesh_0 = copy.deepcopy(mesh)
+    triangles_to_remove = cluster_n_triangles[triangle_clusters] < 200
+    mesh_0.remove_triangles_by_mask(triangles_to_remove)
+    o3d.visualization.draw_geometries([mesh_0])
+
 def get_surface_clusters(mesh,
                        top_n_clusters=10,
                        min_cluster_area=None,
