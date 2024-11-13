@@ -62,12 +62,12 @@ def find_neighbors_in_ball(
     if not center:
         center = get_center(base_pts)
     if not radius:
-        radius = get_radius(base_pts) * config["radius_multiplier"]
+        radius = get_radius(base_pts) * config['sphere']["radius_multiplier"]
 
-    if radius < config["min_sphere_radius"]:
-        radius = config["min_sphere_radius"]
-    if radius > config["max_radius"]:
-        radius = config["max_radius"]
+    if radius < config['sphere']["min_radius"]:
+        radius = config['sphere']["min_radius"]
+    if radius > config['sphere']["max_radius"]:
+        radius = config['sphere']["max_radius"]
     print(f"{radius=}")
 
     center = [center[0], center[1], max(base_pts[:, 2])]  # - (radius/4)])

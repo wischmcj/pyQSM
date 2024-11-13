@@ -12,22 +12,6 @@ from utils import (
 )
 from config import log
 
-# def map_density(pcd, remove_outliers=True):
-#     mesh, densities = TriangleMesh.create_from_point_cloud_poisson(pcd, depth=9)
-#     densities = np.asarray(densities)
-#     if remove_outliers:
-#         vertices_to_remove = densities < np.quantile(densities, 0.01)
-#         mesh.remove_vertices_by_mask(vertices_to_remove)
-#     density_colors = plt.get_cmap('plasma')(
-#         (densities - densities.min()) / (densities.max() - densities.min()))
-#     density_colors = density_colors[:, :3]
-#     density_mesh = TriangleMesh()
-#     density_mesh.vertices = mesh.vertices
-#     density_mesh.triangles = mesh.triangles
-#     density_mesh.triangle_normals = mesh.triangle_normals
-#     density_mesh.vertex_colors = o3d.utility.Vector3dVector(density_colors)
-#     #draw([density_mesh])
-#     return density_mesh
 
 
 def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
@@ -58,16 +42,6 @@ def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
     if not run_voxels and not run_stat:
         log.warning("No cleaning steps were run")        
     return final
-
-
-def filter_by_norm(pcd, angle_thresh=10):
-    norms = np.asarray(pcd.normals)
-    angles = np.apply_along_axis(get_angles, 1, norms)
-    angles = np.degrees(angles)
-    stem_idxs = np.where((angles > -angle_thresh) & (angles < angle_thresh))[0]
-    stem_cloud = pcd.select_by_index(stem_idxs)
-    return stem_cloud
-
 
 def crop(pts, minx=None, maxx=None, miny=None, maxy=None, minz=None, maxz=None):
     x_vals = pts[:, 0]
@@ -115,23 +89,6 @@ def orientation_from_norms(norms, samples=10, max_iter=100):
     return axis_guess
 
 
-def hull_to_mesh(voxel_down_pcd, type="ConvexHull"):
-    mesh = o3d.geometry.TriangleMesh
-    three_dv = o3d.utility.Vector3dVector
-    three_di = o3d.utility.Vector3iVector
-
-    points = np.asarray(voxel_down_pcd.points)
-    if type != "ConvexHull":
-        test = sps.Delaunay(points)
-    else:
-        test = sps.ConvexHull(points)
-    verts = three_dv(points)
-    tris = three_di(np.array(test.simplices[:, 0:3]))
-    mesh = o3d.geometry.TriangleMesh(verts, tris)
-    # o3d.visualization.draw_geometries([mesh])
-    return mesh
-
-
 def filter_by_norm(pcd, angle_thresh=10):
     norms = np.asarray(pcd.normals)
     angles = np.apply_along_axis(get_angles, 1, norms)
@@ -141,8 +98,7 @@ def filter_by_norm(pcd, angle_thresh=10):
     return stem_cloud
 
 
-def get_ball_mesh(pcd):
-    radii = [0.005, 0.01, 0.02, 0.04]
+def get_ball_mesh(pcd,radii= [0.005, 0.01, 0.02, 0.04]):
     rec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
         pcd, o3d.utility.DoubleVector(radii)
     )
@@ -153,6 +109,7 @@ def get_shape(pts, shape="sphere", as_pts=True, rotate="axis", **kwargs):
     if not kwargs.get("center"):
         kwargs["center"] = get_center(pts)
     if not kwargs.get("radius"):
+
         kwargs["radius"] = get_radius(pts)
 
     if shape == "sphere":
@@ -187,4 +144,3 @@ def get_shape(pts, shape="sphere", as_pts=True, rotate="axis", **kwargs):
         return shape
 
     return shape
-

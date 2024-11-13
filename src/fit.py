@@ -85,8 +85,8 @@ def choose_and_cluster(new_neighbors, main_pts, cluster_type):
         labels, returned_clusters, noise = cluster_DBSCAN(
             new_neighbors,
             nn_points,
-            eps=config["epsilon"],
-            min_pts=config["min_neighbors"],
+            eps=config['dbscan']["epsilon"],
+            min_pts=config['dbscan']["min_neighbors"],
         )
     return labels, returned_clusters
 
