@@ -67,7 +67,7 @@ def cdraw(pcd,
     vis.get_render_option().load_from_json(render_option_path)
     vis.run()
     vis.destroy_window()
-
+\
 def color_continuous_map(pcd, cvar):
     density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
     density_colors = density_colors[:, :3]
