@@ -28,6 +28,30 @@ def poprow(my_array, pr):
     return new_array, pop
 
 
+
+def find_normal(a, norms, min_allowed_dot=None):
+    """
+    For vector a, finds an approximately normal 
+        vector in a given list of vectors (norms)
+
+    """
+    min_dot = min_allowed_dot
+    candidate = None
+    if min_allowed_dot is None:
+        # ensures most normal vector is selected if 
+        #  no min is passed
+        min_dot = np.dot(a, norms[0])
+        candidate = norms[0]
+    for norm in norms[1:]:
+        dot = np.dot(a, norm)
+        if dot < min_dot:
+            min_dot = dot
+            candidate = norm
+    if candidate is None:
+        raise ValueError("No near normal vector found")
+    return candidate
+        
+
 def rotation_matrix_from_arr(a, b: np.array):
     """
     Returns matrix R such that a*R = b.

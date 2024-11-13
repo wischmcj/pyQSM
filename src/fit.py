@@ -1,24 +1,94 @@
 # import open3d as o3d
+import copy
+
 import numpy as np
-# import scipy.spatial as sps
-# import matplotlib.colors as mcolors
-# import matplotlib.pyplot as plt
-
-
 import open3d as o3d
-import scipy.spatial as sps
 import scipy.cluster as spc
 from sklearn.metrics import silhouette_score
-from sklearn.metrics import calinski_harabasz_score
-from sklearn.metrics import davies_bouldin_score
+# from sklearn.metrics import calinski_harabasz_score
+# from sklearn.metrics import davies_bouldin_score
 from sklearn.cluster import DBSCAN
 import pyransac3d as pyrsc
 from open3d.visualization import draw_geometries as draw
 from matplotlib import pyplot as plt
 
-from utils import get_radius, get_center
-from point_cloud_processing import get_shape
+from utils import (get_radius, 
+                    get_center, 
+                    rotation_matrix_from_arr,
+                    unit_vector, 
+                    config)
+from point_cloud_processing import get_shape, orientation_from_norms
 
+
+def evaluate_orientation(pcd):
+    """
+    Determine the apporoximate orientation
+       of a bounding cylinder for a point cloud
+    """
+    # Get normals and align to Z axis
+    pcd.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=20)
+    )
+    pcd.normalize_normals()
+    norms = np.array(pcd.normals)
+    axis_guess = orientation_from_norms(norms, samples=100, max_iter=1000)
+    return axis_guess
+
+def z_align_and_fit(pcd, axis_guess, **kwargs):
+    """
+        Attempts to fit a cylinder to a point cloud.
+        Reduces dimensionality (3d->2d) by estimating the 
+            axis of said cylinder, rotating the point cloud and
+            fitting its 2D projection with a circle.
+    """
+    R_to_z = rotation_matrix_from_arr(unit_vector(axis_guess), [0, 0, 1])
+    R_from_z = rotation_matrix_from_arr([0, 0, 1], unit_vector(axis_guess))
+    # align with z-axis
+    pcd_r = copy.deepcopy(pcd)
+    pcd_r.rotate(R_to_z)
+    # approx via circle
+    mesh, _, inliers, fit_radius, _ = fit_shape_RANSAC(pcd=pcd_r, **kwargs)
+    # Rotate mesh and pcd back to original orientation'
+    # pcd.rotate(R_from_z)
+    if mesh is None:
+        # draw([pcd])
+        return mesh, _, inliers, fit_radius, _
+    mesh_pts = mesh.sample_points_uniformly(1000)
+    mesh_pts.paint_uniform_color([0, 1.0, 0])
+    mesh_pts.rotate(R_from_z)
+    draw([mesh_pts, pcd])
+    return mesh, _, inliers, fit_radius, _
+
+def choose_and_cluster(new_neighbors, main_pts, cluster_type):
+    """
+    Determines the appropriate clustering algorithm to use
+    and returns the result of said algorithm
+    """
+    returned_clusters = []
+    try:
+        nn_points = main_pts[new_neighbors]
+    except Exception as e:
+        breakpoint()
+        print(f"error in choose_and_cluster {e}")
+    if cluster_type == "kmeans":
+        # in these cases we expect the previous branch
+        #     has split into several new branches. Kmeans is
+        #     better at characterizing this structure
+        print("clustering via kmeans")
+        labels, returned_clusters = kmeans(nn_points, 1)
+        # labels = [idx for idx,_ in enumerate(returned_clusters)]
+        # ax = plt.figure().add_subplot(projection='3d')
+        # for cluster in returned_clusters: ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
+        # plt.show()
+    if cluster_type != "kmeans" or len(returned_clusters) < 2:
+        print("clustering via DBSCAN")
+        labels, returned_clusters, noise = cluster_DBSCAN(
+            new_neighbors,
+            nn_points,
+            eps=config["epsilon"],
+            min_pts=config["min_neighbors"],
+        )
+    return labels, returned_clusters
 
 def kmeans(points, min_clusters):
     """
