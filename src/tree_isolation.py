@@ -17,6 +17,8 @@ from collections import defaultdict
 from fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from lib_integration import find_neighbors_in_ball
+
+from config import config
 from mesh_processing import define_conn_comps, get_surface_clusters, map_density
 from point_cloud_processing import ( filter_by_norm,
     clean_cloud,
@@ -35,40 +37,6 @@ from utils import (
 )
 from octree import color_node_pts, draw_leaves, cloud_to_octree, nodes_from_point_idxs, nodes_to_pcd
 
-
-
-config = {
-    "whole_voxel_size": 0.02,
-    "neighbors": 6,
-    "ratio": 4,
-    "iters": 3,
-    "voxel_size": None,
-    # stem
-    "normals_radius": 0.1,
-    "normals_nn": 30,
-    "angle_cutoff": 10,
-    "stem_voxel_size": .03,
-    "post_id_stat_down": True,
-    "stem_neighbors": 10,
-    "stem_ratio": 2,
-    "stem_iters": 3,
-    # trunk
-    "num_lowest": 2000,
-    "trunk_neighbors": 10,
-    "trunk_ratio": 0.25,
-    # DBSCAN
-    "epsilon": 0.1,
-    "min_neighbors": 10,
-    # sphere
-    "min_sphere_radius": 0.01,
-    "max_radius": 1.5,
-    "radius_multiplier": 1.75,
-    "dist": 0.07,
-    "bad_fit_radius_factor": 2.5,
-    "min_contained_points": 8,
-}
-
-
 skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
 s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
 s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
@@ -78,12 +46,12 @@ s32d = "data/input/s32_downsample_0.04.pcd"
 
 
 def get_stem_pcd(pcd=None, source_file=None
-                ,normals_radius   = config["normals_radius"]
-                ,normals_nn       = config["normals_nn"]    
-                ,nb_neighbors   = config["stem_neighbors"]
-                ,std_ratio      = config["stem_ratio"]
-                ,voxel_size     = config["stem_voxel_size"]
-                ,post_id_stat_down = config["post_id_stat_down"]
+                ,normals_radius   = config['stem']["normals_radius"]
+                ,normals_nn       = config['stem']["normals_nn"]    
+                ,nb_neighbors   = config['stem']["stem_neighbors"]
+                ,std_ratio      = config['stem']["stem_ratio"]
+                ,voxel_size     = config['stem']["stem_voxel_size"]
+                ,post_id_stat_down = config['stem']["post_id_stat_down"]
                 ,):
     """
         filters the point cloud to only those 
@@ -102,7 +70,7 @@ def get_stem_pcd(pcd=None, source_file=None
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn)
     )
 
-    stem_cloud = filter_by_norm(pcd, config["angle_cutoff"])
+    stem_cloud = filter_by_norm(pcd, config['stem']["angle_cutoff"])
     if voxel_size:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
     if post_id_stat_down:
@@ -153,12 +121,12 @@ def sphere_step(
         shape="circle",
         threshold=0.04,
         lower_bound=prev_neighbor_height,
-        max_radius=last_radius * config["radius_multiplier"],
+        max_radius=last_radius * config['sphere']["radius_multiplier"],
     )
 
     good_fit_found = (
         cyl_mesh is not None
-        and fit_radius < config["bad_fit_radius_factor"] * last_radius
+        and fit_radius < config['sphere']["bad_fit_radius_factor"] * last_radius
     )
 
     if good_fit_found:
@@ -185,7 +153,7 @@ def sphere_step(
         # Cluster new neighbors to finpd potential branches
         labels, clusters = choose_and_cluster(np.asarray(new_neighbors), main_pts, cluster_type)
 
-    if clusters == [] or len(new_neighbors) < config["min_contained_points"]:
+    if clusters == [] or len(new_neighbors) < config['sphere']["min_contained_points"]:
         return []
     else:
         if (len(clusters[0]) > 2
@@ -220,10 +188,10 @@ def sphere_step(
         # center = get_center(sub_pcd_pts)
         cluster_radius = get_radius(cluster_pcd_pts)
         print(f"{cluster_radius=}")
-        if cluster_radius < config["min_sphere_radius"]:
-            cluster_radius = config["min_sphere_radius"]
-        if cluster_radius > config["max_radius"]:
-            cluster_radius = config["max_radius"]
+        if cluster_radius < config['sphere']["min_sphere_radius"]:
+            cluster_radius = config['sphere']["min_sphere_radius"]
+        if cluster_radius > config['sphere']["max_radius"]:
+            cluster_radius = config['sphere']["max_radius"]
         if cluster_radius < last_radius / 2:
             cluster_radius = last_radius / 2
  
@@ -288,10 +256,10 @@ def find_low_order_branches():
     print('read in cloud')
     stat_down=pcd
     stat_down = clean_cloud(pcd,
-                            voxels=config['voxel_size'],
-                            neighbors=config['neighbors'],
-                            ratio=config['ratio'],
-                            iters = config['iters'])
+                            voxels=config['initial_clean']['voxel_size'],
+                            neighbors=config['initial_clean']['neighbors'],
+                            ratio=config['initial_clean']['ratio'],
+                            iters = config['initial_clean']['iters'])
     # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
     stem_cloud = get_stem_pcd(stat_down)
 
