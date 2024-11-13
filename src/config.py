@@ -24,22 +24,3 @@ except Exception as error:
     print(f"Error loading log config {error}")
 
 log = logging.getLogger('main')
-
-# in_flow_grade_lim = None
-# output_dir = None
-# input_dir = None
-# qsm_cols = {}
-
-# try:
-#     with open(config_file) as f:
-#         config = toml.load(f)
-#         in_flow_grade_lim = config["model_parameters"]["in_flow_grade_lim"]
-#         root_dir = config["directories"]["root_dir"]
-#         output_dir = config["directories"]["output_dir"]
-#         input_dir = config["directories"]["input_dir"]
-#         test_input_dir = config["directories"]["test_input_dir"]
-#         for column in config["qsm"]:
-#             qsm_cols[column] = config["qsm"][column]
-# except Exception as e:
-#     log.error(f"Error loading configuration variables from {config_file}: {e}")
-#     raise e
