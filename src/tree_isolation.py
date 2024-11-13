@@ -83,6 +83,7 @@ def sphere_step(
     curr_pts,
     last_radius,
     main_pcd,
+    cluster_idxs,
     branch_order,
     branch_num,
     total_found,
@@ -219,6 +220,7 @@ def sphere_step(
             cluster_pcd_pts,
             cluster_radius,
             main_pcd,
+            cluster_idxs.
             cluster_branch,
             branch_num,
             total_found,
