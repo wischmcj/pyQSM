@@ -92,11 +92,20 @@ def angle_from_xy(v1):
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 
-def get_angles(tup, radians=False):
+def get_angles(tup, radians=False, reference = 'XY'):
     """Gets the angle of a vector with the XY axis"""
-    a = tup[0]
-    b = tup[1]
-    c = tup[2]
+    if reference == 'XY':
+        a = tup[0]
+        b = tup[1]
+        c = tup[2]
+    if reference == 'XZ':
+        a = tup[0]
+        b = tup[2]
+        c = tup[1]
+    if reference == 'ZY':
+        a = tup[1]
+        b = tup[0]
+        c = tup[2]
     denom = np.sqrt(a**2 + b**2)
     if denom != 0:
         radians = np.arctan(c / np.sqrt(a**2 + b**2))

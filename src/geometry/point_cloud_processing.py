@@ -1,8 +1,7 @@
 import open3d as o3d
 import numpy as np
-import scipy.spatial as sps
 
-from utils import (
+from utils.math_utils import (
     get_angles,
     get_center,
     get_radius,
@@ -10,7 +9,7 @@ from utils import (
     unit_vector,
     poprow,
 )
-from config import log
+from set_config import log
 
 
 
@@ -23,19 +22,19 @@ def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
     voxel_down_pcd = pcd
 
     if run_voxels:
-        print("Downsample the point cloud with voxels")
-        print(f"orig {pcd}")
+        log.info("Downsample the point cloud with voxels")
+        log.info(f"orig {pcd}")
         voxel_down_pcd = pcd.voxel_down_sample(voxel_size=voxels)
-        print(f"downed {voxel_down_pcd}")
+        log.info(f"downed {voxel_down_pcd}")
     if run_stat:
-        print("Statistical oulier removal")
+        log.info("Statistical oulier removal")
         for i in range(iters):
-            neighbors = neighbors * 1.5
-            ratio = ratio / 1.5
             _, ind = voxel_down_pcd.remove_statistical_outlier(
-                nb_neighbors=10, std_ratio=0.1
+                nb_neighbors=int(neighbors), std_ratio=ratio
             )
             voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
+            neighbors = neighbors * 2
+            ratio = ratio / 1.5
         final = voxel_down_pcd
     else:
         final = pcd
@@ -84,16 +83,20 @@ def orientation_from_norms(norms, samples=10, max_iter=100):
             approx_axis = np.cross(unit_vector(vect), unit_vector(most_normal))
             sum_of_vectors += approx_axis
             found += 1
-    print(f"found {found} in {iter_num} iterations")
+    log.info(f"found {found} in {iter_num} iterations")
     axis_guess = np.asarray(sum_of_vectors) / found
     return axis_guess
 
 
-def filter_by_norm(pcd, angle_thresh=10):
+def filter_by_norm(pcd, angle_thresh=10, rev = False):
     norms = np.asarray(pcd.normals)
     angles = np.apply_along_axis(get_angles, 1, norms)
     angles = np.degrees(angles)
-    stem_idxs = np.where((angles > -angle_thresh) & (angles < angle_thresh))[0]
+    log.info(f"{angle_thresh=}")
+    if rev:
+        stem_idxs = np.where((angles < -angle_thresh) | (angles > angle_thresh))[0]
+    else:
+        stem_idxs = np.where((angles > -angle_thresh) & (angles < angle_thresh))[0]
     stem_cloud = pcd.select_by_index(stem_idxs)
     return stem_cloud
 
@@ -121,9 +124,9 @@ def get_shape(pts, shape="sphere", as_pts=True, rotate="axis", **kwargs):
             )
         except Exception as e:
             breakpoint()
-            print(f"error getting cylinder {e}")
+            log.info(f"error getting cylinder {e}")
 
-    # print(f'Starting Translation/Rotation')
+    # log.info(f'Starting Translation/Rotation')
 
     if as_pts:
         shape = shape.sample_points_uniformly()
@@ -133,14 +136,17 @@ def get_shape(pts, shape="sphere", as_pts=True, rotate="axis", **kwargs):
     arr = kwargs.get("axis")
     if arr is not None:
         vector = unit_vector(arr)
-        print(f"rotate vector {arr}")
+        log.info(f"rotate vector {arr}")
         if rotate == "axis":
             R = shape.get_rotation_matrix_from_axis_angle(kwargs["axis"])
         else:
             R = rotation_matrix_from_arr([0, 0, 1], vector)
         shape.rotate(R, center=kwargs["center"])
     elif rotate == "axis":
-        print("no axis given for rotation, not rotating")
+        log.info("no axis given for rotation, not rotating")
         return shape
 
     return shape
+
+def get_sub_bounding_sphere():
+    pass

@@ -31,8 +31,7 @@ def load_config(config_file: str) -> dict:
 
 log_config =load_config(log_config_file)
 logging.config.dictConfig(log_config)
-log = logging.getLogger('main')
+log = logging.getLogger('calc')
 
 config = load_config(config_file)
-breakpoint()
 log.info(f"Loaded config from {config_file}")

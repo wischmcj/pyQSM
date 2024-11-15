@@ -30,12 +30,12 @@ def iter_draw(idxs_list, pcd):
     return pcd
 
 
-def draw(pcds, raw=False, side_by_side=False, **kwargs):
- if (not(isinstance(pcds, list))
+def draw(pcds, raw=True, side_by_side=False, **kwargs):
+    if (not(isinstance(pcds, list))
         and not(isinstance(pcds, np.ndarray))):
-    pcds = [pcds]
-    if raw:
-        draw_geometries(pcds)
+        pcds_to_draw = [pcds]
+    else:
+        pcds_to_draw = pcds
     if side_by_side:
         trans = 0
         pcds_to_draw = []
@@ -47,8 +47,6 @@ def draw(pcds, raw=False, side_by_side=False, **kwargs):
             max_bound = to_draw.get_axis_aligned_bounding_box().get_max_bound()
             bounds = max_bound - min_bound
             trans+=bounds[0]
-    else:
-        pcds_to_draw = pcds
     #below config used for main dev
     # tree, Secrest27
     draw_geometries(
@@ -69,6 +67,11 @@ def cdraw(pcd,
     vis.get_render_option().load_from_json(render_option_path)
     vis.run()
     vis.destroy_window()
+
+def color_continuous_map(pcd, cvar):
+    density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
+    density_colors = density_colors[:, :3]
+    pcd.colors = o3d.utility.Vector3dVector(density_colors)
 
 # def draw_w_traj(pcd_or_data_path, 
 #                render_option_path= '',

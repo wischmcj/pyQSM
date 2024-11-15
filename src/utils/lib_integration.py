@@ -4,7 +4,8 @@ import numpy as np
 import scipy.spatial as sps
 from matplotlib import pyplot as plt
 
-from utils import get_center, get_radius, config
+from set_config import config, log
+from utils.math_utils import get_center, get_radius
 
 ## Numpy
 
@@ -68,7 +69,7 @@ def find_neighbors_in_ball(
         radius = config['sphere']["min_radius"]
     if radius > config['sphere']["max_radius"]:
         radius = config['sphere']["max_radius"]
-    print(f"{radius=}")
+    log.info(f"{radius=}")
 
     center = [center[0], center[1], max(base_pts[:, 2])]  # - (radius/4)])
 
