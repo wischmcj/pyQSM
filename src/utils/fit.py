@@ -9,30 +9,14 @@ from sklearn.metrics import silhouette_score
 # from sklearn.metrics import davies_bouldin_score
 from sklearn.cluster import DBSCAN
 import pyransac3d as pyrsc
-from open3d.visualization import draw_geometries as draw
 from matplotlib import pyplot as plt
 
-from utils import (get_radius, 
+from geometry.point_cloud_processing import get_shape
+from set_config import config, log
+from utils.math_utils import (get_radius, 
                     get_center, 
                     rotation_matrix_from_arr,
-                    unit_vector, 
-                    config)
-from point_cloud_processing import get_shape, orientation_from_norms
-
-
-def evaluate_orientation(pcd):
-    """
-    Determine the apporoximate orientation
-       of a bounding cylinder for a point cloud
-    """
-    # Get normals and align to Z axis
-    pcd.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=20)
-    )
-    pcd.normalize_normals()
-    norms = np.array(pcd.normals)
-    axis_guess = orientation_from_norms(norms, samples=100, max_iter=1000)
-    return axis_guess
+                    unit_vector)
 
 def z_align_and_fit(pcd, axis_guess, **kwargs):
     """
@@ -51,12 +35,11 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
     # Rotate mesh and pcd back to original orientation'
     # pcd.rotate(R_from_z)
     if mesh is None:
-        # draw([pcd])
+        log.warning('No mesh found')
         return mesh, _, inliers, fit_radius, _
     mesh_pts = mesh.sample_points_uniformly(1000)
     mesh_pts.paint_uniform_color([0, 1.0, 0])
     mesh_pts.rotate(R_from_z)
-    draw([mesh_pts, pcd])
     return mesh, _, inliers, fit_radius, _
 
 def choose_and_cluster(new_neighbors, main_pts, cluster_type):
@@ -69,19 +52,19 @@ def choose_and_cluster(new_neighbors, main_pts, cluster_type):
         nn_points = main_pts[new_neighbors]
     except Exception as e:
         breakpoint()
-        print(f"error in choose_and_cluster {e}")
+        log.info(f"error in choose_and_cluster {e}")
     if cluster_type == "kmeans":
         # in these cases we expect the previous branch
         #     has split into several new branches. Kmeans is
         #     better at characterizing this structure
-        print("clustering via kmeans")
+        log.info("clustering via kmeans")
         labels, returned_clusters = kmeans(nn_points, 1)
         # labels = [idx for idx,_ in enumerate(returned_clusters)]
         # ax = plt.figure().add_subplot(projection='3d')
         # for cluster in returned_clusters: ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
         # plt.show()
     if cluster_type != "kmeans" or len(returned_clusters) < 2:
-        print("clustering via DBSCAN")
+        log.info("clustering via DBSCAN")
         labels, returned_clusters, noise = cluster_DBSCAN(
             new_neighbors,
             nn_points,
@@ -115,11 +98,11 @@ def kmeans(points, min_clusters):
                 try:
                     sh_score = silhouette_score(points, book)
                 except ValueError as err:
-                    print(f"Error in silhouette_score {err}")
+                    log.info(f"Error in silhouette_score {err}")
                     sh_score = 0
                 # ch_score = calinski_harabasz_score(points,book)
                 # db_score = davies_bouldin_score(points,book)
-                # print(f'''num clusters: {num}, sizes: {cluster_sizes},
+                # log.info(f'''num clusters: {num}, sizes: {cluster_sizes},
                 #              sh_score: {sh_score}, ch_score: {ch_score}, db_score: {db_score}''')
                 # results.append(((codes,book,num),[sh_score,ch_score,db_score]))
                 if sh_score > best_score:
@@ -130,7 +113,7 @@ def kmeans(points, min_clusters):
         plt.scatter(pts_2d[:, 0], pts_2d[:, 1], c=best)
         plt.show()
     except Exception as err:
-        print(f"Error in plotting {err}")
+        log.info(f"Error in plotting {err}")
     for i in range(max(best)):
         ids_group_i = [idx for idx, val in enumerate(best) if val == i]
         cluster_idxs.append(ids_group_i)
@@ -169,8 +152,8 @@ def cluster_DBSCAN(pts_idxs, points, eps, min_pts):
             neighbor_idxs = pts_idxs[c_pt_idxs]
             idxs.append(neighbor_idxs)
 
-    print(f"Estimated number of clusters: {num_clusters}")
-    print("Estimated number of noise points: %d" % num_noise)
+    log.info(f"Estimated number of clusters: {num_clusters}")
+    log.info("Estimated number of noise points: %d" % num_noise)
     return unique_labels, idxs, noise
 
 
@@ -178,7 +161,6 @@ def fit_shape_RANSAC(
     pcd=None,
     pts=None,
     threshold=0.1,
-    draw_pcd=False,
     lower_bound=None,
     max_radius=None,
     shape="circle",
@@ -198,22 +180,22 @@ def fit_shape_RANSAC(
     if shape == "circle":
         for pt in fit_pts:
             pt[2] = 0
-        shape = pyrsc.Circle()
+        shape_cls = pyrsc.Circle()
     if shape == "cylinder":
-        shape = pyrsc.Cylinder()
+        shape_cls = pyrsc.Cylinder()
 
-    center, axis, fit_radius, inliers = shape.fit(
+    center, axis, fit_radius, inliers = shape_cls.fit(
         pts=np.asarray(fit_pts), thresh=threshold
     )
-    print(f"fit_cyl = center: {center}, axis: {axis}, radius: {fit_radius}")
+    log.info(f"fit_cyl = center: {center}, axis: {axis}, radius: {fit_radius}")
 
     # if max_radius is not None:
     #     if fit_radius> max_radius:
-    #         print(f'{shape} had radius {fit_radius} but max_radius is {max_radius}')
+    #         log.info(f'{shape} had radius {fit_radius} but max_radius is {max_radius}')
     #         return None, None, None, None, None
 
     if len(center) == 0:
-        print(f"no no fit {shape} found")
+        log.info(f"no no fit {shape} found")
         return None, None, None, None, None
 
     in_pts = pts[inliers]
@@ -229,13 +211,13 @@ def fit_shape_RANSAC(
 
     # if ((axis[0] == 0 and axis[1] == 0 and axis[2] == 1) or
     #     (axis[0] == 0 and axis[1] == 0 and axis[2] == -1)):
-    #     print(f'No Rotation Needed')
+    #     log.info(f'No Rotation Needed')
     #     cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
     #                         center=tuple(test_center),
     #                         radius=fit_radius*1.2,
     #                         height=height)
     # else:
-    #     print(f'Rotation Needed')
+    #     log.info(f'Rotation Needed')
     #     cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
     #                         center=tuple(test_center),
     #                         radius=fit_radius*1.2,
@@ -258,8 +240,5 @@ def fit_shape_RANSAC(
         in_pcd = pcd.select_by_index(inliers)
         pcd.paint_uniform_color([1.0, 0, 0])
         in_pcd.paint_uniform_color([0, 1.0, 0])
-        if draw_pcd:
-            draw([pcd, cyl_mesh])
-            draw([pcd, in_pcd])
 
     return cyl_mesh, in_pcd, inliers, fit_radius, axis
