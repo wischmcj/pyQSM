@@ -1,41 +1,41 @@
 # with open("/code/code/Research/lidar/Secrest_27-5.xyb", mode='rb') as file: # b is important -> binary
 #     fileContent = file.read()
 
-import numpy as np
-import copy
+from collections import defaultdict
+import logging
+
 import open3d as o3d
+import numpy as np
 import matplotlib.pyplot as plt
 
-from scipy.spatial import KDTree
-from open3d.visualization import draw_geometries
 from open3d.io import read_point_cloud, write_point_cloud
-from open3d.geometry import TriangleMesh
 
-from itertools import chain
-from collections import defaultdict
-
-from fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from lib_integration import find_neighbors_in_ball
-
-from config import config
-from mesh_processing import define_conn_comps, get_surface_clusters, map_density
-from point_cloud_processing import ( filter_by_norm,
- clean_cloud,
- crop,
-    orientation_from_norms,
-    filter_by_norm,
-    get_ball_mesh
-)
-from viz import iter_draw, draw
-from utils import (
+from geometry.skeletonize import extract_skeleton, extract_topology
+from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from utils.lib_integration import find_neighbors_in_ball
+from utils.math_utils import (
+    get_angles,
     get_center,
     get_radius,
     rotation_matrix_from_arr,
     unit_vector,
     get_percentile,
 )
-from octree import color_node_pts, draw_leaves, cloud_to_octree, nodes_from_point_idxs, nodes_to_pcd
+
+from set_config import config
+from geometry.mesh_processing import define_conn_comps, get_surface_clusters, map_density
+from geometry.point_cloud_processing import ( filter_by_norm,
+    clean_cloud,
+    crop, get_shape,
+    orientation_from_norms,
+    filter_by_norm,
+    get_ball_mesh
+)
+from viz.viz_utils import iter_draw, draw
+
+
+log = logging.getLogger('calc')
 
 skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
 s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
@@ -50,6 +50,7 @@ def get_stem_pcd(pcd=None, source_file=None
                 ,normals_nn       = config['stem']["normals_nn"]    
                 ,nb_neighbors   = config['stem']["stem_neighbors"]
                 ,std_ratio      = config['stem']["stem_ratio"]
+                ,angle_cutoff      = config['stem']["angle_cutoff"]
                 ,voxel_size     = config['stem']["stem_voxel_size"]
                 ,post_id_stat_down = config['stem']["post_id_stat_down"]
                 ,):
@@ -59,9 +60,9 @@ def get_stem_pcd(pcd=None, source_file=None
         vertical orientation 
     """
     if source_file:
-    # print("IDing stem_cloud")
+    # log.info("IDing stem_cloud")
         pcd = read_point_cloud(source_file)
-    print("cleaned cloud")
+    log.info("cleaned cloud")
     # cropping out ground points
     pcd_pts = np.asarray(pcd.points)
     pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
@@ -70,7 +71,7 @@ def get_stem_pcd(pcd=None, source_file=None
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn)
     )
 
-    stem_cloud = filter_by_norm(pcd, config['stem']["angle_cutoff"])
+    stem_cloud = filter_by_norm(pcd, angle_cutoff)
     if voxel_size:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
     if post_id_stat_down:
@@ -79,14 +80,40 @@ def get_stem_pcd(pcd=None, source_file=None
         stem_cloud = stem_cloud.select_by_index(ind)
     return stem_cloud
 
+def compare_normals_approaches(stat_down):
+    from viz.viz_utils import color_continuous_map
+    stat_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=20))
+    norms = np.asarray(stat_down.normals)
+
+    def angle_func(*args): get_angles(*args, reference='XZ')
+    angles = np.apply_along_axis(angle_func, .1, norms)
+    angles = np.degrees(angles)
+    print("Mean:", np.mean(angles))
+    print("Median:", np.median(angles))
+    print("Standard Deviation:", np.std(angles))
+    color_continuous_map(stat_down,angles)
+    draw(stat_down)
+    stem_cloud =  filter_by_norm(stat_down,10)
+    draw(stem_cloud)
+
+def get_low_cloud(pcd, 
+                  start = config['trunk']['lower_pctile'],
+                  end = config['trunk']['upper_pctile']):
+    algo_source_pcd = pcd  
+    algo_pcd_pts = np.asarray(algo_source_pcd.points)
+    log.info(f"Getting points between the {start} and {end} percentiles")
+    not_so_low_idxs, _ = get_percentile(algo_pcd_pts,start,end)
+    low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
+    return low_cloud,not_so_low_idxs
+
 def sphere_step(
     curr_pts,
     last_radius,
     main_pcd,
     cluster_idxs,
-    branch_order,
-    branch_num,
-    total_found,
+    branch_order=0,
+    branch_num=0,
+    total_found=[],
     run=0,
     branches=[[]],
     id_to_num=defaultdict(int),
@@ -124,6 +151,11 @@ def sphere_step(
         lower_bound=prev_neighbor_height,
         max_radius=last_radius * config['sphere']["radius_multiplier"],
     )
+    
+    if debug:
+        curr_cluster_pcd = main_pcd.select_by_index(cluster_idxs)
+        draw([cyl_mesh.sample_points_uniformly(), curr_cluster_pcd])
+        breakpoint()
 
     good_fit_found = (
         cyl_mesh is not None
@@ -145,14 +177,14 @@ def sphere_step(
     # get all points within radius of the former neighbor
     #    group's center point.
     # Exclude any that have already been found
-    sphere, new_neighbors = find_neighbors_in_ball(curr_pts, main_pts, total_found)
+    sphere, new_neighbors, center, radius = find_neighbors_in_ball(curr_pts, main_pts, total_found)
     spheres.append(sphere)
 
     clusters = ()
     if len(new_neighbors) > 0:
         cluster_type = "kmeans" if not good_fit_found else "DBSCAN"
         # Cluster new neighbors to finpd potential branches
-        labels, clusters = choose_and_cluster(np.asarray(new_neighbors), main_pts, cluster_type)
+        labels, clusters = choose_and_cluster(np.asarray(new_neighbors), main_pts, cluster_type, debug)
 
     if clusters == [] or len(new_neighbors) < config['sphere']["min_contained_points"]:
         return []
@@ -162,7 +194,7 @@ def sphere_step(
             try:
                 test = iter_draw(clusters[1], main_pcd)
             except Exception as e:
-                print(f"error in iterdraw {e}")
+                log.info(f"error in iterdraw {e}")
 
     for cluster_idxs in clusters:
         # done here so all idxs are added to total_found
@@ -178,7 +210,7 @@ def sphere_step(
             branches.append([])
 
         branch_id = branch_num + cluster_branch
-        print(f"{branch_id=}, {cluster_branch=}")
+        log.info(f"{branch_id=}, {cluster_branch=}")
 
         cluster_dict = {cluster_idx: branch_id for cluster_idx in cluster_idxs}
         id_to_num.update(cluster_dict)
@@ -188,9 +220,9 @@ def sphere_step(
         cluster_pcd_pts = np.asarray(main_pcd.points)[cluster_idxs]
         # center = get_center(sub_pcd_pts)
         cluster_radius = get_radius(cluster_pcd_pts)
-        print(f"{cluster_radius=}")
-        if cluster_radius < config['sphere']["min_sphere_radius"]:
-            cluster_radius = config['sphere']["min_sphere_radius"]
+        log.info(f"{cluster_radius=}")
+        if cluster_radius < config['sphere']["min_radius"]:
+            cluster_radius = config['sphere']["min_radius"]
         if cluster_radius > config['sphere']["max_radius"]:
             cluster_radius = config['sphere']["max_radius"]
         if cluster_radius < last_radius / 2:
@@ -214,7 +246,7 @@ def sphere_step(
                 not_found.paint_uniform_color([1, 0, 0])
                 draw([test, not_found])
             except Exception as e:
-                print(f"error in checkpoint_draw {e}")
+                log.info(f"error in checkpoint_draw {e}")
             breakpoint()
         fit_remaining_branch = sphere_step(
             cluster_pcd_pts,
@@ -230,16 +262,20 @@ def sphere_step(
             cyls,
             cyl_details,
             spheres,
+            debug
         )
         if fit_remaining_branch == []:
-            print(f"returned ids {cluster_idxs}")
+            log.info(f"returned ids {cluster_idxs}")
             returned_idxs.extend(cluster_idxs)
             returned_pts.extend(cluster_idxs)
         branch_num += 1
-    print("reached end of function, returning")
+    log.info("reached end of function, returning")
     return branches, id_to_num, cyls, cyl_details
 
-def find_low_order_branches():
+
+def find_low_order_branches(start = 'initial_clean', 
+                             file = '27_pt02.pcd',
+                             extract_skeleton = False):
     # ***********************
     # IDEAS FOR CLEANING RESULTS
     # - Mutliple iterations of statistical outlier removal
@@ -251,69 +287,162 @@ def find_low_order_branches():
     # - Using density calculations to inform radius for fit
     #       - more dense areas -> smaller radius
     # ***********************
+    started = False
+    pcd = None
+    stem_cloud = None
+    stat_down = None
+    if start == 'initial_clean':
+        started = True
+        # Reading in cloud and smooth
+        pcd = read_point_cloud(file, 'xyz', print_progress=True)
+        # breakpoint()
+        if len(np.array(pcd.points)) < 1:
+            log.info("No points found in point cloud")
+            pcd = read_point_cloud(file, print_progress=True)
 
-    # Reading in cloud and smooth
-    pcd = read_point_cloud('27_pt02.pcd',print_progress=True)
-    write_point_cloud("27_pt02.pcd",pcd)
-    print('read in cloud')
-    stat_down=pcd
-    stat_down = clean_cloud(pcd,
-                            voxels=config['initial_clean']['voxel_size'],
-                            neighbors=config['initial_clean']['neighbors'],
-                            ratio=config['initial_clean']['ratio'],
-                            iters = config['initial_clean']['iters'])
-    # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
-    stem_cloud = get_stem_pcd(stat_down)
-    algo_pcd_pts = np.asarray(algo_source_pcd.points)
-    not_so_low_idxs, _ = get_percentile(algo_pcd_pts, 0, 1)
-    low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
-    low_cloud_pts = np.asarray(low_cloud.points)
-    algo_source_pcd = stem_cloud
-    print("Identifying trunk ...")
-    print("Identifying based layer for search ...")
-    sphere, neighbors = find_neighbors_in_ball(low_cloud_pts, algo_pcd_pts, not_so_low_idxs)
-    new_neighbors = np.setdiff1d(neighbors, not_so_low_idxs)
-    total_found = np.concatenate([not_so_low_idxs, new_neighbors])
+        # write_point_cloud(file,pcd)
+        log.info('read in cloud')
+        # stat_down=pcd
+        stat_down = clean_cloud(pcd,
+                                voxels=config['initial_clean']['voxel_size'],
+                                neighbors=config['initial_clean']['neighbors'],
+                                ratio=config['initial_clean']['ratio'],
+                                iters = config['initial_clean']['iters'])
+        draw(stat_down)
+    
+    if start == 'stem_id' or started:
+        # breakpoint()
+        if not started:
+            stat_down = read_point_cloud(file, print_progress=True)
+            started = True
+        # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
+        stem_cloud = get_stem_pcd(stat_down)
+        draw(stem_cloud)
+    
+    if extract_skeleton:
+        contracted, total_point_shift = extract_skeleton(pcd, 
+                                                            trunk_points=None,  
+                                                            debug =False)
+                                                            # moll = moll,
+                                                            # max_iter= iter_num,
+                                                            # contraction_factor = contract)
+        topology, topology_graph, skeleton, skeleton_points, skeleton_graph,rx_graph = extract_topology(contracted)
+        breakpoint()
 
-    print("Fitting cyl to trunk ...")
-    nn_pcd = algo_source_pcd.select_by_index(new_neighbors)
-    nn_pts = algo_pcd_pts[new_neighbors]
-    mesh, trunk_pcd, inliers, fit_radius, axis = fit_shape_RANSAC(pcd=nn_pcd, shape="circle")
+    if start == 'trunk_id' or started:
+        # breakpoint()
+        if not started:
+            stem_cloud = read_point_cloud(file, print_progress=True)
+            started = True
+        log.info("Identifying low percentile by height...")
+        low_cloud, idxs = get_low_cloud(stem_cloud)
+        low_cloud_pts = np.asarray(low_cloud.points)
+        draw(low_cloud)
 
-    print("Running sphere algo")
-    res, id_to_num, cyls, cyl_details = sphere_step(
-        nn_pts,
-        fit_radius,
-        algo_source_pcd,
-        inliers,
-        branch_order=0,
-        branch_num=0,
-        total_found=list(total_found),
-    )
-    breakpoint()
+        log.info(f"Clustering low %ile points to identify trunk")
+        labels = np.array(low_cloud.cluster_dbscan(eps=         config['trunk']['cluster_eps'],        
+                                                   min_points=  config['trunk']['cluster_nn'], 
+                                                   print_progress=True))
+        max_label = labels.max()
+        log.info(f"point cloud has {max_label + 1} clusters")
+        
+        colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+        colors[labels < 0] = 0
+        low_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
+        unique_vals, counts = np.unique(labels, return_counts=True)
+        draw(low_cloud)
+        
+        log.info("Identifying trunk ...")
 
-    # Coloring and drawing the results of 
-    #  sphere step
-    iter_draw(res[0], algo_source_pcd)
+        unique_vals, counts = np.unique(labels, return_counts=True)
+        largest = unique_vals[np.argmax(counts)]
+        trunk_idxs = np.where(labels == largest)[0]
+        trunk = low_cloud.select_by_index(trunk_idxs)
+        trunk_pts = np.asarray(trunk.points)
+        # draw(trunk)
 
-    branch_index = defaultdict(list)
-    for idx, branch_num in id_to_num.items():
-        branch_index[branch_num].append(idx)
-    try:
-        iter_draw(list(branch_index.values()), algo_pcd_pts)
-    except Exception as e:
-        print("error" + e)
+        # obb = trunk.get_oriented_bounding_box()
+        # obb.color = (1, 0, 0)
+        # draw([trunk,obb])
 
-    breakpoint()
+        obb = trunk.get_minimal_oriented_bounding_box()
+        obb.color = (1, 0, 0)
+        draw([trunk,obb])
+        fit_radius = obb.extent[0] / 2
+
+        # breakpoint()
+        # log.info("Fitting cylinder to trunk ...")
+        # cyl_mesh, trunk_pcd, inliers, fit_radius, axis = fit_shape_RANSAC(pcd=low_cloud, shape="circle")
+        # o3d.visualization.draw([cyl_mesh, trunk])
+
+        total_found= trunk_idxs
+        # breakpoint()
+        algo_source_pcd = stem_cloud
+        algo_pcd_pts = np.asarray(algo_source_pcd.points)
+
+        log.info("Identifying first set of points above trunk")
+        sphere, neighbors, center, radius = find_neighbors_in_ball(trunk_pts, algo_pcd_pts, trunk_idxs)
+        new_neighbors = np.setdiff1d(neighbors, trunk_idxs)
+        total_found = np.concatenate([trunk_idxs, new_neighbors])
+        nn_pcd = algo_source_pcd.select_by_index(new_neighbors)
+        nn_pts = algo_pcd_pts[new_neighbors]
+        sphere=get_shape(pts=None, shape='sphere', as_pts=True,   center=tuple(center), radius=radius)
+        o3d.visualization.draw_geometries([nn_pcd,trunk,sphere])
+        breakpoint()
+        # cyl_mesh, trunk_pcd, inliers, fit_radius, axis = fit_shape_RANSAC(pcd=low_cloud, shape="circle")
+        # mesh_pts = cyl_mesh.sample_points_uniformly(1000)
+        # mesh_pts.paint_uniform_color([0, 1.0, 0])
+        # height = np.max(nn_pts[:, 2]) - np.min(nn_pts[:, 2])
+        # cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
+        #                 center=tuple(test_center),
+        #                 radius=fit_radius,
+        #                 height=height,
+        #                 axis=axis)
+        # o3d.visualization.draw_geometries([nn_pcd,mesh_pts])
+    
+
+    if start == 'sphere_step' or started:
+        started = True
+        log.info("Running sphere algo")
+        res, id_to_num, cyls, cyl_details = sphere_step(
+            curr_pts = nn_pts, # The points in the branch currently being traversed 
+            last_radius = fit_radius, # The radius of the last cyliner fit
+            main_pcd = algo_source_pcd, # The parent point cloud being traversed
+            cluster_idxs = new_neighbors, # The indexes of the points in the last cluster
+            branch_order = 0,
+            branch_num = 0,
+            total_found = list(total_found),
+            debug = True
+        )
+        breakpoint()
+
+        # Coloring and drawing the results of 
+        #  sphere step
+        iter_draw(res[0], algo_source_pcd)
+
+        branch_index = defaultdict(list)
+        for idx, branch_num in id_to_num.items():
+            branch_index[branch_num].append(idx)
+        try:
+            iter_draw(list(branch_index.values()), algo_pcd_pts)
+        except Exception as e:
+            log.info("error" + e)
+
+        breakpoint()
 
 if __name__ == "__main__":
-    find_low_order_branches()
+    # find_low_order_branches(file = 'data/input/27_vox_pt02_sta_6-4-3.pcd'
+    #                         ,start = 'stem_id')
+    # 
+    # 
+    # find_low_order_branches(file=skeletor)
+    find_low_order_branches(file='skeletor_super_clean.pcd',start = 'trunk_id')
 
     # pcd =  read_point_cloud("27_vox_pt02_sta_6-4-3.pcd")
     # pcd =  read_point_cloud("stem_cloud.pcd")
     # labels = np.array( pcd.cluster_dbscan(eps=0.1, min_points=10, print_progress=True))
     # max_label = labels.max()
-    # print(f"point cloud has {max_label + 1} clusters")
+    # log.info(f"point cloud has {max_label + 1} clusters")
     # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
     # colors[labels < 0] = 0
     # pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
