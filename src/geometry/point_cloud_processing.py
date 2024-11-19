@@ -4,13 +4,15 @@ import numpy as np
 from utils.math_utils import (
     get_angles,
     get_center,
+    get_percentile,
     get_radius,
     rotation_matrix_from_arr,
     unit_vector,
     poprow,
 )
-from set_config import log
+from set_config import log, config
 
+from viz.viz_utils import color_continuous_map, draw
 
 
 def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
@@ -29,9 +31,7 @@ def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
     if run_stat:
         log.info("Statistical oulier removal")
         for i in range(iters):
-            _, ind = voxel_down_pcd.remove_statistical_outlier(
-                nb_neighbors=int(neighbors), std_ratio=ratio
-            )
+            _, ind = voxel_down_pcd.remove_statistical_outlier(    nb_neighbors=int(neighbors), std_ratio=ratio)
             voxel_down_pcd = voxel_down_pcd.select_by_index(ind)
             neighbors = neighbors * 2
             ratio = ratio / 1.5
@@ -61,6 +61,31 @@ def crop(pts, minx=None, maxx=None, miny=None, maxy=None, minz=None, maxz=None):
     select_idxs = np.setdiff1d(all_idxs, to_remove)
     return select_idxs
 
+def get_low_cloud(pcd, 
+                  start = config['trunk']['lower_pctile'],
+                  end = config['trunk']['upper_pctile']):
+    algo_source_pcd = pcd  
+    algo_pcd_pts = np.asarray(algo_source_pcd.points)
+    log.info(f"Getting points between the {start} and {end} percentiles")
+    not_so_low_idxs, _ = get_percentile(algo_pcd_pts,start,end)
+    low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
+    return low_cloud,not_so_low_idxs
+
+
+def cluster_and_get_largest(pcd,
+                                eps=config['trunk']['cluster_eps'],
+                                min_points=config['trunk']['cluster_nn'],
+                                draw_clusters = False):
+    labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points,print_progress=True))
+    max_label = labels.max()
+    print(f"point cloud has {max_label + 1} clusters")
+    color_continuous_map(pcd, labels)
+    if draw_clusters: draw(pcd)
+    unique_vals, counts = np.unique(labels, return_counts=True)
+    largest = unique_vals[np.argmax(counts)]
+    max_cluster_idxs = np.where(labels == largest)[0]
+    max_cluster = pcd.select_by_index(max_cluster_idxs)
+    return max_cluster
 
 def orientation_from_norms(norms, samples=10, max_iter=100):
     """Attempts to find the orientation of a cylindrical point cloud

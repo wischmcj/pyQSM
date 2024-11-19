@@ -42,27 +42,25 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
     mesh_pts.rotate(R_from_z)
     return mesh, _, inliers, fit_radius, _
 
-def choose_and_cluster(new_neighbors, main_pts, cluster_type):
+def choose_and_cluster(new_neighbors, main_pts, cluster_type, debug=False):
     """
     Determines the appropriate clustering algorithm to use
     and returns the result of said algorithm
     """
     returned_clusters = []
-    try:
-        nn_points = main_pts[new_neighbors]
-    except Exception as e:
-        breakpoint()
-        log.info(f"error in choose_and_cluster {e}")
+    nn_points = main_pts[new_neighbors]
     if cluster_type == "kmeans":
         # in these cases we expect the previous branch
         #     has split into several new branches. Kmeans is
         #     better at characterizing this structure
         log.info("clustering via kmeans")
         labels, returned_clusters = kmeans(nn_points, 1)
-        # labels = [idx for idx,_ in enumerate(returned_clusters)]
-        # ax = plt.figure().add_subplot(projection='3d')
-        # for cluster in returned_clusters: ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
-        # plt.show()
+        if debug:
+            labels = [idx for idx,_ in enumerate(returned_clusters)]
+            ax = plt.figure().add_subplot(projection='3d')
+            for cluster in returned_clusters: 
+                ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
+            plt.show()
     if cluster_type != "kmeans" or len(returned_clusters) < 2:
         log.info("clustering via DBSCAN")
         labels, returned_clusters, noise = cluster_DBSCAN(
