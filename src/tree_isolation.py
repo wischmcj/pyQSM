@@ -430,20 +430,178 @@ def find_low_order_branches(start = 'initial_clean',
 
         breakpoint()
 
+# def build_trees_from_clusters(pcd,
+#                                 cluster_pts):
+#     """
+#         Takes a parent pcd, a list of seed clusters 
+#             and optionally, a neighborhood distance limit 
+#         assignes each point in the parent pcd to one of the seed clusters 
+#         by iterively calculating its nearest neighbor
+#     """   
+#     ptree = o3d.geometry.KDTreeFlann(pcd)
+#     for cluster in clusters:
+
+# def find_scan_nums(points, scans):
+#     for 
+#     
+# bounds = { 'pcd': {'bounds': (pcd.get_max_bound(),pcd.get_min_bound()), 'fragment': 60}
+    #         ,'pcd2':  {'bounds': (pcd2.get_max_bound(),pcd2.get_min_bound()), 'fragment': 80}
+    #         ,'pcd4':  {'bounds': (pcd4.get_max_bound(),pcd4.get_min_bound()), 'fragment': 200}
+    #         ,'pcd5':  {'bounds': (pcd5.get_max_bound(),pcd5.get_min_bound()), 'fragment': 370}
+    #         ,'pcd6':  {'bounds': (pcd6.get_max_bound(),pcd6.get_min_bound()), 'fragment': 420}
+    #         ,'pcd7':  {'bounds': (pcd7.get_max_bound(),pcd7.get_min_bound()), 'fragment': 500}
+    #         ,'pcd8':  {'bounds': (pcd8.get_max_bound(),pcd8.get_min_bound()), 'fragment': 540}
+    #         ,'pcd9':  {'bounds': (pcd9.get_max_bound(),pcd9.get_min_bound()), 'fragment': 580}
+    #         ,'pcd10': {'bounds': (pcd10.get_max_bound(),pcd10.get_min_bound()), 'fragment': 620}
+    #         ,'pcd11': {'bounds': (pcd11.get_max_bound(),pcd11.get_min_bound()), 'fragment': 660}
+    #         ,'pcd12': {'bounds': (pcd12.get_max_bound(),pcd12.get_min_bound()), 'fragment': 700}
+    #         ,'pcd13': {'bounds': (pcd13.get_max_bound(),pcd13.get_min_bound()), 'fragment': 760}
+    #         ,'pcd14': {'bounds': (pcd14.get_max_bound(),pcd14.get_min_bound()), 'fragment': 780}
+    #         }
+    #     {'pcd': {'bounds': (array(
+    # [131.06900024, 392.91799927,   0.        ]), array([ 46.77000046, 286.962677  ,  -6.60300016])), 'fragment': 60}, 'pcd2': {'bounds': (array(
+    # [131.07200623, 360.44699097,  16.38299942]), array([ 98.30500031, 327.67999268,   0.        ])), 'fragment': 80}, 'pcd4': {'bounds': (array(
+    # [131.07200623, 393.21600342,   0.        ]), array([ 46.77000046, 286.962677  ,  -8.04100037])), 'fragment': 200}, 'pcd5': {'bounds': (array(
+    # [180.00500488, 454.43301392,  24.36133385]), array([ 34.05799866, 286.28399658, -21.90399933])), 'fragment': 370}, 'pcd6': {'bounds': (array(
+    # [ 98.3030014 , 360.44699097,  16.38299942]), array([ 65.53700256, 327.67999268,   0.        ])), 'fragment': 420}, 'pcd7': {'bounds': (array(
+    # [131.07200623, 360.44699097,  16.38299942]), array([ 98.30500031, 327.67999268,   0.        ])), 'fragment': 500}, 'pcd8': {'bounds': (array(
+    # [131.07200623, 393.21600342,  23.        ]), array([ 65.53700256, 327.67999268,   0.        ])), 'fragment': 540}, 'pcd9': {'bounds': (array(
+    # [131.07200623, 393.21600342,  16.38299942]), array([ 98.30500031, 360.44900513,   0.        ])), 'fragment': 580}, 'pcd10': {'bounds': (array(
+    # [165.99499512, 393.21600342,  40.64099884]), array([ 98.30500031, 296.33099365,   0.        ])), 'fragment': 620}, 'pcd11': {'bounds': (array(
+    # [185.56399536, 393.21600342,  31.97999954]), array([131.07200623, 327.67999268,   0.        ])), 'fragment': 660}, 'pcd12': {'bounds': (array(
+    # [189.47099304, 438.6539917 ,  28.50699997]), array([ 40.65166855, 360.44900513,   0.        ])), 'fragment': 700}, 'pcd13': {'bounds': (array(
+    # [131.07200623, 425.98300171,  20.59600067]), array([ 98.30500031, 393.21600342,   0.        ])), 'fragment': 760}, 'pcd14': {'bounds': (array(
+    # [163.83900452, 458.29800415,  37.79150009]), array([ 65.54799652, 393.21600342,   0.        ])), 'fragment': 780}}
+
+
 if __name__ == "__main__":
+    import pickle
     # find_low_order_branches(file = 'data/input/27_vox_pt02_sta_6-4-3.pcd'
     #                         ,start = 'stem_id')
     # 
     # 
     # find_low_order_branches(file=skeletor)
-    find_low_order_branches(file='skeletor_super_clean.pcd',start = 'trunk_id')
+    # find_low_order_branches(file='skeletor_super_clean.pcd',start = 'trunk_id')
 
-    # pcd =  read_point_cloud("27_vox_pt02_sta_6-4-3.pcd")
-    # pcd =  read_point_cloud("stem_cloud.pcd")
-    # labels = np.array( pcd.cluster_dbscan(eps=0.1, min_points=10, print_progress=True))
-    # max_label = labels.max()
-    # log.info(f"point cloud has {max_label + 1} clusters")
-    # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    # colors[labels < 0] = 0
-    # pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    # pcd =  read_point_cloud("/code/code/pyQSM/compiled_vox_down_skio_raffai_60000000.pcd")
     # draw([pcd])
+    
+    pcd =   read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_60000000.pcd")
+    pcd2 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_80000000.pcd")
+    pcd4 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_200000000.pcd")
+    pcd5 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_370000000.pcd")
+    pcd6 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_420000000.pcd")
+
+    pcd7 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_500000000.pcd")
+    pcd8 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_540000000.pcd")
+    pcd9 =  read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_580000000.pcd")
+    pcd10 = read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_620000000.pcd")
+
+    pcd11 = read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_660000000.pcd")
+    pcd12 = read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_700000000.pcd")
+    pcd13 = read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_760000000.pcd")
+    pcd14 = read_point_cloud("data/input/SKIO/compiled_vox_down_skio_raffai_780000000.pcd")
+    
+    pcds = [pcd,pcd2,pcd4,pcd5,pcd6, pcd7,pcd8,pcd9,pcd10, pcd11,pcd12,pcd13,pcd14]
+    
+    pts = []
+    colors = []
+    print('aggregating...')
+    for pcdi in pcds: 
+      pts.extend(list(np.asarray(pcdi.points)))
+      colors.extend(list(np.asarray(pcdi.colors)))
+      del pcdi
+    print('creating collective')
+    collective = o3d.geometry.PointCloud()
+    collective.points = o3d.utility.Vector3dVector(pts)
+    collective.colors = o3d.utility.Vector3dVector(colors)
+    # print('drawing collective')
+    # draw(collective)
+    # breakpoint()
+
+    # Using newer 8 scans
+    # (Pdb) collective.get_max_bound()
+    # array([189.47099304, 458.29800415,  40.64099884])
+    # (Pdb) collective.get_min_bound()
+    # array([ 40.65166855, 296.33099365,   0.        ])
+    # using 0 thru 5th percentile 
+    # (Pdb) lowc.get_max_bound()
+    # array([174.31300354, 456.79199219,   1.56596673])
+    #  (if using 2.5 - array([172.69900513, 455.75299072,   0.74398184]))
+    # (Pdb) lowc.get_min_bound()
+    # array([44.4210014, 323.834015 3.33333330e-04])
+
+
+    # Thru 6
+    # lowc = get_low_cloud(collective, 35,45)[0]
+
+    # 7, 8, 9, 10
+    # no ground included in scans, easier to find waist height
+    # lowc = get_low_cloud(collective, 0,5)[0]
+
+    print('getting low cloud...')
+    lowc = get_low_cloud(collective, 15,17)[0]
+    draw(lowc)
+    low_stem = get_stem_pcd(lowc)
+    draw(low_stem)
+    breakpoint()
+
+    print('clustering')
+    # Current settings, close trees being combined, need less neighbors, smaller eps
+    labels = np.array( lowc.cluster_dbscan(eps=.5, min_points=20, print_progress=True))
+    labels_and_pts = dict((('labels', labels),('points', np.asarray(lowc.points))))
+    # with open('skio_clusters_low_pt5-20.pkl','wb') as f:
+    #     pickle.load( f)
+
+    # with open('skio_clusters.pkl','wb') as f:
+    #     labels = pickle.dump(f)
+
+    max_label = labels.max()
+    # visualize the labels
+    log.info(f"point cloud has {max_label + 1} clusters")
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    lowc.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    draw([lowc])
+    breakpoint()
+
+    # Examine/filter the clusters
+    unique_vals, counts = np.unique(labels, return_counts=True)
+    label_idls= [ np.where(labels ==val)[0] for val in unique_vals]
+    clusters = [lowc.select_by_index(idls) for idls in label_idls]
+    
+    cluster_sizes = np.array([len(x) for x in label_idls])
+    large_cutoff = np.percentile(cluster_sizes,85)
+    large_clusters  = np.where(cluster_sizes> large_cutoff)[0]
+    draw(clusters)
+    for idc in large_clusters: clusters[int(idc)].paint_uniform_color([1,0,0])
+    draw(clusters)
+    small_cutoff = np.percentile(cluster_sizes,30)
+    small_clusters  = np.where(cluster_sizes< large_cutoff)[0]
+    draw(clusters)
+    for idc in small_clusters: clusters[int(idc)].paint_uniform_color([1,0,0])
+    draw(clusters)
+
+    final_clusters = clusters
+
+    
+
+    cluster_centers = []
+    clusters = []
+    lowc_pts = np.asarray(lowc.points)
+    for cluster in clusters in unique_vals: 
+        bounds = (cluster.get_max_bound(), lowc.get_min_bound())
+        coordinate_ranges = zip(*bounds)
+        # bounds = (lowc.get_max_bound(), lowc.get_min_bound())
+
+
+        # cluster_pts = lowc_pts[label_idxs]
+        # cluster_center = get_center(cluster_pts)
+        # cluster_centers.append(cluster_center)
+        # cluster_pts.append(cluster_pts)
+        # clusters.append(lowc.select_by_index(label_idxs))
+        
+    breakpoint()
+        
+
+
