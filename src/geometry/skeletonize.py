@@ -3,6 +3,8 @@ import sys
 from collections import defaultdict
 from itertools import chain
 
+from utils.fit import kmeans
+
 sys.path.insert(0,'/code/code/pyQSM/src/')
 import robust_laplacian
 from plyfile import PlyData
@@ -503,34 +505,35 @@ if __name__ == "__main__":
 
     ## Files for Testing w/ first try
     # pcd = o3d.io.read_point_cloud("skeletor_trunk.pcd")
-    # pcd_colored = o3d.io.read_point_cloud("high_contraction1.pcd")
-    # trunk = o3d.io.read_point_cloud("high_contraction_iter1_top60.pcd")
-    # test =o3d.io.read_point_cloud("high_c_pcd_contracted.pcd")
+    pcd           = o3d.io.read_point_cloud("pcd_super_3to9.pcd")
+    pcd_colored = o3d.io.read_point_cloud("high_contraction1.pcd")
+    trunk = o3d.io.read_point_cloud("high_contraction_iter1_top60.pcd")
+    test =o3d.io.read_point_cloud("high_c_pcd_contracted.pcd")
 
     ## Files for Testing w/ super clean
     # pcd           = o3d.io.read_point_cloud("pcd_super_3to9.pcd")
     # pcd_colored   = o3d.io.read_point_cloud("pcd_super_4to9_high_c_colorted.pcd")
     # trunk = o3d.io.read_point_cloud("high_c_super4to9.pcd")
 
-    trunk = o3d.io.read_point_cloud("skeletor_super_clean.pcd")
-    trunk = trunk.uniform_down_sample(4)
+    # trunk = o3d.io.read_point_cloud("skeletor_super_clean.pcd")
+    # trunk = trunk.uniform_down_sample(4)
     # draw(trunk)
     # draw(pcd)
     # draw(test)
     # draw(pcd_colored)
-    breakpoint()
+    # breakpoint()
 
     contracted, total_point_shift, shift_by_step = extract_skeleton(trunk, max_iter = 20, debug=False)
-    draw([contracted])
+    # draw([contracted])
     # o3d.io.write_point_cloud(f"min_clean_high_c_contracted.pcd", contracted)
 
     topology, topology_graph, skeleton, skeleton_points, skeleton_graph,rx_graph, orig_to_contracted= extract_topology(contracted)
     print('reached end ')
     # o3d.io.write_point_cloud(f"min_clean_high_c_topology.pcd", contracted)
     # draw([skeleton])
-    draw([topology])
+    # draw([topology])
 
-    breakpoint()
+    # breakpoint()
     ## Finding point to rotate around
     base_center = get_center(np.asarray(trunk.points),center_type = "bottom")
     # mn = trunk.get_min_bound()
@@ -540,11 +543,12 @@ if __name__ == "__main__":
     # sp.paint_uniform_color([1,0,0])
     # sp.translate(base)
 
-    for pcd in [trunk,contracted,skeleton,topology]:
-        pcd.translate(np.array([-x for x in base_center ]))
-        pcd.rotate(rot_90_x)
-        pcd.rotate(rot_90_x)
-        pcd.rotate(rot_90_x)
+    
+    # for eapcd in [pcd, trunk,contracted,skeleton,topology]:
+    #     eapcd.translate(np.array([-x for x in base_center ]))
+    #     eapcd.rotate(rot_90_x)
+    #     eapcd.rotate(rot_90_x)
+    #     eapcd.rotate(rot_90_x)
 
     # draw([ttrunk,trunk])
     # draw([contracted,sp])
@@ -576,7 +580,7 @@ if __name__ == "__main__":
 
     points = np.asarray(topology.points)
     lines = np.asarray(topology.lines)
-    distances = np.linalg.norm(points[lines[:, 0]] - points[lines[:, 1]], axis=1)
+    line_lengths = np.linalg.norm(points[lines[:, 0]] - points[lines[:, 1]], axis=1)
     edges = topology_graph.edges(data=True)
     edge_to_orig = {tuple((x[0],x[1])):x[2].get('data') for x in edges}
     all_verticies = list(chain.from_iterable([x[2].get('data',[]) for x in edges]))
@@ -585,16 +589,27 @@ if __name__ == "__main__":
     most_contracted_idx = np.argmax([len(x) for x in orig_verticies if x is not None])
     most_contracted_list = orig_verticies[most_contracted_idx]
 
-    print("Mean:", np.mean(distances))
-    print("Median:", np.median(distances))
-    print("Standard Deviation:", np.std(distances))
-    colors = [[0,0,0]]*len(distances)
-    long_line_idxs = np.where(distances>np.percentile(distances,60))[0]
+    print("Mean:", np.mean(line_lengths))
+    print("Median:", np.median(line_lengths))
+    print("Standard Deviation:", np.std(line_lengths))
+    colors = [[0,0,0]]*len(line_lengths)
+    long_line_idxs = np.where(line_lengths>np.percentile(line_lengths,60))[0]
     for idx in long_line_idxs: colors[idx] = [1,0,0]
     topology.colors = o3d.utility.Vector3dVector(colors)
 
     contraction_dist = np.linalg.norm(total_point_shift, axis=1)
+    print("Max Contraction:", np.max(contraction_dist))
+    print("Mean Contraction:", np.mean(contraction_dist))
+    print("Median Contraction:", np.median(contraction_dist))
+    print("Standard Deviation Contraction:", np.std(contraction_dist))
     contracted_to_orig = {v:k for k,v in orig_to_contracted.items()} # mapping is a bijection
+
+    # import pickle as pk
+    # skeletor_hyper_qsm_state = [trunk, skeleton, skeleton_graph, contracted, topology, topology_graph, total_point_shift,]
+    # with open('skeletor_hyper_qsm_state.pkl', 'wb') as f: pk.dump(skeletor_hyper_qsm_state, f)
+    # with open('skeletor_hyper_qsm_state.pkl', 'rb') as f: skeletor_hyper_qsm_state = pk.load(f)
+    # trunk, skeleton, skeleton_graph, contracted, topology, topology_graph, total_point_shift = skeletor_hyper_qsm_state
+   
     # For point with idp in topology.points, 
     #   point = skeleton_points[contracted_to_orig[idp]]
     #
@@ -604,21 +619,22 @@ if __name__ == "__main__":
     test = False
     cyls = []
     cyl_objects = []
-    pcd_pts_contained = []
-    pcd_points = np.array(pcd_colored.points)
+    # pcd_pts_contained = []
+    # pcd_points = np.array(pcd_colored.points)
     for idx, line in enumerate(lines):
         from skspatial.objects import Cylinder
         start = points[line[0]]
         end = points[line[1]]
         vector = end-start
+        line_dist = np.linalg.norm(vector)
         uvector = unit_vector(vector)    
 
         orig_verticies = edge_to_orig[tuple(line)] 
         contraction_dists = contraction_dist[orig_verticies]
         
-        cyl_radius= np.mean(contraction_dists)
-        cyl  = Cylinder.from_points(start,end,cyl_radius*1.1)
-        cyl_pts = cyl.to_points(n_angles=20).round(3).unique()
+        cyl_radius= np.mean(contraction_dists)/2
+        cyl  = Cylinder.from_points(start,end,cyl_radius)
+        cyl_pts = cyl.to_points(n_angles=30, n_along_axis = 70).round(3).unique()
         cyl_pcd = o3d.geometry.PointCloud()
         cyl_pcd.points = o3d.utility.Vector3dVector(cyl_pts)
         cyls.append(cyl_pcd)
@@ -627,7 +643,7 @@ if __name__ == "__main__":
         if test:
             breakpoint()
             print('test')
-        if idx %10 == 0:    
+        if idx %20 == 0:    
             print(f'finished iteration {idx}')
         
 
@@ -647,11 +663,20 @@ if __name__ == "__main__":
         pts.extend(np.array(cyl.points))
     all_cyl_pcd= o3d.geometry.PointCloud()
     all_cyl_pcd.points = o3d.utility.Vector3dVector(pts)
-    draw(cyls)
+    draw([all_cyl_pcd,pcd])
     breakpoint()
-    gif_center = get_center(np.asarray(trunk.points),center_type = "bottom")
-    animate_contracted_pcd( all_cyl_pcd,trunk.voxel_down_sample(.05),  point_size=3, rot_center = gif_center, steps=360, save = True, file_name = '_proto_qsm_trunk',transient_period = 30)
-    animate_contracted_pcd( all_cyl_pcd,topology,  point_size=3, rot_center = gif_center, steps=360, save = True, file_name = '_proto_qsm_topo',transient_period = 30)
+    # labels = np.array( trunk.cluster_dbscan(eps=0.01, min_points=15, print_progress=True)) 
+    labels = np.array( kmeans(np.asarray(trunk.points),6))
+    max_label = labels.max()
+    log.info(f"point cloud has {max_label + 1} clusters")
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    trunk.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    draw(trunk)
+
+    # gif_center = get_center(np.asarray(trunk.points),center_type = "bottom")
+    # animate_contracted_pcd( all_cyl_pcd,trunk.voxel_down_sample(.05),  point_size=3, rot_center = gif_center, steps=360, save = True, file_name = '_proto_qsm_trunk',transient_period = 30)
+    # animate_contracted_pcd( all_cyl_pcd,topology,  point_size=3, rot_center = gif_center, steps=360, save = True, file_name = '_proto_qsm_topo',transient_period = 30)
     
     breakpoint()
 

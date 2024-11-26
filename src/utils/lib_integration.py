@@ -60,8 +60,6 @@ def find_neighbors_in_ball(
         finds all points within the search set falling
          within a sphere of a given radius centered on the centroid
     """
-    if not center:
-        center = get_center(base_pts)
     if not radius:
         radius = get_radius(base_pts) * config['sphere']["radius_multiplier"]
 
@@ -71,11 +69,20 @@ def find_neighbors_in_ball(
         radius = config['sphere']["max_radius"]
     log.info(f"{radius=}")
 
+    max_base_height =  max(base_pts[:, 2])
+    min_base_height =  min(base_pts[:, 2])
+    top_ten_bottom = max_base_height - (max_base_height - min_base_height) * 0.1
+    top_ten_pts = base_pts[base_pts[:, 2] > top_ten_bottom]
+    if not center:
+        center = get_center(top_ten_pts)
+    
     center = [center[0], center[1], max(base_pts[:, 2])]  # - (radius/4)])
 
     full_tree = sps.KDTree(points_to_search)
+    log.info(f"Searching for neighbors in a sphere of radius {radius} centered at {center}")
     neighbors = full_tree.query_ball_point(center, r=radius)
     res = []
+    
     if draw:
         ax = plt.figure().add_subplot(projection='3d')
         ax.scatter(base_pts[:,0], base_pts[:,1], base_pts[:,2], 'r')
@@ -92,4 +99,4 @@ def find_neighbors_in_ball(
         sphere_pts.paint_uniform_color([0,1,0])
         ax.plot(sphere_pts[:,0], sphere_pts[:,1], sphere_pts[:,2], 'o')
         plt.show()
-    return sphere, res
+    return sphere, res, center, radius
