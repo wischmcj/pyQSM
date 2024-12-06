@@ -676,7 +676,7 @@ if __name__ == "__main__":
 
     print('getting low cloud...')
     lowc, lowc_ids_from_col = get_low_cloud(collective, 15,17)
-    ground, ground_ids_from_col = get_low_cloud(collective, 0,14)
+    highc, highc_ids_from_col = get_low_cloud(collective, 17,100)
     breakpoint()
     # draw(lowc)
     # low_stem = get_stem_pcd(lowc)
@@ -725,79 +725,85 @@ if __name__ == "__main__":
     import scipy.spatial as sps
     import itertools
 
-    def within(extent, containing):
-        all([
-                all([pt[0][i]<bnds[0][i] for i in range(3) for pt,bnds in zip(extent,containing)]),
-                all([pt[1][i]>bnds[1][i] for i in range(3) for pt,bnds in zip(extent,containing)])
-            ])
+    # def within(extent, containing):
+    #     all([
+    #             all([pt[0][i]<bnds[0][i] for i in range(3) for pt,bnds in zip(extent,containing)]),
+    #             all([pt[1][i]>bnds[1][i] for i in range(3) for pt,bnds in zip(extent,containing)])
+    #         ])
 
-    col_pts = arr(collective.points)
-    col_tree = sps.KDTree(col_pts)
-    try:
-        cluster_ids_in_col = [arr(lowc_ids_from_col)[idls] for idls in label_idls]
-        cluster_extents = [cluster.get_max_bound()-cluster.get_min_bound() for cluster in clusters]
-        centers = [get_center(arr(x.points)) for x in clusters]
-        cluster_pts = [arr(cluster.points) for cluster in clusters]
-        minz = min(arr(lowc.points)[:,2])
+    factor = 40
+    zoom_region = [(clusters[19].get_max_bound()[0]+factor,clusters[19].get_min_bound()[0]-factor,
+                    clusters[19].get_max_bound()[1]+factor,clusters[19].get_min_bound()[1]-factor)]
+    clusters = [cluster for cluster in clusters if 
+                (cluster.get_max_bound()[0]<zoom_region[0][0] and cluster.get_max_bound()[1]<zoom_region[1][0] and 
+                    cluster.get_min_bound()[0]>zoom_region[0][1] and cluster.get_min_bound()[1]>zoom_region[1][1])]
 
-        clustered_ids = list(chain.from_iterable(cluster_ids_in_col))
-        mask = np.ones(col_pts.shape, dtype=bool)
-        mask[clustered_ids] = False
-        not_yet_traversed = np.where(mask)
 
-        # ex below will later be generalised 
-        #  in arrays defined prior to a loop 
-        i =19
-        cluster = clusters[i]
-        cluster_ids = cluster_ids_in_col[i]
-        cluster_bnds = cluster_extents[i]
-        cluster_extent = cluster_extents[i][0] - cluster_extents[i][1]
+    highc_pts = arr(highc.points)
+    highc_tree = sps.KDTree(highc_pts)
+    
+    # cluster_ids_in_col = [arr(lowc_ids_from_col)[idls] for idls in label_idls]
+    cluster_extents = [cluster.get_max_bound()-cluster.get_min_bound() for cluster in clusters]
+    centers = [get_center(arr(x.points)) for x in clusters]
+    cluster_pts = [arr(cluster.points) for cluster in clusters]
+    minz = min(arr(lowc.points)[:,2])
+    
 
-        other_ids = cluster_ids_in_col[0:i]
-        other_ids = other_ids.extend(cluster_ids_in_col[i+1:])
-        other_ids = list(chain.from_iterable(other_ids))
-        breakpoint()
-        # nearby_ids = np.where(cluster_extents)
+    # clustered_ids = list(chain.from_iterable(cluster_ids_in_col))
+    # mask = np.ones(col_pts.shape[0], dtype=bool)
+    # mask[clustered_ids] = False
+    # not_yet_traversed = np.where(mask)[0] # ids of non-clustered
+    not_yet_traversed = [idx for idx,_ in enumerate(highc_pts)]
+    
+    # ex below will later be generalised 
+    #  in arrays defined prior to a loop 
+    i =19
+    # cluster         = clusters[i]
+    # cluster_ids     = clustered_ids[i]
+    # cluster_extent  = cluster_extents[i]
+    # center          = centers[i]
+    # curr_pts        = cluster_pts[i]
 
-        center = get_center(arr(cluster.points))
-        curr_pts = arr(clusters[i].points)
-        minz = min(arr(cluster.points)[:,2])
-
-        tree_pts = []
-        tree_idxs = [] #[[]] # to hold array of ids for each cluster's tree
-        tree_idxs.extend(cluster_ids)
-    except Exception as e:
-        breakpoint()
-        print(f'error {e}')
+    # other_ids = cluster_ids_in_col[0:i]
+    # other_ids.extend(cluster_ids_in_col[i+1:])
+    # other_ids = list(chain.from_iterable(other_ids))
+    # nearby_ids = np.where(cluster_extents)
+        
+    traversed = []
+    tree_pts = []*len(clusters)
+    tree_idxs = []*len(clusters) #[[]] # to hold array of ids for each cluster's tree
+    # tree_idxs.extend(cluster_ids)
 
     breakpoint()
     for i in range(30):
+        print('start iter')
         #for cluster in clusters:
-        tree_pts.append(curr_pts)
+        for idx, (cluster, cluster_extent, center, curr_pts) in enumerate(zip(clusters, 
+                                                                    cluster_extents,
+                                                                    centers,
+                                                                    cluster_pts)):
 
-        dists,nbrs = col_tree.query(curr_pts,
-                                    k=500,
-                                    distance_upper_bound= max(cluster_extent)*1.2) 
-        nbrs = [x for x in nbrs if x not in other_ids] # exclude points in other clusters
-        # Note: distances are all rather similar -> uniform distribution of collective
-        d_nbrs = list(set(itertools.chain.from_iterable(nbrs)))
-        nbr_pts = np.array(collective.points)[d_nbrs]
-
-        # Taking just neighbors at the top of the trunk section
-        # Hoping to avoid the cluster 'growing' along the ground
-        curr_pts_idxs = np.where(nbr_pts[:, 2]>center[2])[0]
-        curr_pts = nbr_pts[curr_pts_idxs]
-        # but we want to include the lower neighbors in the final tree
-        if i==0: tree_pts.append( np.where(nbr_pts[:, 2]<=center[2])[0])
-
-        # cluster_ids are in low_cloud, but new nbrs are
-        # in 
-        tree_idxs.extend(d_nbrs)
-        tree_pcd = collective.select_by_index(d_nbrs)
-        draw([tree_pcd, cluster])
-        breakpoint()
-    # nbr_pcd = collective.select_by_index(d_nbrs)
-
+            dists,nbrs = highc_tree.query(curr_pts,
+                                        k=500,
+                                        distance_upper_bound= max(cluster_extent)*1.2) 
+            print('process nbrs')
+            try:
+                d_nbrs = list(set(itertools.chain.from_iterable(nbrs)))
+                nbrs = [x for x in d_nbrs if x not in traversed] # exclude points in other clusters
+                # Note: distances are all rather similar -> uniform distribution of collective
+                nbr_pts = highc_pts[d_nbrs]
+                curr_pts = nbr_pts
+                tree_pts[idx].extend(curr_pts)
+                tree_idxs[idx].extend(d_nbrs)
+                traversed.extend(d_nbrs)
+            except Exception as e:
+                breakpoint()
+                print(f'error {e}')
+            if idx == 19:
+                print('draw nbrs')
+                tree_pcd = highc.select_by_index(d_nbrs)
+                draw([tree_pcd, cluster])
+                breakpoint()
 
     # node_list =  octree.root_node.children
     # leaves  = []
@@ -813,24 +819,24 @@ if __name__ == "__main__":
         
             
 
-    containing_path = []
-    curr_node = octree.root_node
-    for index in ancestors:
-        curr_node = curr_node.children[index]
-        containing_path.append(curr_node)
+    # containing_path = []
+    # curr_node = octree.root_node
+    # for index in ancestors:
+    #     curr_node = curr_node.children[index]
+    #     containing_path.append(curr_node)
         
-    parent_inds = parent.indices
-    nbhood = collective.select_by_index(parent_inds)
+    # parent_inds = parent.indices
+    # nbhood = collective.select_by_index(parent_inds)
 
-    unique_nodes, node_occurences = np.unique(centers, return_counts=True)
-    inds = [node.indices for node,node_info in leaves]
-    combined_inds = chain.from_iterable(inds)
+    # unique_nodes, node_occurences = np.unique(centers, return_counts=True)
+    # inds = [node.indices for node,node_info in leaves]
+    # combined_inds = chain.from_iterable(inds)
 
-    if len(centers) ==1:
-        nb_inds = leaves[0][0].indices
-        nbhood = collective.select_by_index(nb_inds)
-        nb_labels = np.array( nbhood.cluster_dbscan(eps=.5, min_points=20, print_progress=True))
-        nb_colors = color_and_draw_clusters(nbhood, nb_labels)
+    # if len(centers) ==1:
+    #     nb_inds = leaves[0][0].indices
+    #     nbhood = collective.select_by_index(nb_inds)
+    #     nb_labels = np.array( nbhood.cluster_dbscan(eps=.5, min_points=20, print_progress=True))
+    #     nb_colors = color_and_draw_clusters(nbhood, nb_labels)
         
     breakpoint()
 
