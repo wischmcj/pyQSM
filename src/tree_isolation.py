@@ -3,9 +3,12 @@
 
 from collections import defaultdict
 import logging
+from itertools import chain
 
 import open3d as o3d
 import numpy as np
+from numpy import asarray as arr
+
 import matplotlib.pyplot as plt
 
 from open3d.io import read_point_cloud, write_point_cloud
@@ -64,7 +67,7 @@ def get_stem_pcd(pcd=None, source_file=None
         pcd = read_point_cloud(source_file)
     log.info("cleaned cloud")
     # cropping out ground points
-    pcd_pts = np.asarray(pcd.points)
+    pcd_pts = arr(pcd.points)
     pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
     pcd = pcd.select_by_index(pcd_cropped_idxs)
     pcd.estimate_normals(
@@ -83,7 +86,7 @@ def get_stem_pcd(pcd=None, source_file=None
 def compare_normals_approaches(stat_down):
     from viz.viz_utils import color_continuous_map
     stat_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=20))
-    norms = np.asarray(stat_down.normals)
+    norms = arr(stat_down.normals)
 
     def angle_func(*args): get_angles(*args, reference='XZ')
     angles = np.apply_along_axis(angle_func, .1, norms)
@@ -100,11 +103,11 @@ def get_low_cloud(pcd,
                   start = config['trunk']['lower_pctile'],
                   end = config['trunk']['upper_pctile']):
     algo_source_pcd = pcd  
-    algo_pcd_pts = np.asarray(algo_source_pcd.points)
+    algo_pcd_pts = arr(algo_source_pcd.points)
     log.info(f"Getting points between the {start} and {end} percentiles")
-    not_so_low_idxs, _ = get_percentile(algo_pcd_pts,start,end)
-    low_cloud = algo_source_pcd.select_by_index(not_so_low_idxs)
-    return low_cloud,not_so_low_idxs
+    not_too_low_idxs, _ = get_percentile(algo_pcd_pts,start,end)
+    low_cloud = algo_source_pcd.select_by_index(not_too_low_idxs)
+    return low_cloud, not_too_low_idxs
 
 def sphere_step(
     curr_pts,
@@ -137,7 +140,7 @@ def sphere_step(
     if branches == [[]]:
         branches[0].append(total_found)
 
-    main_pts = np.asarray(main_pcd.points)
+    main_pts = arr(main_pcd.points)
 
     cyl_mesh = None
     fit_radius = 0
@@ -184,7 +187,7 @@ def sphere_step(
     if len(new_neighbors) > 0:
         cluster_type = "kmeans" if not good_fit_found else "DBSCAN"
         # Cluster new neighbors to finpd potential branches
-        labels, clusters = choose_and_cluster(np.asarray(new_neighbors), main_pts, cluster_type, debug)
+        labels, clusters = choose_and_cluster(arr(new_neighbors), main_pts, cluster_type, debug)
 
     if clusters == [] or len(new_neighbors) < config['sphere']["min_contained_points"]:
         return []
@@ -217,7 +220,7 @@ def sphere_step(
         branches[cluster_branch].extend(cluster_idxs)
 
         # curr_plus_cluster = np.concatenate([curr_pts_idxs, cluster_idxs])
-        cluster_pcd_pts = np.asarray(main_pcd.points)[cluster_idxs]
+        cluster_pcd_pts = arr(main_pcd.points)[cluster_idxs]
         # center = get_center(sub_pcd_pts)
         cluster_radius = get_radius(cluster_pcd_pts)
         log.info(f"{cluster_radius=}")
@@ -336,7 +339,7 @@ def find_low_order_branches(start = 'initial_clean',
             started = True
         log.info("Identifying low percentile by height...")
         low_cloud, idxs = get_low_cloud(stem_cloud)
-        low_cloud_pts = np.asarray(low_cloud.points)
+        low_cloud_pts = arr(low_cloud.points)
         draw(low_cloud)
 
         log.info(f"Clustering low %ile points to identify trunk")
@@ -358,7 +361,7 @@ def find_low_order_branches(start = 'initial_clean',
         largest = unique_vals[np.argmax(counts)]
         trunk_idxs = np.where(labels == largest)[0]
         trunk = low_cloud.select_by_index(trunk_idxs)
-        trunk_pts = np.asarray(trunk.points)
+        trunk_pts = arr(trunk.points)
         # draw(trunk)
 
         # obb = trunk.get_oriented_bounding_box()
@@ -378,7 +381,7 @@ def find_low_order_branches(start = 'initial_clean',
         total_found= trunk_idxs
         # breakpoint()
         algo_source_pcd = stem_cloud
-        algo_pcd_pts = np.asarray(algo_source_pcd.points)
+        algo_pcd_pts = arr(algo_source_pcd.points)
 
         log.info("Identifying first set of points above trunk")
         sphere, neighbors, center, radius = find_neighbors_in_ball(trunk_pts, algo_pcd_pts, trunk_idxs)
@@ -473,6 +476,138 @@ def find_low_order_branches(start = 'initial_clean',
     # [131.07200623, 425.98300171,  20.59600067]), array([ 98.30500031, 393.21600342,   0.        ])), 'fragment': 760}, 'pcd14': {'bounds': (array(
     # [163.83900452, 458.29800415,  37.79150009]), array([ 65.54799652, 393.21600342,   0.        ])), 'fragment': 780}}
 
+def build_octree(pcd,
+                   ot_depth=4,
+                   ot_expand_factor = 0.01):
+    print('octree division')
+    octree = o3d.geometry.Octree(max_depth=ot_depth)
+    octree.convert_from_point_cloud(pcd, size_expand=ot_expand_factor)
+    # o3d.visualization.draw_geometries([octree])
+    return octree
+
+def f_traverse(node, node_info):
+    early_stop = False
+
+    if isinstance(node, o3d.geometry.OctreeInternalNode):
+        if isinstance(node, o3d.geometry.OctreeInternalPointNode):
+            n = 0
+            n = len([x for x in node.children if x])
+            # for child in node.children:
+            #     if child is not None:
+            #         n += 1
+
+            num_pts = len(node.indices)
+            spaces_by_depth = '    ' * node_info.depth
+            print(
+                f"""{spaces_by_depth}{node_info.child_index}: Internal node at depth {node_info.depth} 
+                    has {n} children and {num_pts} points ({node_info.origin})""")
+
+            # we only want to process nodes / spatial regions with enough points
+            early_stop = len(node.indices) < 250
+    elif isinstance(node, o3d.geometry.OctreeLeafNode):
+        if isinstance(node, o3d.geometry.OctreePointColorLeafNode):
+            print("{}{}: Leaf node at depth {} has {} points with origin {}".
+                  format('    ' * node_info.depth, node_info.child_index,
+                         node_info.depth, len(node.indices), node_info.origin))
+    else:
+        log.info(f'Reached a unrecognized node type: {type(node)}')
+        raise NotImplementedError('Node type not recognized!')
+
+    # early stopping: if True, traversal of children of the current node will be skipped
+    return early_stop
+
+# def find_local_octree_nodes(oct, point):
+#     pt_node = oct.locate_leaf_node(point)
+#     pt_node
+#     traversed = []
+#     traversed_info = []
+#     def find(node, node_info, depth = 4):
+
+#     octree.locate_leaf_node(pcd.points[0])
+
+def get_ancestors(octree, 
+                  find_node):
+    ret_tree = []
+    def is_ancestor(node, ancestor_tree, find_idx):
+        if isinstance(node, o3d.geometry.OctreeInternalPointNode):
+            for idc, child in enumerate(node.children):
+                if child is not None:
+                    if find_idx in node.indices:
+                        ancestor_tree.append(idc)
+                        print(f'found find idx {node=} {idc=}')  
+                        return is_ancestor(child, ancestor_tree, find_idx)
+                elif child is None:
+                    print(f'child {idc} is none')
+        elif isinstance(node, o3d.geometry.OctreeLeafNode):
+                return True
+    find_idx = find_node.indices[0]
+    is_ancestor(octree.root_node, ret_tree, find_idx)
+    return ret_tree
+
+# def traverse_get_parent(node, node_info):
+#     if found_node: return True
+#     early_stop = found_node or False
+#     if isinstance(node, o3d.geometry.OctreeInternalPointNode):
+#         for child in node_info.children:
+#             if child is not None:
+#                 if find_idx in node.indicies:
+#                     curr_tree.append((node,node_info))
+#                     log.info(f'found find idx in node {node} {node_info}')   
+#                 else:
+#                     early_stop = True
+#     elif isinstance(node, o3d.geometry.OctreeLeafNode):
+#         if node_info.origin == find_origin:
+#             log.info(f'found find node, ending with {curr_tree}')
+#             found_node = True
+#             early_stop = True
+#     return early_stop
+
+def color_and_draw_clusters(pcd , labels):
+    max_label = labels.max()
+    # visualize the labels
+    log.info(f"point cloud has {max_label + 1} clusters")
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    colors = o3d.utility.Vector3dVector(colors[:, :3])
+    pcd.colors = colors
+    draw([pcd])
+    return colors
+
+def node_to_pcd(parent_pcd,node):
+    nb_inds = node.indices
+    nbhood = parent_pcd.select_by_index(nb_inds)
+    nb_labels = np.array( nbhood.cluster_dbscan(eps=.5, min_points=20, print_progress=True))
+    # nb_colors = color_and_draw_clusters(nbhood, nb_labels)
+    return nbhood, nb_labels
+
+
+def get_leaves(node, leaves):
+    if not isinstance(node, o3d.geometry.OctreeLeafNode): 
+        for c_node in [x for x in node.children if x]:
+            get_leaves(c_node, leaves)
+    else:
+        leaves.append(node)
+        return leaves
+
+def get_containing_tree(octree, 
+                  find_node):
+    ret_tree = []
+    def is_ancestor(node, ancestor_tree, find_idx):
+        if isinstance(node, o3d.geometry.OctreeInternalPointNode):
+            for idc, child in enumerate(node.children):
+                if child is not None:
+                    if find_idx in node.indices:
+                        ancestor_tree.append(idc)
+                        print(f'found find idx {node=} {idc=}')  
+                        return is_ancestor(child, ancestor_tree, find_idx)
+        elif isinstance(node, o3d.geometry.OctreeLeafNode):
+                return True
+    find_idx = find_node.indices[0]
+    is_ancestor(octree.root_node, ret_tree, find_idx)
+    return ret_tree
+
+
+
 
 if __name__ == "__main__":
     import pickle
@@ -508,16 +643,16 @@ if __name__ == "__main__":
     colors = []
     print('aggregating...')
     for pcdi in pcds: 
-      pts.extend(list(np.asarray(pcdi.points)))
-      colors.extend(list(np.asarray(pcdi.colors)))
+      pts.extend(list(arr(pcdi.points)))
+      colors.extend(list(arr(pcdi.colors)))
       del pcdi
     print('creating collective')
     collective = o3d.geometry.PointCloud()
     collective.points = o3d.utility.Vector3dVector(pts)
     collective.colors = o3d.utility.Vector3dVector(colors)
+    extent = collective.get_max_bound() - collective.get_min_bound()
     # print('drawing collective')
     # draw(collective)
-    # breakpoint()
 
     # Using newer 8 scans
     # (Pdb) collective.get_max_bound()
@@ -540,21 +675,24 @@ if __name__ == "__main__":
     # lowc = get_low_cloud(collective, 0,5)[0]
 
     print('getting low cloud...')
-    lowc = get_low_cloud(collective, 15,17)[0]
-    draw(lowc)
-    low_stem = get_stem_pcd(lowc)
-    draw(low_stem)
+    lowc, lowc_ids_from_col = get_low_cloud(collective, 15,17)
+    ground, ground_ids_from_col = get_low_cloud(collective, 0,14)
     breakpoint()
+    # draw(lowc)
+    # low_stem = get_stem_pcd(lowc)
+    # draw(low_stem)
+    # breakpoint()
 
     print('clustering')
     # Current settings, close trees being combined, need less neighbors, smaller eps
-    labels = np.array( lowc.cluster_dbscan(eps=.5, min_points=20, print_progress=True))
-    labels_and_pts = dict((('labels', labels),('points', np.asarray(lowc.points))))
-    # with open('skio_clusters_low_pt5-20.pkl','wb') as f:
-    #     pickle.load( f)
+    labels = np.array( lowc.cluster_dbscan(eps=.5, min_points=20, print_progress=True))   
+    labels_and_pts = dict((('labels', labels),('points', arr(lowc.points))))
+    # with open('skio_clusters_low_pt5-20.pkl','rb') as f:
+    #     labels_and_pts = pickle.load(f)
+    # breakpoint()
 
-    # with open('skio_clusters.pkl','wb') as f:
-    #     labels = pickle.dump(f)
+    # with open('skio_clusters_low_pt5-20.pkl','wb') as f:
+    #     pickle.dump(labels_and_pts,f)
 
     max_label = labels.max()
     # visualize the labels
@@ -562,18 +700,149 @@ if __name__ == "__main__":
     colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
     colors[labels < 0] = 0
     lowc.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    draw([lowc])
-    breakpoint()
+    # draw([lowc])
 
     # Examine/filter the clusters
     unique_vals, counts = np.unique(labels, return_counts=True)
     label_idls= [ np.where(labels ==val)[0] for val in unique_vals]
     clusters = [lowc.select_by_index(idls) for idls in label_idls]
+    cluster_centers = [get_center(arr(x.points)) for x in clusters]
+
+    # Playing with octrees
+    # octree = build_octree(collective,ot_depth=6)
+    # nb_leaves = [octree.locate_leaf_node(pt) for pt in arr(clusters[19].points)]
+    # nb_centers =  np.array([leaf_info.origin for _,leaf_info in nb_leaves])
+    # ancestors = get_ancestors(octree, find_node=nb_leaves[0][0])
+    
+    # The idea is to use the leaf tree to identify nearest surrounding 
+    #    octleaves. This allows for selecting the localized area around the cluster
+    #  Probably want to ignore the Z bounds and select all w/in x,y bounds
+    # all_leaves = []
+    # octree.traverse(lambda node,node_info: all_leaves.append((node,node_info)) if isinstance(node, o3d.geometry.OctreeLeafNode) else None)
+    # leaf_points = [x[1].origin for x in all_leaves]
+    # leaf_tree =  sps.KDTree(leaf_points)
+
+    import scipy.spatial as sps
+    import itertools
+
+    def within(extent, containing):
+        all([
+                all([pt[0][i]<bnds[0][i] for i in range(3) for pt,bnds in zip(extent,containing)]),
+                all([pt[1][i]>bnds[1][i] for i in range(3) for pt,bnds in zip(extent,containing)])
+            ])
+
+    col_pts = arr(collective.points)
+    col_tree = sps.KDTree(col_pts)
+    try:
+        cluster_ids_in_col = [arr(lowc_ids_from_col)[idls] for idls in label_idls]
+        cluster_extents = [cluster.get_max_bound()-cluster.get_min_bound() for cluster in clusters]
+        centers = [get_center(arr(x.points)) for x in clusters]
+        cluster_pts = [arr(cluster.points) for cluster in clusters]
+        minz = min(arr(lowc.points)[:,2])
+
+        clustered_ids = list(chain.from_iterable(cluster_ids_in_col))
+        mask = np.ones(col_pts.shape, dtype=bool)
+        mask[clustered_ids] = False
+        not_yet_traversed = np.where(mask)
+
+        # ex below will later be generalised 
+        #  in arrays defined prior to a loop 
+        i =19
+        cluster = clusters[i]
+        cluster_ids = cluster_ids_in_col[i]
+        cluster_bnds = cluster_extents[i]
+        cluster_extent = cluster_extents[i][0] - cluster_extents[i][1]
+
+        other_ids = cluster_ids_in_col[0:i]
+        other_ids = other_ids.extend(cluster_ids_in_col[i+1:])
+        other_ids = list(chain.from_iterable(other_ids))
+        breakpoint()
+        # nearby_ids = np.where(cluster_extents)
+
+        center = get_center(arr(cluster.points))
+        curr_pts = arr(clusters[i].points)
+        minz = min(arr(cluster.points)[:,2])
+
+        tree_pts = []
+        tree_idxs = [] #[[]] # to hold array of ids for each cluster's tree
+        tree_idxs.extend(cluster_ids)
+    except Exception as e:
+        breakpoint()
+        print(f'error {e}')
+
+    breakpoint()
+    for i in range(30):
+        #for cluster in clusters:
+        tree_pts.append(curr_pts)
+
+        dists,nbrs = col_tree.query(curr_pts,
+                                    k=500,
+                                    distance_upper_bound= max(cluster_extent)*1.2) 
+        nbrs = [x for x in nbrs if x not in other_ids] # exclude points in other clusters
+        # Note: distances are all rather similar -> uniform distribution of collective
+        d_nbrs = list(set(itertools.chain.from_iterable(nbrs)))
+        nbr_pts = np.array(collective.points)[d_nbrs]
+
+        # Taking just neighbors at the top of the trunk section
+        # Hoping to avoid the cluster 'growing' along the ground
+        curr_pts_idxs = np.where(nbr_pts[:, 2]>center[2])[0]
+        curr_pts = nbr_pts[curr_pts_idxs]
+        # but we want to include the lower neighbors in the final tree
+        if i==0: tree_pts.append( np.where(nbr_pts[:, 2]<=center[2])[0])
+
+        # cluster_ids are in low_cloud, but new nbrs are
+        # in 
+        tree_idxs.extend(d_nbrs)
+        tree_pcd = collective.select_by_index(d_nbrs)
+        draw([tree_pcd, cluster])
+        breakpoint()
+    # nbr_pcd = collective.select_by_index(d_nbrs)
+
+
+    # node_list =  octree.root_node.children
+    # leaves  = []
+    # for i in range(5)
+    # for node in node_list:
+    #     if not isinstance(node, o3d.geometry.OctreeLeafNode):sps
+    #         for child in [x for x in node.children if x]:
+    #             node_list.append(child)
+    #             if isinstance(node, o3d.geometry.OctreeLeafNode):
+    #                 leaves.append(child)
+    #     else:
+    #         for child in node.children:
+        
+            
+
+    containing_path = []
+    curr_node = octree.root_node
+    for index in ancestors:
+        curr_node = curr_node.children[index]
+        containing_path.append(curr_node)
+        
+    parent_inds = parent.indices
+    nbhood = collective.select_by_index(parent_inds)
+
+    unique_nodes, node_occurences = np.unique(centers, return_counts=True)
+    inds = [node.indices for node,node_info in leaves]
+    combined_inds = chain.from_iterable(inds)
+
+    if len(centers) ==1:
+        nb_inds = leaves[0][0].indices
+        nbhood = collective.select_by_index(nb_inds)
+        nb_labels = np.array( nbhood.cluster_dbscan(eps=.5, min_points=20, print_progress=True))
+        nb_colors = color_and_draw_clusters(nbhood, nb_labels)
+        
+    breakpoint()
+
     
     cluster_sizes = np.array([len(x) for x in label_idls])
     large_cutoff = np.percentile(cluster_sizes,85)
     large_clusters  = np.where(cluster_sizes> large_cutoff)[0]
     draw(clusters)
+    #Cluster 19 is a good example cluster
+
+
+
     for idc in large_clusters: clusters[int(idc)].paint_uniform_color([1,0,0])
     draw(clusters)
     small_cutoff = np.percentile(cluster_sizes,30)
@@ -583,12 +852,13 @@ if __name__ == "__main__":
     draw(clusters)
 
     final_clusters = clusters
+    breakpoint()
 
     
 
     cluster_centers = []
     clusters = []
-    lowc_pts = np.asarray(lowc.points)
+    lowc_pts = arr(lowc.points)
     for cluster in clusters in unique_vals: 
         bounds = (cluster.get_max_bound(), lowc.get_min_bound())
         coordinate_ranges = zip(*bounds)
