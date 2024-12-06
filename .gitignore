@@ -1,10 +1,25 @@
 # resutls
 pic*
+sho*
+*.pkl
+*test/tmp/*
+
+#Dev
+snippets.py
+*cluster_centers.py
+*high_contraction_iter1_top60_ids.py
+
+#Other
+*.ini
+*.log
+
 # Large cloud/mesh files
 meshes/*
 *.pts
 *.ply
 *.pcd
+# Gif framefiles
+img_*.jpg
 # Untracked Scratch Work
 src/test.py
 # settings/configc
