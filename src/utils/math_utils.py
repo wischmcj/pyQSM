@@ -1,5 +1,9 @@
 import numpy as np
 
+rot_90_y = np.array([[0,1,0],[1,0,0],[0,0,-1]]) # rotates dead on
+rot_90_z = np.array([[0,-1,0],[1,0,0],[0,0,1]]) 
+rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
+rot_n90_x = np.array([[1,0,0],[0,-1,0],[0,0,1]]) 
 
 def get_percentile(pts, low, high):
     """
@@ -15,6 +19,10 @@ def get_percentile(pts, low, high):
     not_too_low_idxs = np.setdiff1d(all_idxs, too_low_idxs)
     select_idxs = np.setdiff1d(not_too_low_idxs, too_high_idxs)
     vals = z_vals[select_idxs]
+    # Similar but by scalar max
+    # zmin = np.min(pts[:,2])
+    # min_mask = np.where(pts[:, 2] <= (zmin+.4))[0]
+    # pcd_minus_ground = pcd.select_by_index(min_mask, invert=True)
     return select_idxs, vals
 
 
@@ -77,15 +85,6 @@ def unit_vector(vector):
 
 
 def angle_from_xy(v1):
-    """Returns the angle in radians between vectors 'v1' and 'v2'::
-
-    >>> angle_between((1, 0, 0), (0, 1, 0))
-    1.5707963267948966
-    >>> angle_between((1, 0, 0), (1, 0, 0))
-    0.0
-    >>> angle_between((1, 0, 0), (-1, 0, 0))
-    3.141592653589793
-    """
     v2 = [v1[0], v1[1], 0]
     v1_u = unit_vector(v1)
     v2_u = unit_vector(v2)
@@ -124,16 +123,28 @@ def get_center(points, center_type="centroid"):
     if len(points[0]) != 3:
         breakpoint()
         print("not 3 points")
-    x = points[:, 0]
-    y = points[:, 1]
-    z = points[:, 2]
     if center_type == "centroid":
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
         centroid = np.average(x), np.average(y), np.average(z)
         return centroid
-    if center_type == "middle":
-        middle = middle(x), middle(y), middle(z)
-        return middle
-
+    elif center_type == "top":
+        idxs, vals = get_percentile(points,90, 100)
+        top_ten_pts = points[idxs]
+        x = top_ten_pts[:, 0]
+        y = top_ten_pts[:, 1]
+        z = top_ten_pts[:, 2]
+        centroid = np.average(x), np.average(y), np.average(z)
+        return centroid
+    elif center_type == "bottom":
+        idxs, vals = get_percentile(points,0, 10)
+        top_ten_pts = points[idxs]
+        x = top_ten_pts[:, 0]
+        y = top_ten_pts[:, 1]
+        z = top_ten_pts[:, 2]
+        centroid = np.average(x), np.average(y), np.average(z)
+        return centroid
 
 def get_radius(points, center_type="centroid"):
     """
