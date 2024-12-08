@@ -4,6 +4,7 @@
 import numpy as np
 import copy
 import open3d as o3d
+from open3d.io import read_point_cloud, write_point_cloud
 import matplotlib.pyplot as plt
 
 from scipy.spatial import KDTree
@@ -262,6 +263,8 @@ def find_low_order_branches():
                             neighbors=config['initial_clean']['neighbors'],
                             ratio=config['initial_clean']['ratio'],
                             iters = config['initial_clean']['iters'])
+    
+    
     # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
     stem_cloud = get_stem_pcd(stat_down)
 
@@ -309,14 +312,12 @@ def find_low_order_branches():
 
 
 if __name__ == "__main__":
-    find_low_order_branches()
+    # find_low_order_branches()
 
-    # pcd =  read_point_cloud("27_vox_pt02_sta_6-4-3.pcd")
+    pcd =  read_point_cloud("C:\Users\wisch\SKIO-RaffaiEtAl.pts",'xyz')
     # pcd =  read_point_cloud("stem_cloud.pcd")
-    # labels = np.array( pcd.cluster_dbscan(eps=0.1, min_points=10, print_progress=True))
-    # max_label = labels.max()
-    # print(f"point cloud has {max_label + 1} clusters")
-    # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    # colors[labels < 0] = 0
-    # pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    # draw([pcd])
+    pcd.voxel_down_sample(.1)
+    
+    breakpoint()
+    print('reached_end')
+    

@@ -173,3 +173,4 @@ pic*
 meshes/*
 *.pts
 src/test.py
+small_file_2000000.txt
