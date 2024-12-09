@@ -15,9 +15,12 @@ def get_percentile(pts, low, high):
     upper = np.percentile(z_vals, high)
     all_idxs = np.where(z_vals)
     too_low_idxs = np.where(z_vals <= lower)
-    too_high_idxs = np.where(z_vals >= upper)
     not_too_low_idxs = np.setdiff1d(all_idxs, too_low_idxs)
-    select_idxs = np.setdiff1d(not_too_low_idxs, too_high_idxs)
+    if high<100:
+        too_high_idxs = np.where(z_vals >= upper)
+        select_idxs = np.setdiff1d(not_too_low_idxs, too_high_idxs)
+    else:
+        select_idxs = not_too_low_idxs
     vals = z_vals[select_idxs]
     # Similar but by scalar max
     # zmin = np.min(pts[:,2])
