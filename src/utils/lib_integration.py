@@ -2,7 +2,7 @@ from itertools import chain
 import open3d as o3d
 import numpy as np
 import scipy.spatial as sps
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, patches
 
 from set_config import config, log
 from utils.math_utils import get_center, get_radius
@@ -93,3 +93,23 @@ def find_neighbors_in_ball(
         ax.plot(sphere_pts[:,0], sphere_pts[:,1], sphere_pts[:,2], 'o')
         plt.show()
     return sphere, res
+
+## Matplotlib
+
+def plot_squares(extents= None,
+                    lls_urs = None):
+    if not lls_urs and not extents:
+        raise ValueError('No range input provided ')
+    fig, ax = plt.subplots()
+    if not lls_urs:
+        bounds = [((x_min,y_min),x_max-x_min, y_max-y_min ) for ((x_min, y_min,_), ( x_max, y_max,_)) in extents.values() ]
+    else: 
+        bounds = lls_urs
+    g_x_min = col_min[0]
+    g_x_max = col_max[0]
+    g_y_min = col_min[1]
+    g_y_max = col_max[1]
+    plt.xlim(g_x_min - 1, g_x_max + 2)
+    plt.ylim(g_y_min - 1, g_y_max + 2)
+    for ll, ur in safe_grid: ax.add_patch(patches.Rectangle(ll, ur[0] - ll[0], ur[1] - ll[1], linewidth=1, edgecolor='black', facecolor='none'))
+    plt.show()
