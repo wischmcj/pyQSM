@@ -303,11 +303,11 @@ def id_trunk_bases(pcd =None,
 def load_completed(cell_to_run_id):
     # Loading completed clusters and their 
     #  found nbr points from last run
-    with open(f'all_complete.pkl','rb') as f:
+    with open(f'all_complete.pkl','rb') as f: 
         completed = dict(pickle.load(f))
 
-    completed_cluster_idxs = [x for x in completed.keys()]
-    completed_cluster_pts = [x for x in completed.values()]
+    completed_cluster_idxs = [idc for idc in completed.keys()]
+    completed_cluster_pts = [pts for pts in completed.values()]
     grid=np.asarray([[[ 34.05799866, 286.28399658],
         [111.76449585, 343.6219991 ]],
 
@@ -326,22 +326,113 @@ def load_completed(cell_to_run_id):
        [[111.76449585, 400.96000163],
         [189.47099304, 458.29800415]]])
 
+    files = []
     for cell_num in range(cell_to_run_id):
-        print(f'adding clusters found in grid {cell_num}')
-        with open(f'cell{cell_num}_complete.pkl','rb') as f:
+        files.append(f'cell{cell_num}_complete2.pkl')
+
+    files.append(f'cell5_complete.pkl')
+    for file in files:
+        print(f'adding clusters found in {file}')
+        with open(file,'rb') as f:
+            # dict s.t. {cluster_id: [list_of_pts]}
             cell_completed = dict(pickle.load(f))
-        non_overlap_grid = grid[cell_num]
-        k_cluster_pts = [(k,v) for k,v in cell_completed.items()]
+        
+        # non_overlap_grid = grid[cell_num]
+        all_idcs = len([idc for idc,_ in cell_completed.items()])
+        pts_per_cluster = [len(pts) for (idc,pts) in cell_completed.items()]
+        
+        in_idcs = [idc for idc in cell_completed.keys() if idc not in completed_cluster_idxs]
+        k_cluster_pts= [pts for idc, pts in cell_completed.items() if idc in in_idcs]
         # completed_cluster_keys = [x for x in completed.keys()]
         # in_idcs = filter_to_region(k_cluster_pts, non_overlap_grid)
+
         # breakpoint()
-        in_idcs = [k for k,v in cell_completed.items()]
+        num_new_clusters = len(in_idcs)
+        pts_per_new_cluster = [len(pts) for pts in k_cluster_pts]
+        num_new_pts = sum(pts_per_new_cluster)
         completed_cluster_idxs.extend(in_idcs)
-        completed_cluster_pts.append([pts for idc,pts  in k_cluster_pts if idc in in_idcs])
+        completed_cluster_pts.extend(k_cluster_pts)
+
+        print(f'{all_idcs} total clusters found in grid')
+        print(f'{pts_per_cluster} pts in each cluster')
+
+        print(f'{num_new_clusters} new, complete clusters found in grid')
+        print(f'{pts_per_new_cluster} pts in each new cluster')
+        print(f'{num_new_pts} points categorized in grid')
         # added_k_ids = len(in_idcs)
         # print(f'{added_k_ids} complete clusters from grid cell {cell_num}')
-    
+    breakpoint()    
     return completed_cluster_idxs , completed_cluster_pts
+
+def compare_complete_to_in_progress(cell_to_run_id):
+    totals = {  'complete':[],
+                'complete_pts':[],
+                'all':[],
+                'progress_ids':[], 
+                'progress_pts':[] }
+    all_complete = []
+    all_in_progress = []
+    cell_to_idc = defaultdict(list) # {cluster_id:[containing_cell_id ]}
+    for cell_num in range(cell_to_run_id):
+        cell_completed = None
+        cell_progress = None
+        try:
+            print(f'adding clusters found in grid {cell_num}')
+            with open(f'cell{cell_num}_complete.pkl','rb') as f:
+                cell_completed = dict(pickle.load(f))
+        except Exception as e:
+            cell_completed = {}
+            print('err reading completed')
+        try:
+            with open(f'cell0_clusters_in_progress2.pkl','rb') as f: cell_progress = dict(pickle.load(f))
+        except Exception as e:
+            cell_progress = {}
+            print('err reading in progess')
+
+        completed_cluster_keys = [x for x in cell_completed.keys()]    
+        for idc in completed_cluster_keys:
+            if idc not in all_complete:
+                cell_to_idc[cell_num].append(idc)
+
+        all_cluster_keys = [(idc,cluster_pt_list) for idc, cluster_pt_list in cell_progress.items() 
+                                    if len(cluster_pt_list)>0]
+        incomplete_keys = [idc for idc, _ in all_cluster_keys if idc not in completed_cluster_keys]
+
+        all_complete.extend(completed_cluster_keys)
+        all_in_progress.extend(incomplete_keys)
+
+        totals['complete'].append(len(completed_cluster_keys))
+        totals['complete_pts'].append(sum([len(x) for x in cell_completed.values()]))
+        totals['all'].append(len(all_cluster_keys))
+        totals['progress_ids'].append(len(incomplete_keys))
+
+    k_cell_idxs = list([x for x in chain.from_iterable(cell_to_idc.values())])
+    with open(f'all_complete.pkl','rb') as f: 
+        completed = dict(pickle.load(f))
+
+    completed_cluster_idxs = [x for x in completed.keys()]
+    all_complete = completed_cluster_idxs + k_cell_idxs
+
+    print(totals)
+    print(len(all_complete))
+    print(len(all_in_progress))
+
+    # labels = arr(completed_cluster_idxs)
+    # max_label = labels.max()
+    # log.info(f"point cloud has {max_label + 1} clusters")
+    # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    # colors_by_file = [len(x)*[color] for x,color in zip(completed_cluster_pts,colors)]
+    # colors =[x for x in chain.from_iterable(colors_by_file)]
+    # all_pts =[x for x in chain.from_iterable(completed_cluster_pts)]
+    # pcd = o3d.geometry.PointCloud()
+    # pcd.points = o3d.utility.Vector3dVector(arr(all_pts))
+    # pcd.colors = o3d.utility.Vector3dVector(arr(colors)[:,:3])
+    # draw(pcd)
+    # highc_incomplete = o3d.io.read_point_cloud('highc_incomplete.pcd')
+    # draw([highc_incomplete,pcd])
+
+    # completed_cluster_idxs = list(set(completed_cluster_idxs))
+    return all_complete , totals
 
 def recover_original_detail(cluster_pcds):
     bnd_boxes = [pcd.get_oriented_bounding_box() for pcd in cluster_pcds]
@@ -424,50 +515,44 @@ def recover_original_detail(cluster_pcds):
                 breakpoint()
                 print(f'error {e} getting clouds')
 
-if __name__ =="__main__":
-    rerun_cluster_selection = True 
-    # with open(f'all_complete.pkl','rb') as f: 
-    #     completed = dict(pickle.load(f))
-    # pts = [x for x in completed.values()]
-    # c_cluster_ids = [k for k in completed.keys()]
-    # labels = c_cluster_ids
-    # complete_clusters = create_one_or_many_pcds(pts, labels = labels)
-    # draw(complete_clusters)
-    # breakpoint()
+def save(file, to_write):
+    with open(file,'wb') as f:
+        pickle.dump(to_write,f)
 
+def load(file):
+    with open(file,'rb') as f:
+        ret = pickle.load(f)
+
+if __name__ =="__main__":
+    # test = compare_complete_to_in_progress(6)
+
+#### Reading in data and preping clusters
     # o3d.io.write_point_cloud('collective.pcd',collective)
     # collective = o3d.io.read_point_cloud('collective.pcd')
 
+    ## Identify and clean up cross section clusters 
+    ## Filter out those unlikley trunk canidates (too small, too large)
     exclude_boundaries = [[ (77,350, 0),(100, 374,5.7)], # grainery
                             [(0, 350, 0), (70, 374, 5.7)] # big house 
                             ]
     lowc,highc,labels = id_trunk_bases(None, #collective, 
                                         exclude_boundaries)
-    ## Filtering out unlikley trunk canidates (too small, too large)
     # clusters = filter_pcd_list(clusters)
-    
+    ## Define clusters based on labels 
     unique_vals, counts = np.unique(labels, return_counts=True)
     label_idls= [ np.where(labels ==val)[0] for val in unique_vals]
-    clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls) if len(idls)>200]
-    # # cluster_ids_in_col = [arr(lowc_ids_from_col)[idls] for idls in label_idls]
-    # cluster_extents = [(cluster.get_min_bound(),cluster.get_max_bound()) for _,cluster in clusters]
-    # centers = [get_center(arr(x.points)) for x in clusters]
-    
-    cell_to_run_id = 4
+    clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls)]
+   
+#### Reading data from previous runs to exclude from run
+    rerun_cluster_selection = False 
     if rerun_cluster_selection:
-        completed_cluster_idxs , completed_cluster_pts = load_completed(cell_to_run_id)
-        with open('completed_cluster_idxs.pkl','wb') as f: 
-            pickle.dump(labels,f)
+        completed_cluster_idxs , completed_cluster_pts = load_completed(3)
+        save('completed_cluster_idxs.pkl',completed_cluster_idxs)
     else:
-        with open('completed_cluster_idxs.pkl','rb') as f: 
-            completed_cluster_idxs = pickle.load(f)
-    breakpoint()
-
-    # completed_cluster_idxs = list(set(completed_cluster_idxs))
-
+        completed_cluster_idxs = load('completed_cluster_idxs.pkl')
     nk_clusters= [(idc, cluster) for idc, cluster in clusters if idc not in completed_cluster_idxs]
 
-    ## Dividing clouds into smaller 
+####  Dividing clouds into smaller 
     from itertools import product
     # col_min = collective.get_min_bound()
     # col_max = collective.get_max_bound()
@@ -480,37 +565,32 @@ if __name__ =="__main__":
     ll_mults =  [np.linspace(0,num,num+1) for num in col_grid_num]
     llv = [minb + dim*mult for dim, mult,minb in zip(grid_lwh,ll_mults,col_min)]
 
-    overlap = grid_lwh/7    
-    # ]    [ [ [x_min,    y_min]    ,[x_max    ,y_max    ]]
     grid = arr([[[llv[0][0],llv[1][0]],[llv[0][1],llv[1][1]]],[[llv[0][1],llv[1][0]],[llv[0][2],llv[1][1]]],    
                 [[llv[0][0],llv[1][1]],[llv[0][1],llv[1][2]]],[[llv[0][1],llv[1][1]],[llv[0][2],llv[1][2]]],    
                 [[llv[0][0],llv[1][2]],[llv[0][1],llv[1][3]]],[[llv[0][1],llv[1][2]],[llv[0][2],llv[1][3]]]])
     ## w#e want a bit of overlap since nearby clusters sometime contest for points 
+    overlap = grid_lwh/7    
     safe_grid = [[[ll[0]-overlap[0],ll[1]-overlap[1]],[ur[0]+overlap[0], ur[1]+overlap[1]]] for ll, ur in grid]
     ## Using the grid above to divide the cluster pcd list 
     ##  into easier to process parts 
-    # low_cell_pcds = [zoom(lowc,zoom_region = cell) for cell in zoom_regions] 
-
     cell_clusters = []
     for idc, cell in enumerate(safe_grid):
         ids_and_clusters = filter_to_region_pcds(nk_clusters, cell)
         cell_clusters.append(ids_and_clusters)
-
-    ##  KD tree with no prev. complete clusters 
-    print('preparing KDtree')
-    # highc_pts = arr(highc.points)
-    # highc_tree = sps.KDTree(highc_pts)
-    # with open('highc_KDTree.pkl','wb') as f:  pickle.dump(highc_tree,f)
-    # with open('cluster126_fact100_iter50.pkl','rb') as f:
-    #     highc_tree = pickle.load(f)
-    # highc_pts = highc_tree.data
     
+####  KD tree with no prev. complete clusters 
+    print('preparing KDtree')   
     if rerun_cluster_selection:
         # KD Tree reduction given completed clusters 
         highc_pts = [tuple(x) for x in highc.points]
         categorized_pts = [tuple(x) for x in itertools.chain.from_iterable(completed_cluster_pts)]
         highc_pts = set(highc_pts)-set(categorized_pts)
         highc_pts = arr([x for x in highc_pts])
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(np.asarray(highc_pts))
+        # draw(pcd)
+        # o3d.io.write_point_cloud('highc_incomplete.pcd',pcd)
+        # del pcd
         highc_tree = sps.KDTree(np.asarray(highc_pts))
         with open(f'highc_KDTree.pkl','wb') as f: pickle.dump(highc_tree,f)
     else:
@@ -519,109 +599,88 @@ if __name__ =="__main__":
     
 
 
-    ########## Notes for continued Runs #############
-    #####################################
+####  Running KNN algo to build trees
+    # cell_to_run_id = 3
+    # grid_wo_overlap =  grid[cell_to_run_id]
+    for cell_to_run_id in [3,4,2]:
+        ## Prepping algo input
+        clusters_to_run = cell_clusters[cell_to_run_id]
+        idcs_to_run = [idc for idc, cluster in clusters_to_run]
+        cluster_pts = [(idc, arr(cluster.points)) for idc,cluster in clusters_to_run]
 
-    # print('loading and filtering completed clusters')
-    # with open(f'all_0to50.pkl','rb') as f:
-    #     tree_pts = pickle.load(f)
-    # curr_pts = [[pt for pt in pt_list ] for pt_list in tree_pts.values()]
-    # for k, pt_list in tree_pts.items():
-    #     for pt in pt_list:
-    #         high_c_pt_assns[pt] =  k
+        high_c_pt_assns = defaultdict(lambda:-1) 
+        curr_pts = [[]]*len(unique_vals)
+        for idc, cluster_pt_list in cluster_pts:
+            curr_pts[idc] = cluster_pt_list
+            for pt in cluster_pt_list:
+                high_c_pt_assns[tuple(pt)] = idc
 
-    # if len_clusters
-    
-    grid_wo_overlap =  grid[cell_to_run_id]
-    clusters = cell_clusters[cell_to_run_id]
-    idcs_to_run = [idc for idc, cluster in clusters]
-    cluster_pts = [(idc, arr(cluster.points)) for idc,cluster in clusters]
+        highc_pts = highc_tree.data
+        num_pts =  len(highc_pts)
+        complete = []
 
-    curr_pts = [[]]*len(unique_vals)
-    for idc, cluster_pt_list in cluster_pts:
-        curr_pts[idc] = cluster_pt_list
-
-    highc_pts = highc_tree.data
-    num_pts =  len(highc_pts)
-    high_c_pt_assns = defaultdict(lambda:-1) 
-    iters = 30
-    recreate = False
-    draw_progress = True
-    breakpoint()
-    print('beggining KNN')
-    for i in range(151):
-        i=i
-        print('start iter')
-        if iters<=0:
-            print('saving state')
-            iters =30
-            tree_pts = defaultdict(list)
-            complete = []
-            
-            for k,v in high_c_pt_assns.items(): 
-                tree_pts[v].append(k)
-                if curr_pts[v] == []:
-                    complete.append(v)
-            print('created to_save. Pickling...')
-
-            with open(f'cell{cell_to_run_id}_clusters_in_progress.pkl','wb') as f:
+        iters = 30
+        cycles = 200
+        recreate = False
+        draw_progress = False
+        print(f'running knn for idcs {idcs_to_run}')
+        for i in range(cycles):
+            print('start iter')
+            if iters<=0:
+                iters =30
+                tree_pts = defaultdict(list)
+                for pt,idc in high_c_pt_assns.items(): 
+                    tree_pts[idc].append(pt)
+                print('created to_save. Pickling...')
+                base_file = f'cell{cell_to_run_id}'
                 to_write = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items()])
-                pickle.dump(to_write,f)
-            print('Pickling completed trees')
+                complete = list([tuple((idc,pt_list)) for idc,pt_list in to_write if idc in complete])
+                save(base_file +'_clusters_in_progress2.pkl', to_write)
+                save(base_file +'_complete2.pkl', complete)
+                del tree_pts
 
-            with open(f'cell{cell_to_run_id}_complete.pkl','wb') as f:
-                to_write = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items() if k in complete])
-                pickle.dump(to_write,f)
-            
-            # categorized_pts = arr(itertools.chain.from_iterable(tree_pts.values()))
-            # highc_pts = np.setdiff1d(highc_pts, categorized_pts)
-            # highc_pts = arr(highc_pts)
-            # highc_tree = sps.KDTree(highc_pts)
+                # if recreate:
+                    # categorized_pts = arr(itertools.chain.from_iterable(tree_pts.values()))
+                    # highc_pts = np.setdiff1d(highc_pts, categorized_pts)
+                    # highc_pts = arr(highc_pts)
+                    # highc_tree = sps.KDTree(highc_pts)
 
-            if draw_progress:
-                print('starting draw')
-                labels = list([x for x in range(len(tree_pts))])
-                pts = list([x for x in tree_pts.values()])
-                try:
+                if draw_progress:
+                    print('starting draw')
+                    labels = list([x for x in range(len(tree_pts))])
+                    pts = list([x for x in tree_pts.values()])
                     tree_pcds = create_one_or_many_pcds(pts = pts, labels = labels)
                     draw(tree_pcds)
-                    breakpoint()
                     del tree_pcds
-                except Exception as e:
-                    breakpoint()
-                    print('err')
 
-        iters=iters-1
-        for idx, cluster in clusters:
-            if (len(curr_pts[idx])>0):
-                print(f'querying {i}')
-                dists,nbrs = highc_tree.query(curr_pts[idx],k=750,distance_upper_bound= .2) #max(cluster_extent))
-                print(f'reducting nbrs {idx}')
+            iters=iters-1
+            print(f'querying {i}')
+            for idx, cluster in clusters_to_run:
+                if idx not in complete:
 
-                try:
+                    dists,nbrs = highc_tree.query(curr_pts[idx],k=750,distance_upper_bound= .3) #max(cluster_extent))
                     nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
-                except Exception as e:
-                    breakpoint()
-                    print('err')
+                    nbr_pts = [nbr_pt for nbr_pt in highc_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
+                    for nbr_pt in nbr_pts:
+                        high_c_pt_assns[tuple(nbr_pt)] = idx
+                    curr_pts[idx] = nbr_pts
 
-                print(f'{len(nbrs)} nbrs found for cluster {idx}')
-                # Note: distances are all rather similar -> uniform distribution of collective
-                nbr_pts = [nbr_pt for nbr_pt in highc_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
-                for nbr_pt in nbr_pts:
-                    high_c_pt_assns[tuple(nbr_pt)] = idx
+                if len(curr_pts[idx])==0:
+                    complete.append(idx)
+                    print(f'{idx} added to complete')
+        
+        # run_again =False
+        # cycles = 20
+        # print('finish!')
 
-                curr_pts[idx] = nbr_pts # note how these are overwritten each cycle
-            else:
-                print(f'no more new neighbors for cluster {idx}')
-                # curr_pts[idx] = []
+        tree_pts = defaultdict(list)
+        for pt,idc in high_c_pt_assns.items():  tree_pts[idc].append(pt)
+        with open(f'cell{cell_to_run_id}_clusters_in_progress2.pkl','wb') as f: 
+            to_write = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items()])
+            pickle.dump(to_write, f)
 
-    print('finish!')
-    with open(f'all_0to50.pkl','wb') as f:
-        to_write = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items()])
-
-    with open(f'cell{cell_to_run_id}_complete.pkl','wb') as f:
-        completed = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items() if k in complete])
-        pickle.dump(to_write,f)
-        # ids_and_clusters = filter_to_region_pcds(completed, grid_wo_overlap)
-        # cell_clusters.append(ids_and_clusters)
-    breakpoint()
+        with open(f'cell{cell_to_run_id}_complete2.pkl','wb') as f:
+            complete =list([tuple((k,pt_list)) for k,pt_list in tree_pts.items() if k in complete])
+            pickle.dump(complete,f)
+            # ids_and_clusters = filter_to_region_pcds(completed, grid_wo_overlap)
+            # cell_clusters.append(ids_and_clusters)
