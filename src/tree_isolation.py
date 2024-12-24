@@ -410,6 +410,113 @@ def load(file):
     with open(file,'rb') as f:
         ret = pickle.load(f)
 
+def extend_seed_clusters(clusters_and_idxs:list[tuple],
+                            src_pcd,
+                            file_label,
+                            k=200,
+                            max_distance=.3,
+                            cycles= 150,
+                            save_every = 30,
+                            draw_progress = False,
+                            debug = True):
+    idcs_to_run = [idc for idc, cluster in clusters_and_idxs]
+    cluster_pts = [(idc, arr(cluster.points)) for idc,cluster in clusters_and_idxs]
+
+    high_c_pt_assns = defaultdict(lambda:-1) 
+    curr_pts = [[]]*len(clusters_and_idxs)
+    for idc, cluster_pt_list in cluster_pts:
+        curr_pts[idc] = cluster_pt_list
+        for pt in cluster_pt_list:
+            high_c_pt_assns[tuple(pt)] = (idc,0)
+
+    src_pts = arr(src_pcd.points)
+    src_tree = sps.KDTree(src_pts)
+    src_pts = src_tree.data
+    num_pts =  len(src_pts)
+    complete = []
+    max_orders = defaultdict(int)
+    iters = save_every
+    # recreate = False
+    print(f'running knn for idcs {idcs_to_run}')
+    for cycle_num in range(cycles):
+        print('start iter')
+        if iters<=0:
+            iters =save_every
+            tree_pts = defaultdict(list)
+            try:
+                for pt,tup in high_c_pt_assns.items(): 
+                    if isinstance(tup,int):
+                        idc,order = tup,0
+                    else:
+                        idc,order = tup
+                    tree_pts[idc].append((pt,order))
+                print('created to_save. Pickling...')
+                base_file = f'{file_label}_w_order'
+                complete = list([tuple((idc,pt_order_list)) for idc,pt_order_list in  tree_pts.items() if idc in complete])
+                save(base_file +'_complete.pkl', complete)
+            except Exception as e:
+                breakpoint()
+                print('error saving')
+            
+
+            # if recreate:
+                # categorized_pts = arr(itertools.chain.from_iterable(tree_pts.values()))
+                # src_pts = np.setdiff1d(src_pts, categorized_pts)
+                # src_pts = arr(src_pts)
+                # src_tree = sps.KDTree(src_pts)
+
+            if draw_progress:
+                print('starting draw')
+                labels = list([x for x in range(len(tree_pts))])
+                pts = list([[y[0] for y in x] for x in tree_pts.values()])
+                tree_pcds = create_one_or_many_pcds(pts = pts, labels = labels)
+                # if debug: breakpoint()
+                # draw(tree_pcds)
+
+                for idc, pcd in enumerate(tree_pcds):
+                    if max_orders[idc]>10:
+                        pcd.paint_uniform_color([1,0,0])
+                draw(tree_pcds)
+    
+            del tree_pcds
+
+        iters=iters-1
+        print(f'querying {cycle_num}')
+        for idx, cluster in clusters_and_idxs:
+            if idx not in complete:
+                
+                if len(curr_pts[idx])>0:
+                    dists,nbrs = src_tree.query(curr_pts[idx],k=k,distance_upper_bound= max_distance) #max(cluster_extent))
+                    nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
+                    nbr_pts = [nbr_pt for nbr_pt in src_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
+                    if len(nbr_pts)>0:
+                        labels, colors= cluster_and_color(nbr_pts,eps = .11, min_points=20,from_pts=True)
+                        unique_vals, counts = np.unique(labels, return_counts=True)
+                        order = len(arr(counts)[arr(counts)>20]) 
+                        for nbr_pt in nbr_pts:
+                            high_c_pt_assns[tuple(nbr_pt)] = (idx,order)
+                        if max_orders[idx]< order:
+                            max_orders[idx] = order
+                    curr_pts[idx] = nbr_pts
+
+                    # print(f'{num_new_nbrs} new nbrs for cluster idx')
+                if len(curr_pts[idx])==0:
+                    complete.append(idx)
+                    print(f'{idx} added to complete')
+    print('finish!')
+    tree_pts = defaultdict(list)
+    try:
+        for pt,tup in high_c_pt_assns.items(): 
+            idc,order = tup
+            tree_pts[idc].append((pt,order))
+        print('created to_save. Pickling...')
+        base_file = f'{file_label}_w_order'
+        complete = list([tuple((idc,pt_order_list)) for idc,pt_order_list in  tree_pts.items() if idc in complete])
+        save(base_file +'_complete.pkl', complete)
+    except Exception as e:
+        breakpoint()
+        print('error saving')
+        
 if __name__ =="__main__":
     # test = compare_complete_to_in_progress(6)
 
@@ -486,88 +593,11 @@ if __name__ =="__main__":
     
 
 
+
+
 ####  Running KNN algo to build trees
+
     # cell_to_run_id = 3
     # grid_wo_overlap =  grid[cell_to_run_id]
-    for cell_to_run_id in [3,4,2]:
-        ## Prepping algo input
-        clusters_to_run = cell_clusters[cell_to_run_id]
-        idcs_to_run = [idc for idc, cluster in clusters_to_run]
-        cluster_pts = [(idc, arr(cluster.points)) for idc,cluster in clusters_to_run]
-
-        high_c_pt_assns = defaultdict(lambda:-1) 
-        curr_pts = [[]]*len(unique_vals)
-        for idc, cluster_pt_list in cluster_pts:
-            curr_pts[idc] = cluster_pt_list
-            for pt in cluster_pt_list:
-                high_c_pt_assns[tuple(pt)] = idc
-
-        highc_pts = highc_tree.data
-        num_pts =  len(highc_pts)
-        complete = []
-
-        iters = 30
-        cycles = 200
-        recreate = False
-        draw_progress = False
-        print(f'running knn for idcs {idcs_to_run}')
-        for i in range(cycles):
-            print('start iter')
-            if iters<=0:
-                iters =30
-                tree_pts = defaultdict(list)
-                for pt,idc in high_c_pt_assns.items(): 
-                    tree_pts[idc].append(pt)
-                print('created to_save. Pickling...')
-                base_file = f'cell{cell_to_run_id}'
-                to_write = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items()])
-                complete = list([tuple((idc,pt_list)) for idc,pt_list in to_write if idc in complete])
-                save(base_file +'_clusters_in_progress2.pkl', to_write)
-                save(base_file +'_complete2.pkl', complete)
-                del tree_pts
-
-                # if recreate:
-                    # categorized_pts = arr(itertools.chain.from_iterable(tree_pts.values()))
-                    # highc_pts = np.setdiff1d(highc_pts, categorized_pts)
-                    # highc_pts = arr(highc_pts)
-                    # highc_tree = sps.KDTree(highc_pts)
-
-                if draw_progress:
-                    print('starting draw')
-                    labels = list([x for x in range(len(tree_pts))])
-                    pts = list([x for x in tree_pts.values()])
-                    tree_pcds = create_one_or_many_pcds(pts = pts, labels = labels)
-                    draw(tree_pcds)
-                    del tree_pcds
-
-            iters=iters-1
-            print(f'querying {i}')
-            for idx, cluster in clusters_to_run:
-                if idx not in complete:
-
-                    dists,nbrs = highc_tree.query(curr_pts[idx],k=750,distance_upper_bound= .3) #max(cluster_extent))
-                    nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
-                    nbr_pts = [nbr_pt for nbr_pt in highc_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
-                    for nbr_pt in nbr_pts:
-                        high_c_pt_assns[tuple(nbr_pt)] = idx
-                    curr_pts[idx] = nbr_pts
-
-                if len(curr_pts[idx])==0:
-                    complete.append(idx)
-                    print(f'{idx} added to complete')
-        
-        # run_again =False
-        # cycles = 20
-        # print('finish!')
-
-        tree_pts = defaultdict(list)
-        for pt,idc in high_c_pt_assns.items():  tree_pts[idc].append(pt)
-        with open(f'cell{cell_to_run_id}_clusters_in_progress2.pkl','wb') as f: 
-            to_write = list([tuple((k,pt_list)) for k,pt_list in tree_pts.items()])
-            pickle.dump(to_write, f)
-
-        with open(f'cell{cell_to_run_id}_complete2.pkl','wb') as f:
-            complete =list([tuple((k,pt_list)) for k,pt_list in tree_pts.items() if k in complete])
-            pickle.dump(complete,f)
-            # ids_and_clusters = filter_to_region_pcds(completed, grid_wo_overlap)
-            # cell_clusters.append(ids_and_clusters)
+    for cell_to_run_id in ['all']:
+        extend_seed_clusters(clusters,highc, f'cell{cell_to_run_id}')
