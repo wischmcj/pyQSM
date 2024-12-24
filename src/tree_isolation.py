@@ -321,86 +321,73 @@ def load_completed(cell_to_run_id,
         # print(f'{added_k_ids} complete clusters from grid cell {cell_num}')
     return completed_cluster_idxs , completed_cluster_pts
 
-def recover_original_detail(cluster_pcds):
-    bnd_boxes = [pcd.get_oriented_bounding_box() for pcd in cluster_pcds]
-    # alpha = 0.03
-    # print(f"alpha={alpha:.3f}")
-    # mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
-    # mesh.compute_vertex_normals()
+from string import Template 
+def recover_original_detail(cluster_pcds,
+                            file_prefix = Template('data/input/SKIO/part_skio_raffai_$idc.pcd'),
+                            #= 'data/input/SKIO/part_skio_raffai',
+                            save_result = False,
+                            save_file = 'orig_dets',
+                            file_num_base = None,
+                            file_num_iters = 39):
+    """
+        Reversing the initial voxelization (which was done to increase algo speed)
+        Functions by (for each cluster) limiting parent pcd to just points withing the
+            vicinity of the search cluster then performs a KNN search 
+            to find neighobrs of points in the cluster
+    """
+    detailed_pcds = []
+    # defining files in which initial details are stored
+    files = []
+    if file_num_base:
+        for idc in range(file_num_iters):
+            files.append(file_prefix.substitute(idc = idc).replace(' ','_') )
+    else:
+        files = [file_prefix]
+    pt_branch_assns = defaultdict(list)
+    # iterating a bnd_box for each pcd for which
+    #    we want to recover the orig details
+    for idb, cluster_pcd in enumerate(cluster_pcds):
+        bnd_box = cluster_pcd.get_oriented_bounding_box() 
+        vicinity_pts = []
+        v_colors = []
+        skel_ids = []
+        # Limiting the search field to points in the general
+        #   vicinity of the non-detailed pcd
+        for file in files:
+            print(f'checking file {file}')
+            pcd = read_point_cloud(file)
+            pts = arr(pcd.points)
+            if len(pts)>0:
+                cols = arr(pcd.colors)
+                all_pts_vect = o3d.utility.Vector3dVector(pts)
+                vicinity_pt_ids = bnd_box.get_point_indices_within_bounding_box(all_pts_vect) 
+                if len(vicinity_pt_ids)>0:
+                    v_pt_values = pts[vicinity_pt_ids]
+                    colors = cols[vicinity_pt_ids]
+                    print(f'adding {len(vicinity_pt_ids)} out of {len(pts)}')
+                    vicinity_pts.extend(v_pt_values)
+                    v_colors.extend(colors)
+            else:
+                print(f'No points found for {file}')
+        try:
+            print('Building pcd from points in vicinity')
 
-    # with open():
+            query_pts = arr(cluster_pcd.points)
+            whole_tree = sps.KDTree(vicinity_pts)
+            print('Finding neighbors in vicinity') 
+            dists,nbrs = whole_tree.query(query_pts, k=750, distance_upper_bound= .3) 
 
-    base = 20000000
-    file_prefix = 'data/input/SKIO/part_skio_raffai'
-    for idb, bnd_box in enumerate(bnd_boxes):
-        if idb>0:
-            # contained_pts = []
-            # all_colors = []
-            # for i in range(39):
-            #     num = base*(i+1) 
-            #     file = f'{file_prefix}_{num}.pcd'
-            #     print(f'checking file {file}')
-            #     pcd = read_point_cloud(file)
-            #     pts = arr(pcd.points)
-            #     if len(pts)>0:
-            #         cols = arr(pcd.colors)
-            #         pts_vect = o3d.utility.Vector3dVector(pts)
-            #         pt_ids = bnd_box.get_point_indices_within_bounding_box(pts_vect) 
-            #         if len(pt_ids)>0:
-            #             pt_values = pts[pt_ids]
-            #             colors = cols[pt_ids]
-            #             print(f'adding {len(pt_ids)} out of {len(pts)}')
-            #             contained_pts.extend(pt_values)
-            #             all_colors.extend(colors)
-            #     else:
-            #         print(f'No in region points found for {file}')
-                    
-            try:
-                file = f'whole_clus/cluster_{idb}_all_points.pcd'
-                print(f'writing pcd file {file}')
-                test = o3d.io.read_point_cloud(file)
-                contained_pts = arr(test.points)
-                all_colors = arr(test.colors)
+            nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x!= len(vicinity_pts)]
+            pt_branch_assns[idb] = arr(vicinity_pt_ids)[nbrs]
 
-                # Reversing the initial voxelization done
-                #   to make the dataset manageable 
-                # KNN search each cluster against nearby pts in
-                #   the original scan. Drastically increase detail
+            # if idb%5==0 and idb>5:
+            complete = list([tuple((idb,nbrs)) for idb,nbrs in  pt_branch_assns.items()])
+            save(f'skeletor_branch{idb}_complete.pkl', complete)
+        except Exception as e:
+            breakpoint()
+            print(f'error {e} getting clouds')
+    return detailed_pcds
 
-                query_pts = arr(cluster_pcds[idb].points)
-                whole_tree = sps.KDTree(contained_pts)
-                dists,nbrs = whole_tree.query(query_pts, k=750, distance_upper_bound= .2) 
-
-                nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x!= len(contained_pts)]
-                print(f'{len(nbrs)} nbrs found for cluster {idb}')
-                # for nbr_pt in nbr_pts:
-                #     high_c_pt_assns[tuple(nbr_pt)] = idx
-
-                # final_pts = np.append(arr(contained_pts)[nbrs])#,cluster_pcds[idb].points)
-                # final_colors = np.append(arr(all_colors)[nbrs])#,cluster_pcds[idb].colors)
-                final_pts =    arr(contained_pts)[nbrs]
-                final_colors = arr(all_colors)[nbrs]
-                wpcd = o3d.geometry.PointCloud()
-                wpcd.points = o3d.utility.Vector3dVector(final_pts)
-                wpcd.colors = o3d.utility.Vector3dVector(final_colors)  
-                draw(wpcd)
-
-                out_pts = np.delete(contained_pts,nbrs ,axis =0)
-                out_pcd = o3d.geometry.PointCloud()
-                out_pcd.points = o3d.utility.Vector3dVector(out_pts)
-                wpcd.paint_uniform_color([0,0,1])                    
-                out_pcd.paint_uniform_color([1,0,0])                
-                draw([wpcd,out_pcd])
-
-                breakpoint()
-                wpcd.colors = o3d.utility.Vector3dVector(final_colors) 
-                o3d.io.write_point_cloud(file, wpcd)
-
-                breakpoint()
-
-            except Exception as e:
-                breakpoint()
-                print(f'error {e} getting clouds')
 
 def save(file, to_write):
     with open(file,'wb') as f:
@@ -591,11 +578,7 @@ if __name__ =="__main__":
         with open('highc_KDTree.pkl','rb') as f: # all, cell0 and cell1 completed removed 
             highc_tree = pickle.load(f)
     
-
-
-
-
-####  Running KNN algo to build trees
+    ####  Running KNN algo to build trees
 
     # cell_to_run_id = 3
     # grid_wo_overlap =  grid[cell_to_run_id]
