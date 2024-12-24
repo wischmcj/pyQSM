@@ -6,10 +6,6 @@ import pickle
 from copy import deepcopy
 import itertools
 
-
-
-
-
 from collections import defaultdict
 import logging
 from itertools import chain
@@ -42,12 +38,6 @@ from geometry.point_cloud_processing import ( filter_by_norm,
     get_ball_mesh
 )
 from viz.viz_utils import iter_draw, draw
-
-
-
-
-
-
 
 def loop_over_pcd_parts(file_prefix = 'data/input/SKIO/part_skio_raffai',
                     return_pcd_list =False,
@@ -148,21 +138,6 @@ def create_one_or_many_pcds( pts,
         pcd.colors = o3d.utility.Vector3dVector([x for x in tree_color])
         pcds.append(pcd)
     return pcds
-
-def cluster_and_color(pcd,
-                        eps=.25,
-                        min_points=20):
-    labels = np.array( pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))   
-    max_label = labels.max()
-    # visualize the labels
-    log.info(f"point cloud has {max_label + 1} clusters")
-    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    colors[labels < 0] = 0
-    first = colors[0]
-    colors[0] = colors[-1]
-    colors[-1]=first
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    return labels, colors
 
 def filter_pcd_list(pcds,
                     max_pctile=85,
@@ -363,76 +338,6 @@ def load_completed(cell_to_run_id):
         # print(f'{added_k_ids} complete clusters from grid cell {cell_num}')
     breakpoint()    
     return completed_cluster_idxs , completed_cluster_pts
-
-def compare_complete_to_in_progress(cell_to_run_id):
-    totals = {  'complete':[],
-                'complete_pts':[],
-                'all':[],
-                'progress_ids':[], 
-                'progress_pts':[] }
-    all_complete = []
-    all_in_progress = []
-    cell_to_idc = defaultdict(list) # {cluster_id:[containing_cell_id ]}
-    for cell_num in range(cell_to_run_id):
-        cell_completed = None
-        cell_progress = None
-        try:
-            print(f'adding clusters found in grid {cell_num}')
-            with open(f'cell{cell_num}_complete.pkl','rb') as f:
-                cell_completed = dict(pickle.load(f))
-        except Exception as e:
-            cell_completed = {}
-            print('err reading completed')
-        try:
-            with open(f'cell0_clusters_in_progress2.pkl','rb') as f: cell_progress = dict(pickle.load(f))
-        except Exception as e:
-            cell_progress = {}
-            print('err reading in progess')
-
-        completed_cluster_keys = [x for x in cell_completed.keys()]    
-        for idc in completed_cluster_keys:
-            if idc not in all_complete:
-                cell_to_idc[cell_num].append(idc)
-
-        all_cluster_keys = [(idc,cluster_pt_list) for idc, cluster_pt_list in cell_progress.items() 
-                                    if len(cluster_pt_list)>0]
-        incomplete_keys = [idc for idc, _ in all_cluster_keys if idc not in completed_cluster_keys]
-
-        all_complete.extend(completed_cluster_keys)
-        all_in_progress.extend(incomplete_keys)
-
-        totals['complete'].append(len(completed_cluster_keys))
-        totals['complete_pts'].append(sum([len(x) for x in cell_completed.values()]))
-        totals['all'].append(len(all_cluster_keys))
-        totals['progress_ids'].append(len(incomplete_keys))
-
-    k_cell_idxs = list([x for x in chain.from_iterable(cell_to_idc.values())])
-    with open(f'all_complete.pkl','rb') as f: 
-        completed = dict(pickle.load(f))
-
-    completed_cluster_idxs = [x for x in completed.keys()]
-    all_complete = completed_cluster_idxs + k_cell_idxs
-
-    print(totals)
-    print(len(all_complete))
-    print(len(all_in_progress))
-
-    # labels = arr(completed_cluster_idxs)
-    # max_label = labels.max()
-    # log.info(f"point cloud has {max_label + 1} clusters")
-    # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    # colors_by_file = [len(x)*[color] for x,color in zip(completed_cluster_pts,colors)]
-    # colors =[x for x in chain.from_iterable(colors_by_file)]
-    # all_pts =[x for x in chain.from_iterable(completed_cluster_pts)]
-    # pcd = o3d.geometry.PointCloud()
-    # pcd.points = o3d.utility.Vector3dVector(arr(all_pts))
-    # pcd.colors = o3d.utility.Vector3dVector(arr(colors)[:,:3])
-    # draw(pcd)
-    # highc_incomplete = o3d.io.read_point_cloud('highc_incomplete.pcd')
-    # draw([highc_incomplete,pcd])
-
-    # completed_cluster_idxs = list(set(completed_cluster_idxs))
-    return all_complete , totals
 
 def recover_original_detail(cluster_pcds):
     bnd_boxes = [pcd.get_oriented_bounding_box() for pcd in cluster_pcds]
