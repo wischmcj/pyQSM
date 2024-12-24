@@ -1,3 +1,4 @@
+
 import open3d as o3d
 import scipy.spatial as sps
 import numpy as np
@@ -5,6 +6,10 @@ from numpy import asarray as arr
 import pickle
 from copy import deepcopy
 import itertools
+
+
+
+
 
 from collections import defaultdict
 import logging
@@ -20,10 +25,6 @@ from matplotlib import patches
 
 from open3d.io import read_point_cloud, write_point_cloud
 
-# from geometry.skeletonize import extract_skeleton, extract_topology
-# from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
-# from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
-# from utils.lib_integration import find_neighbors_in_ball
 from utils.math_utils import (
     get_center
 )
@@ -94,6 +95,7 @@ def bin_colors(zoom_region=[(97.67433, 118.449), (342.1023, 362.86)]):
     limited_pcd.points = o3d.utility.Vector3dVector(arr([x[0] for x in color_limited]))
     limited_pcd.colors = o3d.utility.Vector3dVector(arr([x[1] for x in color_limited]))
     draw(limited_pcd)
+
 
 def create_one_or_many_pcds( pts,
                         colors = None,
@@ -168,7 +170,7 @@ def zoom_pcd(zoom_region,
     pcd.colors = o3d.utility.Vector3dVector(in_colors)
     return pcd
 
-def zoom(zoom_region, #=[(97.67433, 118.449), (342.1023, 362.86)],
+def zoom(zoom_region, #=[(x_min,y_min), (x_max,y_max)],
         pts,
         colors = None,
         reverse=False):
@@ -193,16 +195,8 @@ def zoom(zoom_region, #=[(97.67433, 118.449), (342.1023, 362.86)],
 
     return in_pts, in_colors
 
-def filter_to_region(ids_and_pts,
+def filter_list_to_region(ids_and_pts,
                         zoom_region):
-    # Limiting to just the clusters near cluster[19]
-    # factor = 10 # @40 reduces clusters 50%, @20 we get a solid 20 or so clusters in the
-    # center_id = 126
-    # zoom_region = [(clusters[center_id].get_max_bound()[0]+factor,    
-    #                 clusters[center_id].get_min_bound()[0]-factor),     
-    #                 (clusters[center_id].get_max_bound()[1]+factor,    
-    #                 clusters[center_id].get_min_bound()[1]-factor)] # y max/min
-    # zoom_region = [(),()]
     in_ids = []
     for id_w_pts in ids_and_pts:
         idc, pts = id_w_pts
@@ -214,7 +208,7 @@ def filter_to_region(ids_and_pts,
 def filter_to_region_pcds(clusters,
                         zoom_region):
     pts = [tuple((idc,np.asarray(cluster.points))) for idc, cluster in clusters]
-    new_idcs = filter_to_region(pts,zoom_region)
+    new_idcs = filter_list_to_region(pts,zoom_region)
     new_clusters = [(idc, cluster) for idc, cluster in clusters if idc in new_idcs]
     return  new_clusters
 
@@ -230,8 +224,30 @@ def load_clusters_get_details():
     # labels= labels[:3]
 
     cluster_pcds = create_one_or_many_pcds(pts, labels = labels)
-    recover_original_detail(cluster_pcds)
+    recover_original_detail(cluster_pcds, file_num_base = 20000000)
     breakpoint()
+
+
+def cluster_and_color(pcd,
+                        eps=.25,
+                        min_points=20,
+                        from_pts = False,
+                        print_progress=False):
+    if from_pts:
+        pcd_from_pts = o3d.geometry.PointCloud()
+        pcd_from_pts.points = o3d.utility.Vector3dVector(arr(pcd))
+        pcd = pcd_from_pts
+    labels = np.array( pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=print_progress))   
+    max_label = labels.max()
+    # visualize the labels
+    log.info(f"point cloud has {max_label + 1} clusters")
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    first = colors[0]
+    colors[0] = colors[-1]
+    colors[-1]=first
+    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    return labels, colors
 
 def id_trunk_bases(pcd =None, 
             exclude_boundaries = None,
@@ -244,7 +260,7 @@ def id_trunk_bases(pcd =None,
     if load_from_file:
         lowc = o3d.io.read_point_cloud('low_cloud_all_16-18pct.pcd')
     else:
-        lowc, lowc_ids_from_col = get_low_cloud(pcd, 16,18)
+        lowc, lowc_ids_from_col = crop_by_percentile(pcd, 16,18)
         lowc = clean_cloud(lowc)
         o3d.io.write_point_cloud('low_cloud_all_16-18pct.pcd',lowc)
 
@@ -252,11 +268,11 @@ def id_trunk_bases(pcd =None,
     if load_from_file:
         highc= o3d.io.read_point_cloud('collective_highc_18plus.pcd')
     else:
-        highc, highc_ids_from_col = get_low_cloud(pcd, 18,100)
+        highc, highc_ids_from_col = crop_by_percentile(pcd, 18,100)
         o3d.io.write_point_cloud('collective_highc_18plus.pcd',highc)
         draw(lowc)
 
-    # midc, _ = get_low_cloud(collectivme, 16,30)
+    # midc, _ = crop_by_percentile(collectivme, 16,30)
     
     print('Removing buildings')
     for region in exclude_boundaries:
@@ -265,7 +281,6 @@ def id_trunk_bases(pcd =None,
 
     print('clustering')
     if load_from_file:
-        highc= o3d.io.read_point_cloud('collective_highc_18plus.pcd')
         with open('skio_labels_low_16-18_cluster_pt5-20.pkl','rb') as f: 
             labels = pickle.load(f)
     else:
@@ -388,6 +403,18 @@ def recover_original_detail(cluster_pcds,
             print(f'error {e} getting clouds')
     return detailed_pcds
 
+def update(file, to_write):
+    curr = load(file)
+    curr.extend(to_write)
+    with open(file,'wb') as f:
+        pickle.dump(curr,f)
+
+def normalize_to_origin(pcd):
+    print(f'original: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
+    center =pcd.get_min_bound()+((pcd.get_max_bound() -pcd.get_min_bound())/2)
+    pcd.translate(-center)
+    print(f'translated: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
+    return pcd
 
 def save(file, to_write):
     with open(file,'wb') as f:
@@ -396,7 +423,8 @@ def save(file, to_write):
 def load(file):
     with open(file,'rb') as f:
         ret = pickle.load(f)
-
+    return ret
+        
 def extend_seed_clusters(clusters_and_idxs:list[tuple],
                             src_pcd,
                             file_label,
@@ -503,21 +531,18 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
     except Exception as e:
         breakpoint()
         print('error saving')
-        
-if __name__ =="__main__":
-    # test = compare_complete_to_in_progress(6)
 
+
+def build_trees_knn():
+    
 #### Reading in data and preping clusters
     # o3d.io.write_point_cloud('collective.pcd',collective)
     # collective = o3d.io.read_point_cloud('collective.pcd')
 
     ## Identify and clean up cross section clusters 
     ## Filter out those unlikley trunk canidates (too small, too large)
-    exclude_boundaries = [[ (77,350, 0),(100, 374,5.7)], # grainery
-                            [(0, 350, 0), (70, 374, 5.7)] # big house 
-                            ]
-    lowc,highc,labels = id_trunk_bases(None, #collective, 
-                                        exclude_boundaries)
+    exclude_boundaries = [[ (77,350, 0),(100, 374,5.7)],  [(0, 350, 0), (70, 374, 5.7)]  ]
+    lowc,highc,labels = id_trunk_bases(None,  exclude_boundaries)
     # clusters = filter_pcd_list(clusters)
     ## Define clusters based on labels 
     unique_vals, counts = np.unique(labels, return_counts=True)
@@ -525,13 +550,16 @@ if __name__ =="__main__":
     clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls)]
    
 #### Reading data from previous runs to exclude from run
-    rerun_cluster_selection = False 
+    rerun_cluster_selection = True 
     if rerun_cluster_selection:
-        completed_cluster_idxs , completed_cluster_pts = load_completed(3)
+        completed_cluster_idxs , completed_cluster_pts = load_completed(5)
         save('completed_cluster_idxs.pkl',completed_cluster_idxs)
+        # save('completed_cluster_pts.pkl',completed_cluster_pts)
     else:
         completed_cluster_idxs = load('completed_cluster_idxs.pkl')
+    # breakpoint()
     nk_clusters= [(idc, cluster) for idc, cluster in clusters if idc not in completed_cluster_idxs]
+    breakpoint()
 
 ####  Dividing clouds into smaller 
     from itertools import product
@@ -567,20 +595,23 @@ if __name__ =="__main__":
         categorized_pts = [tuple(x) for x in itertools.chain.from_iterable(completed_cluster_pts)]
         highc_pts = set(highc_pts)-set(categorized_pts)
         highc_pts = arr([x for x in highc_pts])
-        # pcd = o3d.geometry.PointCloud()
-        # pcd.points = o3d.utility.Vector3dVector(np.asarray(highc_pts))
-        # draw(pcd)
-        # o3d.io.write_point_cloud('highc_incomplete.pcd',pcd)
-        # del pcd
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.asarray(highc_pts))
+        draw(pcd)
+        o3d.io.write_point_cloud('highc_incomplete.pcd',pcd)
+        del pcd
         highc_tree = sps.KDTree(np.asarray(highc_pts))
+        
         with open(f'highc_KDTree.pkl','wb') as f: pickle.dump(highc_tree,f)
     else:
         with open('highc_KDTree.pkl','rb') as f: # all, cell0 and cell1 completed removed 
             highc_tree = pickle.load(f)
-    
-    ####  Running KNN algo to build trees
+
+####  Running KNN algo to build trees
 
     # cell_to_run_id = 3
     # grid_wo_overlap =  grid[cell_to_run_id]
     for cell_to_run_id in ['all']:
         extend_seed_clusters(clusters,highc, f'cell{cell_to_run_id}')
+
+    
