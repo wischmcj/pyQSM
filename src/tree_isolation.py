@@ -275,37 +275,20 @@ def id_trunk_bases(pcd =None,
 
     return lowc, highc, labels
 
-def load_completed(cell_to_run_id):
+def load_completed(cell_to_run_id,
+                    files = []):
     # Loading completed clusters and their 
-    #  found nbr points from last run
-    with open(f'all_complete.pkl','rb') as f: 
-        completed = dict(pickle.load(f))
+    #  found nbr points from prev runs
 
-    completed_cluster_idxs = [idc for idc in completed.keys()]
-    completed_cluster_pts = [pts for pts in completed.values()]
-    grid=np.asarray([[[ 34.05799866, 286.28399658],
-        [111.76449585, 343.6219991 ]],
+    if files == []:
+        for cell_num in range(cell_to_run_id):
+            files.append(f'cell{cell_num}_complete2.pkl')
+        files.append(f'cell5_complete.pkl')
+        files.append(f'cellall_complete2.pkl')
+        files.append(f'all_complete.pkl')
 
-       [[111.76449585, 286.28399658],
-        [189.47099304, 343.6219991 ]],
-
-       [[ 34.05799866, 343.6219991 ],
-        [111.76449585, 400.96000163]],
-
-       [[111.76449585, 343.6219991 ],
-        [189.47099304, 400.96000163]],
-
-       [[ 34.05799866, 400.96000163],
-        [111.76449585, 458.29800415]],
-
-       [[111.76449585, 400.96000163],
-        [189.47099304, 458.29800415]]])
-
-    files = []
-    for cell_num in range(cell_to_run_id):
-        files.append(f'cell{cell_num}_complete2.pkl')
-
-    files.append(f'cell5_complete.pkl')
+    completed_cluster_idxs = []
+    completed_cluster_pts = []
     for file in files:
         print(f'adding clusters found in {file}')
         with open(file,'rb') as f:
@@ -319,7 +302,7 @@ def load_completed(cell_to_run_id):
         in_idcs = [idc for idc in cell_completed.keys() if idc not in completed_cluster_idxs]
         k_cluster_pts= [pts for idc, pts in cell_completed.items() if idc in in_idcs]
         # completed_cluster_keys = [x for x in completed.keys()]
-        # in_idcs = filter_to_region(k_cluster_pts, non_overlap_grid)
+        # in_idcs = filter_list_to_region(k_cluster_pts, non_overlap_grid)
 
         # breakpoint()
         num_new_clusters = len(in_idcs)
@@ -331,12 +314,11 @@ def load_completed(cell_to_run_id):
         print(f'{all_idcs} total clusters found in grid')
         print(f'{pts_per_cluster} pts in each cluster')
 
-        print(f'{num_new_clusters} new, complete clusters found in grid')
+        print(f'{num_new_clusters} new, complete clusters found in {file}')
         print(f'{pts_per_new_cluster} pts in each new cluster')
         print(f'{num_new_pts} points categorized in grid')
         # added_k_ids = len(in_idcs)
         # print(f'{added_k_ids} complete clusters from grid cell {cell_num}')
-    breakpoint()    
     return completed_cluster_idxs , completed_cluster_pts
 
 def recover_original_detail(cluster_pcds):
