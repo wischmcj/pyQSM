@@ -173,3 +173,5 @@ pic*
 meshes/*
 *.pts
 src/test.py
+*.pkl
+sho/*
