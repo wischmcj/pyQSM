@@ -21,7 +21,7 @@ import rustworkx as rx
 import networkx as nx
 
 
-from tree_isolation import recover_original_detail, zoom, extend_seed_clusters,create_one_or_many_pcds
+from qsm_generation import recover_original_detail, zoom, extend_seed_clusters,create_one_or_many_pcds
 from geometry.point_cloud_processing import clean_cloud,cluster_plus,crop_by_percentile,get_ball_mesh
 from geometry.mesh_processing import map_density,get_surface_clusters
 from set_config import config, log

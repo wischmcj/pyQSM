@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from viz.viz_utils import color_continuous_map
 from set_config import config, log
 from geometry.point_cloud_processing import clean_cloud, cluster_and_get_largest
-from tree_isolation import filter_by_norm, get_low_cloud, sphere_step
+from qsm_generation import filter_by_norm, get_low_cloud, sphere_step
 from viz.viz_utils import draw
 from utils.lib_integration import pts_to_cloud
 from utils.math_utils import get_angles, get_percentile, poprow, rotation_matrix_from_arr, unit_vector, angle_from_xy
@@ -398,7 +398,7 @@ def extract_topology(contracted):
 
 
 if __name__=="__main__":
-    from tree_isolation import config
+    from qsm_generation import config
     from point_cloud_processing import get_sub_bounding_sphere
     skeletor = "skeletor.pts"
 
