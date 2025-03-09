@@ -4,7 +4,7 @@ import open3d as o3d
 from open3d.io import read_point_cloud, write_point_cloud
 from decimal import Decimal
 from itertools import islice
-
+import fileinput
 
 line_reached =0
 def read_file_sections(start_line):
@@ -121,6 +121,20 @@ def read_pcd():
     # pcd =  read_point_cloud("vox_down_skio_raffai_30000000.pcd")
     pcd =  read_point_cloud("compiled_vox_down_skio_raffai_80000000.pcd")
     o3d.visualization.draw(pcd)
+
+def pts_to_pcd_rbg(file):
+    i = 0
+    with fileinput.input(file,backup='.bkp',inplace=True) as f:
+        try:
+            for line in f:
+                ,_,_,_,r,g,b = line.split(' ')
+                print('{} {} {}'.format(r,g,b),end='\n')
+        except Exception as e:
+            breakpoint()
+            pass
+
+    # with open(file) as f:
+    #     for line in read_lines
     # breakpoint()
 
 
@@ -132,6 +146,10 @@ if __name__ == '__main__':
     ###########################
     # read_pcd()
     read_file_sections(0)
+    skeletor = "/code/code/Research/lidar/converted_pcs/skeletor_xyzrgb.pts"
+    pts_to_pcd_rbg(skeletor)
+    # read_pcd()
+    # read_file_sections(0)
     # for i in range(10):
     #     try:
     #         read_file_sections(line_reached)
