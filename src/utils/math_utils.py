@@ -5,23 +5,28 @@ rot_90_z = np.array([[0,-1,0],[1,0,0],[0,0,1]])
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 rot_n90_x = np.array([[1,0,0],[0,-1,0],[0,0,1]]) 
 
-def get_percentile(pts, low, high):
+def get_percentile(pts, low, high, axis=2, invert = False):
     """
     Returns the indices of the points that fall within the
     low and high percentiles of the z values of the points
     """
-    z_vals = pts[:, 2]
-    lower = np.percentile(z_vals, low)
-    upper = np.percentile(z_vals, high)
-    all_idxs = np.where(z_vals)
-    too_low_idxs = np.where(z_vals <= lower)
+    if isinstance(axis,list):
+        vals = sum([pts[:, axum] for axum in axis])
+        if invert:
+           vals =  pts[:, axis[0]] -  pts[:, axis[1]]
+    else:
+        vals = pts[:, axis]
+    lower = np.percentile(vals, low)
+    upper = np.percentile(vals, high)
+    all_idxs = np.where(vals)
+    too_low_idxs = np.where(vals <= lower)
     not_too_low_idxs = np.setdiff1d(all_idxs, too_low_idxs)
     if high<100:
-        too_high_idxs = np.where(z_vals >= upper)
+        too_high_idxs = np.where(vals >= upper)
         select_idxs = np.setdiff1d(not_too_low_idxs, too_high_idxs)
     else:
         select_idxs = not_too_low_idxs
-    vals = z_vals[select_idxs]
+    vals = vals[select_idxs]
     # Similar but by scalar max
     # zmin = np.min(pts[:,2])
     # min_mask = np.where(pts[:, 2] <= (zmin+.4))[0]
@@ -127,12 +132,15 @@ def get_center(points, center_type="centroid"):
         breakpoint()
         print("not 3 points")
     if center_type == "centroid":
+        # Average of each coordinate value
         x = points[:, 0]
         y = points[:, 1]
         z = points[:, 2]
         centroid = np.average(x), np.average(y), np.average(z)
         return centroid
     elif center_type == "top":
+        # X and y values a straight average 
+        # Z values average of the values in 90th %ile
         idxs, vals = get_percentile(points,90, 100)
         top_ten_pts = points[idxs]
         x = top_ten_pts[:, 0]
@@ -141,6 +149,8 @@ def get_center(points, center_type="centroid"):
         centroid = np.average(x), np.average(y), np.average(z)
         return centroid
     elif center_type == "bottom":
+        # X and y values a straight average 
+        # Z values average of the values below the 10th %ile
         idxs, vals = get_percentile(points,0, 10)
         top_ten_pts = points[idxs]
         x = top_ten_pts[:, 0]
