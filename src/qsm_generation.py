@@ -4,21 +4,21 @@
 from collections import defaultdict
 import logging
 from itertools import chain
+from copy import deepcopy
 
+import scipy.spatial as sps
 import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
-
 import matplotlib.pyplot as plt
-
 from matplotlib import patches
-
 from open3d.io import read_point_cloud, write_point_cloud
 
 from geometry.skeletonize import extract_skeleton, extract_topology
 from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from utils.lib_integration import find_neighbors_in_ball
+from utils.lib_integration import find_neighbors_in_ball,get_neighbors_in_tree
+from viz.viz_utils import color_continuous_map
 from utils.math_utils import (
     get_angles,
     get_center,
@@ -30,7 +30,10 @@ from utils.math_utils import (
 
 from set_config import config
 from geometry.mesh_processing import define_conn_comps, get_surface_clusters, map_density
-from geometry.point_cloud_processing import ( filter_by_norm,
+from geometry.point_cloud_processing import ( 
+    cluster_plus,
+    crop_by_percentile,
+    filter_by_norm,
     clean_cloud,
     crop, get_shape,
     orientation_from_norms,
@@ -73,7 +76,6 @@ def get_stem_pcd(pcd=None, source_file=None
     pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
     pcd = pcd.select_by_index(pcd_cropped_idxs)
     pcd.estimate_normals(    search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn))
-map_density
     stem_cloud = filter_by_norm(pcd, angle_cutoff)
     if voxel_size:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
@@ -84,7 +86,6 @@ map_density
     return stem_cloud
 
 def compare_normals_approaches(stat_down):
-    from viz.viz_utils import color_continuous_map
     stat_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=20))
     norms = arr(stat_down.normals)
 
@@ -98,16 +99,6 @@ def compare_normals_approaches(stat_down):
     draw(stat_down)
     stem_cloud =  filter_by_norm(stat_down,10)
     draw(stem_cloud)
-
-def get_low_cloud(pcd, 
-                  start = config['trunk']['lower_pctile'],
-                  end = config['trunk']['upper_pctile']):
-    algo_source_pcd = pcd  
-    algo_pcd_pts = arr(algo_source_pcd.points)
-    log.info(f"Getting points between the {start} and {end} percentiles")
-    not_too_low_idxs, _ = get_percentile(algo_pcd_pts,start,end)
-    low_cloud = algo_source_pcd.select_by_index(not_too_low_idxs)
-    return low_cloud, not_too_low_idxs
 
 def sphere_step(
     curr_pts,
@@ -144,6 +135,7 @@ def sphere_step(
 
     cyl_mesh = None
     fit_radius = 0
+    log.info(f"Attempting to fit a 2D circle to projection of points")
     # try to fit a cylinder to previous neighbors via a 2D circle
     #    only keep cyl_mesh if fit radius is reasonable
     prev_neighbor_height = np.min(curr_pts[:, 2])
@@ -166,6 +158,7 @@ def sphere_step(
     )
 
     if good_fit_found:
+        log.info(f"good fit found, adding cyl to list")
         cyls.append(cyl_mesh.sample_points_uniformly(500))
         center = get_center(curr_pts)
         cyl_details.append(
@@ -177,14 +170,18 @@ def sphere_step(
             }
         )
 
+    log.info(f"getting new neighbors ")
     # get all points within radius of the former neighbor
     #    group's center point.
     # Exclude any that have already been found
     sphere, new_neighbors, center, radius = find_neighbors_in_ball(curr_pts, main_pts, total_found)
     spheres.append(sphere)
+    # full_tree = sps.KDTree(main_pts)
+    # new_neighbors = get_neighbors_in_tree(curr_pts,full_tree, last_radius)
 
     clusters = ()
     if len(new_neighbors) > 0:
+        log.info(f"Clustering neighbor points found in ball")
         cluster_type = "kmeans" if not good_fit_found else "DBSCAN"
         # Cluster new neighbors to finpd potential branches
         labels, clusters = choose_and_cluster(arr(new_neighbors), main_pts, cluster_type, debug)
@@ -192,10 +189,10 @@ def sphere_step(
     if clusters == [] or len(new_neighbors) < config['sphere']["min_contained_points"]:
         return []
     else:
-        if (len(clusters[0]) > 2
+        if (len(labels) > 2
             or debug):
             try:
-                test = iter_draw(clusters[1], main_pcd)
+                test = iter_draw(clusters, main_pcd)
             except Exception as e:
                 log.info(f"error in iterdraw {e}")
 
@@ -234,7 +231,7 @@ def sphere_step(
         if (len(cyls) % draw_every == 0 
             or debug):
             try:
-                test = main_pcd.select_by_index(total_found)
+                test = main_pcd.select_by_index(new_neighbors)
                 draw([test])
                 for cyl_pts in cyls:
                     cyl_pts.paint_uniform_color([0, 1, 0])
@@ -250,12 +247,12 @@ def sphere_step(
                 draw([test, not_found])
             except Exception as e:
                 log.info(f"error in checkpoint_draw {e}")
-            breakpoint()
+
         fit_remaining_branch = sphere_step(
             cluster_pcd_pts,
             cluster_radius,
             main_pcd,
-            cluster_idxs.
+            cluster_idxs,
             cluster_branch,
             branch_num,
             total_found,
@@ -274,7 +271,6 @@ def sphere_step(
         branch_num += 1
     log.info("reached end of function, returning")
     return branches, id_to_num, cyls, cyl_details
-
 
 def find_low_order_branches(start = 'initial_clean', 
                              file = '27_pt02.pcd',
@@ -303,7 +299,6 @@ def find_low_order_branches(start = 'initial_clean',
             log.info("No points found in point cloud")
             pcd = read_point_cloud(file, print_progress=True)
 
-        # write_point_cloud(file,pcd)
         log.info('read in cloud')
         # stat_down=pcd
         stat_down = clean_cloud(pcd,
@@ -314,103 +309,82 @@ def find_low_order_branches(start = 'initial_clean',
         draw(stat_down)
     
     if start == 'stem_id' or started:
-        # breakpoint()
         if not started:
             stat_down = read_point_cloud(file, print_progress=True)
             started = True
         # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
-        stem_cloud = get_stem_pcd(stat_down)
+        stem_cloud = get_stem_pcd(stat_down)#,angle_cutoff =20)
         draw(stem_cloud)
-    
-    if extract_skeleton:
-        contracted, total_point_shift = extract_skeleton(pcd, 
-                                                            trunk_points=None,  
-                                                            debug =False)
-                                                            # moll = moll,
-                                                            # max_iter= iter_num,
-                                                            # contraction_factor = contract)
-        topology, topology_graph, skeleton, skeleton_points, skeleton_graph,rx_graph = extract_topology(contracted)
-        breakpoint()
 
     if start == 'trunk_id' or started:
-        # breakpoint()
         if not started:
             stem_cloud = read_point_cloud(file, print_progress=True)
             started = True
         log.info("Identifying low percentile by height...")
-        low_cloud, idxs = get_low_cloud(stem_cloud)
+        low_cloud, low_idxs = crop_by_percentile(stem_cloud)
         low_cloud_pts = arr(low_cloud.points)
-        draw(low_cloud)
+        # draw(low_cloud)
 
-        log.info(f"Clustering low %ile points to identify trunk")
-        labels = np.array(low_cloud.cluster_dbscan(eps=         config['trunk']['cluster_eps'],        
-                                                   min_points=  config['trunk']['cluster_nn'], 
-                                                   print_progress=True))
-        max_label = labels.max()
-        log.info(f"point cloud has {max_label + 1} clusters")
-        
-        colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-        colors[labels < 0] = 0
-        low_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
-        unique_vals, counts = np.unique(labels, return_counts=True)
-        draw(low_cloud)
-        
-        log.info("Identifying trunk ...")
-
-        unique_vals, counts = np.unique(labels, return_counts=True)
-        largest = unique_vals[np.argmax(counts)]
-        trunk_idxs = np.where(labels == largest)[0]
-        trunk = low_cloud.select_by_index(trunk_idxs)
+        trunk, trunk_idxs= cluster_plus(low_cloud, top=1)
         trunk_pts = arr(trunk.points)
+        trunk_stem_idxs = low_idxs[trunk_idxs]
         # draw(trunk)
+        
+        # next_slice_full, slice_idxs = get_low_cloud(stem_cloud, 
+        #                             config['trunk']['upper_pctile'], 
+        #                             config['trunk']['upper_pctile']+2)
+        
+        # slice_pcd, slice_idxs = cluster_plus(next_slice_full,top=1)
+        # draw(next_slice_trunk)
 
-        # obb = trunk.get_oriented_bounding_box()
-        # obb.color = (1, 0, 0)
-        # draw([trunk,obb])
-
+        ## Finding the inititial set of new neighbors
+        from copy import deepcopy
+        stem_cloud_pts = arr(stem_cloud.points)
         obb = trunk.get_minimal_oriented_bounding_box()
         obb.color = (1, 0, 0)
-        draw([trunk,obb])
-        fit_radius = obb.extent[0] / 2
+        up_shifted_obb = deepcopy(obb).translate((0,0,1),relative = True)
+        up_shifted_obb.scale(1.1,center = up_shifted_obb.center)
+        draw([trunk,obb,up_shifted_obb])
+        new_pt_ids = up_shifted_obb.get_point_indices_within_bounding_box( 
+                                    o3d.utility.Vector3dVector(stem_cloud_pts) )
+        old_pt_ids = obb.get_point_indices_within_bounding_box( 
+                                    o3d.utility.Vector3dVector(stem_cloud_pts) )
+        next_slice =stem_cloud.select_by_index(new_pt_ids)
+        draw([next_slice,trunk,obb,up_shifted_obb])
+        
+        new_neighbors = np.setdiff1d(new_pt_ids, old_pt_ids)
+        nn_pts = stem_cloud_pts[new_neighbors]
+        total_found = new_pt_ids
+        # fit_radius = obb.extent[0] / 2
 
-        # breakpoint()
-        # log.info("Fitting cylinder to trunk ...")
-        # cyl_mesh, trunk_pcd, inliers, fit_radius, axis = fit_shape_RANSAC(pcd=low_cloud, shape="circle")
-        # o3d.visualization.draw([cyl_mesh, trunk])
 
-        total_found= trunk_idxs
-        # breakpoint()
-        algo_source_pcd = stem_cloud
-        algo_pcd_pts = arr(algo_source_pcd.points)
+        # total_found= trunk_stem_idxs
 
-        log.info("Identifying first set of points above trunk")
-        sphere, neighbors, center, radius = find_neighbors_in_ball(trunk_pts, algo_pcd_pts, trunk_idxs)
-        new_neighbors = np.setdiff1d(neighbors, trunk_idxs)
-        total_found = np.concatenate([trunk_idxs, new_neighbors])
-        nn_pcd = algo_source_pcd.select_by_index(new_neighbors)
-        nn_pts = algo_pcd_pts[new_neighbors]
-        sphere=get_shape(pts=None, shape='sphere', as_pts=True,   center=tuple(center), radius=radius)
-        o3d.visualization.draw_geometries([nn_pcd,trunk,sphere])
-        breakpoint()
-        # cyl_mesh, trunk_pcd, inliers, fit_radius, axis = fit_shape_RANSAC(pcd=low_cloud, shape="circle")
-        # mesh_pts = cyl_mesh.sample_points_uniformly(1000)
-        # mesh_pts.paint_uniform_color([0, 1.0, 0])
-        # height = np.max(nn_pts[:, 2]) - np.min(nn_pts[:, 2])
-        # cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
-        #                 center=tuple(test_center),
-        #                 radius=fit_radius,
-        #                 height=height,
-        #                 axis=axis)
-        # o3d.visualization.draw_geometries([nn_pcd,mesh_pts])
+        # log.info("Identifying first set of points above trunk")
+        # top_trunk_pts_trunk_idxs,_ = get_percentile(trunk_pts,85,100)
+        # top_trunk_pts = base_pts[top_trunk_pts_trunk_idxs]
+        # top_trunk_pts_stem_idxs = trunk_stem_idxs[top_trunk_pts_trunk_idxs]
+
+        # query_pts, query_pt_idxs = top_trunk_pts, top_trunk_pts_stem_idxs
+        # sphere, neighbors, center, radius = find_neighbors_in_ball(query_pts, stem_cloud_pts,
+        #                                                             query_pt_idxs,
+        #                                                             radius=1.8, draw_results=True)
+        # new_neighbors = np.setdiff1d(neighbors, query_pt_idxs)
+        # total_found = np.concatenate([query_pt_idxs, new_neighbors])
+        # nn_pcd = stem_cloud.select_by_index(query_pt_idxs)
+        # nn_pts = stem_cloud_pts[new_neighbors]
+        # sphere=get_shape(pts=None, shape='sphere', as_pts=True,   center=tuple(center), radius=radius)
+        # o3d.visualization.draw_geometries([nn_pcd,trunk,sphere])
     
-
+    fit_radius = 1.8
     if start == 'sphere_step' or started:
         started = True
         log.info("Running sphere algo")
+
         res, id_to_num, cyls, cyl_details = sphere_step(
             curr_pts = nn_pts, # The points in the branch currently being traversed 
             last_radius = fit_radius, # The radius of the last cyliner fit
-            main_pcd = algo_source_pcd, # The parent point cloud being traversed
+            main_pcd = stem_cloud, # The parent point cloud being traversed
             cluster_idxs = new_neighbors, # The indexes of the points in the last cluster
             branch_order = 0,
             branch_num = 0,
@@ -455,6 +429,14 @@ if __name__ == "__main__":
     import itertools
 
     # dividing part files into
+    # pcd = read_point_cloud('data/results/general/skeletor_super_clean.pcd')
+
+    # find_low_order_branches(start = 'initial_clean',
+    #                             file='skeletor_stem20.pcd')
+    # draw(pcd)
+    # breakpoint()
+    find_low_order_branches(start = 'trunk_id',
+                                file='data/results/general/skeletor_super_clean.pcd')
     breakpoint()
     # o3d.geometry.get_oriented_bounding_box
 
@@ -469,10 +451,6 @@ if __name__ == "__main__":
     
    
    
-
-    import scipy.spatial as sps
-    import itertools
-    from copy import deepcopy
 
 
     # Playing with octrees
