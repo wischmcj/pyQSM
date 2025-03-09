@@ -10,6 +10,7 @@ formatters:
 handlers:
     console:
         level: 0
+        class: utils.log_utils.ConsoleHandler
         class: log_utils.ConsoleHandler
         formatter: default
         styles:
@@ -24,17 +25,16 @@ handlers:
     file:
         level: 1
         class: logging.FileHandler
-        filename: ./canopyhydro.log
+        filename: ./pyqsm.log
         formatter: default
 
 loggers:
-
-    script:
+    calc:
         level: DEBUG
         handlers: [file, console]
         propagate: no
 
-    model:
+    viz:
         level: INFO
         handlers: [file, console]
         propagate: yes
@@ -43,3 +43,4 @@ root:
     # By default, we display warning level logs from any library in the console
     # to match Python's default behavior while formatting logs nicely
     level: WARNING
+    handlers: [file, console]

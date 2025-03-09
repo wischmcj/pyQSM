@@ -1,7 +1,32 @@
+# [initial_clean]
+# voxel_size = 0.04
+# neighbors = 2
+# ratio = 4
+# iters = 3
 
+# [stem]
+# normals_radius = 0.1
+# normals_nn = 14
+# angle_cutoff = 4
+# stem_voxel_size = 0.03
+# post_id_stat_down = true
+# stem_neighbors = 10
+# stem_ratio = 2
+# stem_iters = 3
+
+# [trunk]
+# num_lowest = 2000
+# trunk_neighbors = 10
+# trunk_ratio = 0.25
+# cluster_eps = 0.08
+# cluster_nn = 10
+# lower_pctile = 0.1
+# upper_pctile = 2
+
+# For skeletor
 [initial_clean]
-voxel_size = 0.02
-neighbors = 6
+voxel_size = 0.04
+neighbors = 2
 ratio = 4
 iters = 3
 
@@ -9,8 +34,8 @@ iters = 3
 normals_radius = 0.1
 normals_nn = 30
 angle_cutoff = 10
-stem_voxel_size = 0.03
-post_id_stat_down = true
+stem_voxel_size = ''
+post_id_stat_down = false
 stem_neighbors = 10
 stem_ratio = 2
 stem_iters = 3
@@ -19,6 +44,26 @@ stem_iters = 3
 num_lowest = 2000
 trunk_neighbors = 10
 trunk_ratio = 0.25
+cluster_eps = 0.08
+cluster_nn = 10
+# lower_pctile = 4
+# upper_pctile = 15
+#skeletor_super_clean
+lower_pctile = 3
+upper_pctile = 10
+
+[skeletonize]
+moll= 1e-8
+n_neighbors = 20
+max_iter= 20
+semantic_weight = 10
+init_contraction = 3
+init_attraction = 0.6
+max_contraction = 2048
+max_attraction = 1024
+termination_ratio = 0.003
+step_wise_contraction_amplification = 'auto'
+graph_k_n = 15
 
 [dbscan]
 epsilon = 0.1
