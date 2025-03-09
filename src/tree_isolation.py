@@ -105,7 +105,7 @@ def create_one_or_many_pcds( pts,
     pcds = []
     tree_pts= []
     tree_color=[]
-    if not isinstance(pts[0],list) and not isinstance(pts[0],np.array):
+    if not isinstance(pts[0],list) and not isinstance(pts[0],np.ndarray):
         pts = [pts]
     if not labels:
         labels = np.asarray([idx for idx,_ in enumerate(pts)])
@@ -227,28 +227,6 @@ def load_clusters_get_details():
     recover_original_detail(cluster_pcds, file_num_base = 20000000)
     breakpoint()
 
-
-def cluster_and_color(pcd,
-                        eps=.25,
-                        min_points=20,
-                        from_pts = False,
-                        print_progress=False):
-    if from_pts:
-        pcd_from_pts = o3d.geometry.PointCloud()
-        pcd_from_pts.points = o3d.utility.Vector3dVector(arr(pcd))
-        pcd = pcd_from_pts
-    labels = np.array( pcd.cluster_dbscan(eps=eps, min_points=min_points, print_progress=print_progress))   
-    max_label = labels.max()
-    # visualize the labels
-    log.info(f"point cloud has {max_label + 1} clusters")
-    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    colors[labels < 0] = 0
-    first = colors[0]
-    colors[0] = colors[-1]
-    colors[-1]=first
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    return labels, colors
-
 def id_trunk_bases(pcd =None, 
             exclude_boundaries = None,
             load_from_file = True
@@ -284,7 +262,7 @@ def id_trunk_bases(pcd =None,
         with open('skio_labels_low_16-18_cluster_pt5-20.pkl','rb') as f: 
             labels = pickle.load(f)
     else:
-        labels, colors = cluster_and_color(lowc,eps=.5, min_points=20)
+        labels, colors = cluster_plus(lowc,eps=.5, min_points=20)
         with open('skio_labels_low_16-18_cluster_pt5-20.pkl','wb') as f: 
             pickle.dump(labels,f)
 
@@ -449,6 +427,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
     src_pts = src_tree.data
     num_pts =  len(src_pts)
     complete = []
+    cutoff_order = 10
     max_orders = defaultdict(int)
     iters = save_every
     # recreate = False
@@ -505,15 +484,17 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                     nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
                     nbr_pts = [nbr_pt for nbr_pt in src_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
                     if len(nbr_pts)>0:
-                        labels, colors= cluster_and_color(nbr_pts,eps = .11, min_points=20,from_pts=True)
+                        labels, colors= cluster_plus(nbr_pts,eps = .11, min_points=20,from_pts=True)
                         unique_vals, counts = np.unique(labels, return_counts=True)
                         order = len(arr(counts)[arr(counts)>20]) 
-                        for nbr_pt in nbr_pts:
-                            high_c_pt_assns[tuple(nbr_pt)] = (idx,order)
-                        if max_orders[idx]< order:
-                            max_orders[idx] = order
-                    curr_pts[idx] = nbr_pts
-
+                        if order<=cutoff_order:
+                            for nbr_pt in nbr_pts:
+                               high_c_pt_assns[tuple(nbr_pt)] = (idx,order)
+                            if max_orders[idx]< order:
+                                max_orders[idx] = order
+                            curr_pts[idx] = nbr_pts
+                        else:
+                            curr_pts[idx] = []
                     # print(f'{num_new_nbrs} new nbrs for cluster idx')
                 if len(curr_pts[idx])==0:
                     complete.append(idx)
