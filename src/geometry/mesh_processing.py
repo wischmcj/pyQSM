@@ -34,8 +34,8 @@ def define_conn_comps(mesh, max_num_comps):
 
 def get_surface_clusters(mesh,
                        top_n_clusters=10,
-                       min_cluster_area=0,
-                       max_cluster_area=100): 
+                       min_cluster_area=None,
+                       max_cluster_area=None): 
     """
         Identifies the connected components of a mesh,
             clusters them by proximity and filters for
@@ -45,13 +45,15 @@ def get_surface_clusters(mesh,
     # cluster index per triangle, 
     #   number of triangles per cluster, 
     #   surface area per cluster
-    (triangle_clusters, cluster_n_triangles, cluster_area ) =  (max_cluster.cluster_connected_triangles())
+    (triangle_clusters, cluster_n_triangles, cluster_area ) =  (mesh.cluster_connected_triangles())
     triangle_clusters = np.asarray(triangle_clusters)
     cluster_n_triangles = np.asarray(cluster_n_triangles)
     cluster_area = np.asarray(cluster_area)
-    mesh_0 = copy.deepcopy(max_cluster)
+    mesh_0 = copy.deepcopy(mesh)
     if top_n_clusters:
-        triangles_to_remove = cluster_n_triangles[triangle_clusters] < 100
+        largest_inds = np.argpartition(cluster_n_triangles, -top_n_clusters)[-top_n_clusters:]
+        largest_ns = cluster_n_triangles[largest_inds]
+        triangles_to_remove = cluster_n_triangles[triangle_clusters] < min(largest_ns)
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
     if max_cluster_area:
         triangles_to_remove = cluster_area[triangle_clusters] < max_cluster_area
@@ -61,7 +63,8 @@ def get_surface_clusters(mesh,
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
     return mesh_0
 
-def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=True):
+def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=False):
+    print('creating mesh from pcd')
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=depth)
     densities = np.asarray(densities)
     if remove_outliers:
