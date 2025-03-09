@@ -123,7 +123,7 @@ def cluster_DBSCAN(pts_idxs, points, eps, min_pts):
     """
     Attepts to cluster by finding a minimal set of points
        s.t. all points in the set are within a distance,
-       epsilon (eps), of at least on polint
+       epsilon (eps), of at least on point
     """
     clustering = DBSCAN(eps=eps, min_samples=min_pts).fit(points)
     labels = clustering.labels_
