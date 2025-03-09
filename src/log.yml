@@ -11,6 +11,7 @@ handlers:
     console:
         level: 0
         class: utils.log_utils.ConsoleHandler
+        class: log_utils.ConsoleHandler
         formatter: default
         styles:
             log.web_url: bright_blue
@@ -28,7 +29,6 @@ handlers:
         formatter: default
 
 loggers:
-
     calc:
         level: DEBUG
         handlers: [file, console]

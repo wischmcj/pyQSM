@@ -29,7 +29,6 @@ def iter_draw(idxs_list, pcd):
     o3d.visualization.draw_geometries(pcds)
     return pcd
 
-
 def draw(pcds, raw=True, side_by_side=False, **kwargs):
     if (not(isinstance(pcds, list))
         and not(isinstance(pcds, np.ndarray))):
@@ -67,7 +66,7 @@ def cdraw(pcd,
     vis.get_render_option().load_from_json(render_option_path)
     vis.run()
     vis.destroy_window()
-\
+
 def color_continuous_map(pcd, cvar):
     density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
     density_colors = density_colors[:, :3]
@@ -173,7 +172,6 @@ def rotating_compare_gif(transient_pcd, constant_pcd_in,
                                          '{}.gif'.format(file_name)), 
                                          images, format='GIF')
             
-
 # def draw_w_traj(pcd_or_data_path, 
 #                render_option_path= '',
 #                camera_trajectory_path):
