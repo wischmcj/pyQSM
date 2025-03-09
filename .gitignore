@@ -8,6 +8,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+*.ini
 .Python
 build/
 develop-eggs/
@@ -168,7 +169,11 @@ data/*
 *.pcd
 *.pcd
 *.pts
+*.pkl
+
+sho/*
 
 test.py
 src/graph.py
 .envrc
+
