@@ -1,7 +1,7 @@
 # resutls
 pic*
 sho*
-*.pkl
+# *.pkl
 *test/tmp/*
 
 #Dev
@@ -102,5 +102,6 @@ pic*
 meshes/*
 *.pts
 src/test.py
-*.pkl
+/data/in_process/*
+/data/resutls/*
 sho/*
