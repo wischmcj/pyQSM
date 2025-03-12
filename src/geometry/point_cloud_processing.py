@@ -1,5 +1,6 @@
 import open3d as o3d
 import numpy as np
+from numpy import array as arr
 
 from utils.math_utils import (
     get_angles,
@@ -85,11 +86,12 @@ def crop_and_highlight(pcd,lower,upper,axis):
 def cluster_plus(pcd,
                     eps=config['trunk']['cluster_eps'],
                     min_points=config['trunk']['cluster_nn'],
-                    draw_result = False,
+                    draw_result = True,
                     color_clusters = True,
                     top=None,
                     from_points=True,
-                    return_pcds = True):
+                    return_pcds = True,
+                    get_max=False):
     labels = np.array(pcd.cluster_dbscan(eps=.11, min_points=5,print_progress=True))
     color_continuous_map(pcd, labels)
     unique_vals, counts = np.unique(labels, return_counts=True)
@@ -101,6 +103,8 @@ def cluster_plus(pcd,
     largest = unique_vals[np.argmax(counts)]
     max_cluster_idxs = np.where(labels == largest)[0]
     max_cluster = pcd.select_by_index(max_cluster_idxs)
+    if return_pcds:
+        
     return max_cluster, max_cluster_idxs
 
 def cluster_and_get_largest(pcd,
@@ -204,22 +208,40 @@ def get_shape(pts, shape="sphere", as_pts=True, rotate="axis", **kwargs):
 
     return shape
 
-def query_via_bnd_box(sub_pcd, pcd):
+def query_via_bnd_box(pcd,
+                        source_pcd,
+                        scale = 1.1,
+                        translation=(0,0,1),
+                        draw:bool = True  ):
+    """Looks for neighbors by scaling/translating a
+        bounded box containing the pcd
+
+    Args:
+        sub_pcd (_type_): _description_
+        pcd (_type_): _description_
+    """
     from copy import deepcopy
-    pcd_pts = arr(pcd.points)
+    # get and shift bounded box around opcd
     obb = pcd.get_oriented_bounding_box()
-    # obb = sub_pcdpcd.get_minimal_oriented_bounding_box()
+    # obb = pcd.get_minimal_oriented_bounding_box()
     obb.color = (1, 0, 0)
-    up_shifted_obb = deepcopy(obb).translate((0,0,1),relative = True)
-    up_shifted_obb.scale(.8,center = obb.center)
-    draw([sub_pcd,obb,up_shifted_obb])
-    new_pt_ids = up_shifted_obb.get_point_indices_within_bounding_box( 
-                                o3d.utility.Vector3dVector(pcd_pts) )
-    old_pt_ids = obb.get_point_indices_within_bounding_box( 
-                                o3d.utility.Vector3dVector(pcd_pts) )
-    next_slice =pcd.select_by_index(new_pt_ids)
-    draw([next_slice,sub_pcd,obb,up_shifted_obb])
+    shifted_obb = deepcopy(obb).translate(translation,relative = True)
+    shifted_obb.scale(scale,center = obb.center)
+    if draw: draw([obb,shifted_obb])
+
+    # identify points in src_pcd that at are in the shifted obbb
+    # that are not in pcd 
+    src_pcd_pts = arr(source_pcd.points())
+    shifted_nbrs_idxs = shifted_obb.get_point_indices_within_bounding_box( 
+                                o3d.utility.Vector3dVector(src_pcd_pts) )
+    input_nbrs_idxs = obb.get_point_indices_within_bounding_box( 
+                                o3d.utility.Vector3dVector(src_pcd_pts) )
+    new_nbr_idxs= np.setdiff1d(shifted_nbrs_idxs, input_nbrs_idxs)
+
+    # return set of neighbors not in pcd
+    nbrs_pcd = pcd.select_by_index(shifted_nbrs_idxs)
+    # nn_pts = src_pcd_pts[new_nbr_idxs]
+    nbrs_pcd = pcd.select_by_index(new_nbr_idxs)
     
-    new_neighbors = np.setdiff1d(new_pt_ids, old_pt_ids)
-    nn_pts = pcd_pts[new_neighbors]
-    total_found = new_pt_ids
+    if draw: draw([pcd,nbrs_pcd,obb,shifted_obb])
+    return nbrs_pcd, new_nbr_idxs
