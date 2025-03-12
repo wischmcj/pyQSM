@@ -88,24 +88,31 @@ def cluster_plus(pcd,
                     min_points=config['trunk']['cluster_nn'],
                     draw_result = True,
                     color_clusters = True,
-                    top=None,
                     from_points=True,
-                    return_pcds = True,
-                    get_max=False):
-    labels = np.array(pcd.cluster_dbscan(eps=.11, min_points=5,print_progress=True))
+                    return_pcds=True):
+    if from_points:
+        pts=pcd
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.asarray(pts))
+    labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points,print_progress=True))
     color_continuous_map(pcd, labels)
-    unique_vals, counts = np.unique(labels, return_counts=True)
-    if draw_result: draw(pcd)
-    num_clusters = len(unique_vals)
-    if not top: top = num_clusters
-    print(f"point cloud has {num_clusters} clusters")
-    unique_vals, counts = np.unique(labels, return_counts=True)
-    largest = unique_vals[np.argmax(counts)]
-    max_cluster_idxs = np.where(labels == largest)[0]
-    max_cluster = pcd.select_by_index(max_cluster_idxs)
+    if color_clusters:
+        color_continuous_map(pcd, labels)
+    if draw_result: 
+        draw(pcd)
+
+    unique_lbs, counts = np.unique(labels, return_counts=True)
+    print(f"point cloud has {counts} clusters")
+    # num_clusters = len(unique_vals)
+    # if not top: 
+    #     top = num_clusters
+    label_to_cluster = {ulabel: np.where(labels == ulabel)[0] for ulabel in unique_lbs}
     if return_pcds:
+        ret = [pcd.select_by_index(idx_list) for idx_list in label_to_cluster.values()]
+    else:
+        ret = label_to_cluster
         
-    return max_cluster, max_cluster_idxs
+    return ret
 
 def cluster_and_get_largest(pcd,
                                 eps=config['trunk']['cluster_eps'],

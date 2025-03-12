@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 
 from matplotlib import patches
 
+
 from open3d.io import read_point_cloud, write_point_cloud
 
 from utils.math_utils import (
@@ -37,9 +38,77 @@ from geometry.point_cloud_processing import ( filter_by_norm,
     orientation_from_norms,
     filter_by_norm,
     get_ball_mesh,
-    crop_by_percentile
+    crop_by_percentile,
+    cluster_plus
 )
 from viz.viz_utils import iter_draw, draw
+
+def step_through_and_evaluate_clusters():
+    # file = "cell3_complete2.pkl"
+    file = "completed_cluster_idxs.pkl"
+
+    ########### Notes ##############
+    ###
+    ### - completed_cluster_idxs
+    ###     - ids of the root clusters used to generate completed trees
+    ### - collective 
+    ###     - is the full skio scan 
+    ### - 
+    ### 
+    ### 
+    ### 
+    ### 
+    ### 
+    ###
+    # ################################
+
+    # idxs, pts = load_completed(0, [file])
+    # lowc = o3d.io.read_point_cloud('low_cloud_all_16-18pct.pcd')
+    # highc= o3d.io.read_point_cloud('collective_highc_18plus.pcd')
+    collective= o3d.io.read_point_cloud('collective.pcd')
+    clusters = create_one_or_many_pcds(pts)
+
+    breakpoint()
+    # draw(clusters)
+    good_clusters = [] 
+    multi_clusters = [] 
+    partial_clusters = []
+    bad_clusters = []
+    factor = 5
+    for idc, cluster in zip(idxs,clusters):
+        is_good = 0
+        is_multi = 0
+        partial = 0
+        region = [( cluster.get_min_bound()[0]-factor,
+                         cluster.get_min_bound()[1]-factor),     
+                        (cluster.get_max_bound()[0]+factor,
+                        cluster.get_max_bound()[1]+factor)]
+        zoomed_col = zoom_pcd(region, collective)
+        # cluster.paint_uniform_color([1,0,0])
+        draw([zoomed_col,cluster])
+
+        # tree = sps.KDTree(np.asarray(arr(zoomed_col.points)))
+        # dists,nbrs = tree.query(curr_pts[idx],k=750,distance_upper_bound= .3) #max(cluster_extent))
+        # nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
+        # nbr_pts = [nbr_pt for nbr_pt in highc_tree.data[nbrs]]      
+        breakpoint()
+        if is_good ==1:
+            good_clusters.append((file,idc))
+        elif is_multi==1:
+            multi_clusters.append((file,idc))
+        elif partial==1:
+            partial_clusters.append((file,idc))
+        else: 
+            bad_clusters.append((file,idc))
+    try:
+        update('good_clusters.pkl',good_clusters)
+        update('partial_clusters.pkl',partial_clusters)
+        update('bad_clusters.pkl',bad_clusters)
+        update('multi_clusters.pkl',multi_clusters)
+    except Exception as e:
+        breakpoint()
+        print('failed writing to files')
+
 
 def loop_over_pcd_parts(file_prefix = 'data/input/SKIO/part_skio_raffai',
                     return_pcd_list =False,
@@ -242,45 +311,6 @@ def load_clusters_get_details():
     recover_original_detail(cluster_pcds, file_num_base = 20000000)
     breakpoint()
 
-def id_trunk_bases(pcd =None, 
-            exclude_boundaries = None,
-            load_from_file = True
-):
-    """Splits input cloud into a 'low' and 'high' component.
-        Identifies clusters in the low cloud that likely correspond to 
-    """
-    print('getting low (slightly above ground) cross section')
-    if load_from_file:
-        lowc = o3d.io.read_point_cloud('low_cloud_all_16-18pct.pcd')
-    else:
-        lowc, lowc_ids_from_col = crop_by_percentile(pcd, 16,18)
-        lowc = clean_cloud(lowc)
-        o3d.io.write_point_cloud('low_cloud_all_16-18pct.pcd',lowc)
-
-    print('getting "high" portion of cloud')
-    if load_from_file:
-        highc= o3d.io.read_point_cloud('collective_highc_18plus.pcd')
-    else:
-        highc, highc_ids_from_col = crop_by_percentile(pcd, 18,100)
-        o3d.io.write_point_cloud('collective_highc_18plus.pcd',highc)
-        draw(lowc)
-
-    # midc, _ = crop_by_percentile(collectivme, 16,30)
-    
-    print('Removing buildings')
-    for region in exclude_boundaries:
-        test = zoom_pcd( region, test, reverse=True)
-        highc = zoom_pcd(region,  highc,reverse=True)
-
-    print('clustering')
-    if load_from_file:
-        with open('skio_labels_low_16-18_cluster_pt5-20.pkl','rb') as f: labels = pickle.load(f)
-    else:
-        labels, colors = cluster_plus(lowc,eps=.5, min_points=20)
-        with open('skio_labels_low_16-18_cluster_pt5-20.pkl','wb') as f: 
-            pickle.dump(labels,f)
-
-    return lowc, highc, labels
 
 def load_completed(cell_to_run_id,
                     files = []):
@@ -424,7 +454,8 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                             max_distance=.3,
                             cycles= 150,
                             save_every = 30,
-                            draw_progress = False,
+                            draw_every = 10,
+                            draw_progress = True,
                             debug = True):
     idcs_to_run = [idc for idc, cluster in clusters_and_idxs]
     cluster_pts = [(idc, arr(cluster.points)) for idc,cluster in clusters_and_idxs]
@@ -437,7 +468,10 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
             high_c_pt_assns[tuple(pt)] = (idc,0)
 
     src_pts = arr(src_pcd.points)
+    print('creating KD search tree')
     src_tree = sps.KDTree(src_pts)
+    o3d.io.write_point_cloud('new_kd_search_tree.pcd',src_tree)
+    # src_tree =o3d.read_point_cloud('new_kd_search_tree.pcd')
     src_pts = src_tree.data
     num_pts =  len(src_pts)
     complete = []
@@ -498,8 +532,8 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                     nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
                     nbr_pts = [nbr_pt for nbr_pt in src_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
                     if len(nbr_pts)>0:
-                        labels, colors= cluster_plus(nbr_pts,eps = .11, min_points=20,from_pts=True)
-                        unique_vals, counts = np.unique(labels, return_counts=True)
+                        label_to_cluster = cluster_plus(nbr_pts,eps = .11, min_points=20,from_pts=True)
+                        counts = [len(x) for x in label_to_cluster.values()]
                         order = len(arr(counts)[arr(counts)>20]) 
                         if order<=cutoff_order:
                             for nbr_pt in nbr_pts:
@@ -555,36 +589,74 @@ def generate_grid(min_bnd,
     safe_grid = [[[ll[0]-overlap[0],ll[1]-overlap[1]],[ur[0]+overlap[0], ur[1]+overlap[1]]] for ll, ur in grid]
     return safe_grid
 
-def build_trees_knn(exclude_boundaries):
+def id_trunk_bases(pcd =None, 
+            exclude_boundaries = None,
+            load_from_file = False
+):
+    """Splits input cloud into a 'low' and 'high' component.
+        Identifies clusters in the low cloud that likely correspond to 
+    """
+    print('getting low (slightly above ground) cross section')
+    if load_from_file:
+        lowc = o3d.io.read_point_cloud('new_low_cloud_all_16-18pct.pcd')
+        highc= o3d.io.read_point_cloud('new_collective_highc_18plus.pcd')
+        label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl')
+    else:
+        lowc, lowc_ids_from_col = crop_by_percentile(pcd, 16,18)
+        lowc = clean_cloud(lowc)
+        o3d.io.write_point_cloud('new_low_cloud_all_16-18pct.pcd',lowc)
+
+        print('getting "high" portion of cloud')
+        highc, highc_ids_from_col = crop_by_percentile(pcd, 18,100)
+        o3d.io.write_point_cloud('new_collective_highc_18plus.pcd',highc)
+        draw(highc)
+
+        print('Removing buildings')
+        for region in exclude_boundaries:
+            test = zoom_pcd( region, test, reverse=True)
+            highc = zoom_pcd(region,  highc,reverse=True)
+
+    # with open('skio_labels_low_16-18_cluster_pt5-20.pkl','rb') as f: 
+    #         labels = pickle.load(f)
+        print('clustering')
+        try:
+            label_to_clusters = cluster_plus(lowc,eps=.3, min_points=20,return_pcds=False)
+        except Exception as e:
+            print(f'error {e} when clustering ')
+        with open('new_skio_labels_low_16-18_cluster_pt5-20.pkl','wb') as f: 
+            pickle.dump(label_to_clusters,f)
+    return lowc, highc, label_to_clusters
+
+def build_trees_knn(exclude_boundaries=[],load_from_file=False):
     
 #### Reading in data and preping clusters
-    # o3d.io.write_point_cloud('collective.pcd',collective)
     # collective = o3d.io.read_point_cloud('collective.pcd')
-
+    pcd = o3d.io.read_point_cloud('partitioning_search_area_collective.pcd')
+    
     ## Identify and clean up cross section clusters 
-    ## Filter out those unlikley trunk canidates (too small, too large)
-    # exclude_boundaries = [[ (77,350, 0),(100, 374,5.7)],  [(0, 350, 0), (70, 374, 5.7)]  ]
-    lowc,highc,labels = id_trunk_bases(None,  exclude_boundaries)
-    # clusters = filter_pcd_list(clusters)
+    lowc,highc, label_to_clusters = id_trunk_bases(pcd,  exclude_boundaries, load_from_file)
+    breakpoint()
+
     ## Define clusters based on labels 
-    unique_vals, counts = np.unique(labels, return_counts=True)
-    label_idls= [ np.where(labels ==val)[0] for val in unique_vals]
+    label_idls= label_to_clusters.values()
     clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls)]
-   
+
+    # clusters = filter_pcd_list(clusters)
 #### Reading data from previous runs to exclude from run
     rerun_cluster_selection = True 
-    if rerun_cluster_selection:
-        completed_cluster_idxs , completed_cluster_pts = load_completed(5)
-        save('completed_cluster_idxs.pkl',completed_cluster_idxs)
-        # save('completed_cluster_pts.pkl',completed_cluster_pts)
-    else:
-        completed_cluster_idxs = load('completed_cluster_idxs.pkl')
-    # breakpoint()
+    completed_cluster_idxs=[]
+    completed_cluster_pts=[]
+    # if rerun_cluster_selection:
+    #     completed_cluster_idxs , completed_cluster_pts = load_completed(5)
+    #     save('completed_cluster_idxs.pkl',completed_cluster_idxs)
+    #     # save('completed_cluster_pts.pkl',completed_cluster_pts)
+    # else:
+    #     completed_cluster_idxs = load('completed_cluster_idxs.pkl')
+
     nk_clusters= [(idc, cluster) for idc, cluster in clusters if idc not in completed_cluster_idxs]
     breakpoint()
 
 ####  Dividing clouds into smaller 
-    from itertools import product
     # col_min = collective.get_min_bound()
     # col_max = collective.get_max_bound()
     col_min = arr([ 34.05799866, 286.28399658, -21.90399933])
@@ -598,6 +670,8 @@ def build_trees_knn(exclude_boundaries):
         cell_clusters.append(ids_and_clusters)
     
 ####  KD tree with no prev. complete clusters 
+    # creating the kd tree that will act as the search space 
+    # when building the trees from seed clusters 
     print('preparing KDtree')   
     if rerun_cluster_selection:
         # KD Tree reduction given completed clusters 
@@ -614,8 +688,7 @@ def build_trees_knn(exclude_boundaries):
         
         with open(f'highc_KDTree.pkl','wb') as f: pickle.dump(highc_tree,f)
     else:
-        with open('highc_KDTree.pkl','rb') as f: # all, cell0 and cell1 completed removed 
-            highc_tree = pickle.load(f)
+        with open('data/in_process/highc_KDTree.pkl','rb') as f:  highc_tree = pickle.load(f)
 
 ####  Running KNN algo to build trees
 
@@ -624,82 +697,9 @@ def build_trees_knn(exclude_boundaries):
     for cell_to_run_id in ['all']:
         extend_seed_clusters(clusters,highc, f'cell{cell_to_run_id}')
 
-def step_through_and_evaluate_clusters():
-    # file = "cell3_complete2.pkl"
-    file = "completed_cluster_idxs.pkl"
-
-    ########### Notes ##############
-    ###
-    ### - completed_cluster_idxs
-    ###     - ids of the root clusters used to generate completed trees
-    ### - collective 
-    ###     - is the full skio scan 
-    ### 
-    ### 
-    ### 
-    ### 
-    ### 
-    ### 
-    ###
-    # ################################
-
-    # idxs, pts = load_completed(0, [file])
-    # lowc = o3d.io.read_point_cloud('low_cloud_all_16-18pct.pcd')
-    # highc= o3d.io.read_point_cloud('collective_highc_18plus.pcd')
-    collective= o3d.io.read_point_cloud('collective.pcd')
-    clusters = create_one_or_many_pcds(pts)
-
-    breakpoint()
-    # draw(clusters)
-    good_clusters = [] 
-    multi_clusters = [] 
-    partial_clusters = []
-    bad_clusters = []
-    factor = 5
-    for idc, cluster in zip(idxs,clusters):
-        is_good = 0
-        is_multi = 0
-        partial = 0
-        region = [( cluster.get_min_bound()[0]-factor,
-                         cluster.get_min_bound()[1]-factor),     
-                        (cluster.get_max_bound()[0]+factor,
-                        cluster.get_max_bound()[1]+factor)]
-        zoomed_col = zoom_pcd(region, collective)
-        # cluster.paint_uniform_color([1,0,0])
-        draw([zoomed_col,cluster])
-
-        # tree = sps.KDTree(np.asarray(arr(zoomed_col.points)))
-        # dists,nbrs = tree.query(curr_pts[idx],k=750,distance_upper_bound= .3) #max(cluster_extent))
-        # nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
-        # nbr_pts = [nbr_pt for nbr_pt in highc_tree.data[nbrs]]      
-        breakpoint()
-        if is_good ==1:
-            good_clusters.append((file,idc))
-        elif is_multi==1:
-            multi_clusters.append((file,idc))
-        elif partial==1:
-            partial_clusters.append((file,idc))
-        else: 
-            bad_clusters.append((file,idc))
-    try:
-        update('good_clusters.pkl',good_clusters)
-        update('partial_clusters.pkl',partial_clusters)
-        update('bad_clusters.pkl',bad_clusters)
-        update('multi_clusters.pkl',multi_clusters)
-    except Exception as e:
-        breakpoint()
-        print('failed writing to files')
-
-
 
 if __name__ =="__main__":
-    # file = "cell3_complete2.pkl"
-    file = "completed_cluster_idxs.pkl"
-    # load_clusters_get_details()
-    
-    collective= o3d.io.read_point_cloud('data/in_process/collective.pcd')
-    pcd = collective
-    # pcd,_ = crop_by_percentile(collective, 0,25)
+    # collective= o3d.io.read_point_cloud('data/in_process/collective.pcd')
     # exclude_boundaries = [[ (77,350, 0),(100, 374,5.7)],  [(0, 350, 0), (70, 374, 5.7)]  ]
     exclude_regions = {
             'building1' : [ (77,350,0),(100, 374,5.7)], 
@@ -709,12 +709,40 @@ if __name__ =="__main__":
             'lside_brush':[ (0,0),(77, 500)],
             'far_back_brush': [ (0,0),(200, 325)]
     }
-    ex_pcds = []
-    print('Removing buildings')
-    for region in exclude_regions.values():
-        pcd = zoom_pcd( region, pcd, reverse=True)
-        # ex_pcd = zoom_pcd( region, collective)
-        # ex_pcds.append(ex_pcd)
+    # exclude_boundaries = exclude_regions.values()
+    exclude_boundaries=[]
+    pcd = o3d.io.read_point_cloud('partitioning_search_area_collective.pcd')
+    lowc,highc, label_to_clusters = id_trunk_bases(pcd,  
+                                                    exclude_boundaries, 
+                                                    load_from_file=True)
+    # label_to_clusters = cluster_plus(lowc,eps=.3, min_points=20,return_pcds=False)
+    # label_idls= label_to_clusters.values()
+    # clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls)]
+    label_to_clusters = load('new_lowc_ref_clusters.pkl')
+    label_idls= label_to_clusters
+    clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls)]
+    # draw(arr(clusters)[:,1])
+    # refined_clusters_idls = [151,107,108,109,110,111,112,113,114,115,116,132,133,134,135,136,137,138,148,180,189,190,191,193,194]
+    # refined_clusters_labels = [label_to_clusters[idc] for idc in refined_clusters_idls]
+    # refined_clusters= [clusters[idc] for idc in refined_clusters_idls]
+    # other_clusters= [cluster for idc,cluster in clusters if idc not in [151,107,108,109,110,111,112,113,114,115,116,132,133,134,135,136,137,138,148,180,189,190,191,193,194]]
+    breakpoint()
+    # o3d.io.write_point_cloud('new_lowc_clustered_pt3_20.pcd',pcd)
+    # del pcd
+    # highc_tree = sps.KDTree(np.asarray(highc.points()))
+    # with open(f'new_lowc_ref_clusters.pkl','wb') as f: pickle.dump(refined_clusters,f)
+    
+    extend_seed_clusters(clusters,highc,'new_seeds')
+
+
+    breakpoint()
+    # build_trees_knn(load_from_file=True)
+
+    # file = "cell3_complete2.pkl"
+    file = "completed_cluster_idxs.pkl"
+    # load_clusters_get_details()
+    
+
     
     draw(pcd)
     # highlight and draw 
