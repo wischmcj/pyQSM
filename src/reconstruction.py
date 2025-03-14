@@ -102,6 +102,9 @@ def recover_original_details(cluster_pcds,
                 cols = arr(pcd.colors)
                 all_pts_vect = o3d.utility.Vector3dVector(pts)
                 vicinity_pt_ids = bnd_box.get_point_indices_within_bounding_box(all_pts_vect) 
+                v_pt_values = pts[vicinity_pt_ids]
+                pts_gr_zero = np.where(v_pt_values[:,2]>0)[0]
+                vicinity_pt_ids = arr(vicinity_pt_ids)[pts_gr_zero]
                 if len(vicinity_pt_ids)>0:
                     v_pt_values = pts[vicinity_pt_ids]
                     colors = cols[vicinity_pt_ids]
@@ -116,31 +119,41 @@ def recover_original_details(cluster_pcds,
                 # del vicinity_pt_ids
                 # del pts
                 # del all_pts_vect
-            if len(vicinity_pts)>5000000:
-                cnt=cnt+1
-                print('Building pcd in parts due to a large volume of vicinity points')
-                query_pts = arr(cluster_pcd.points)
-                whole_tree = sps.KDTree(vicinity_pts)
-                print('Finding neighbors in vicinity') 
-                dists,nbrs = whole_tree.query(query_pts, k=500, distance_upper_bound= .3)
-                del whole_tree
-                nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x< len(vicinity_pts) ]
-                try:
-                    nbr_pts = arr(vicinity_pts)[nbrs]
-                except Exception as e:
-                    nbrs = [x for x in nbrs if x< len(vicinity_pts)-1 ]
-                    nbr_pts = arr(vicinity_pts)[nbrs]
-                    print(f'error {e} when getting neighbors in vicinity')
-                nbr_colors = arr(v_colors)[nbrs]
-                detailed_pcd = o3d.geometry.PointCloud()
-                detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)                
-                # detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)
-                detailed_pcd.colors = o3d.utility.Vector3dVector(nbr_colors)  
-                write_point_cloud(f'{save_file}_orig_detail{cnt}.pcd', detailed_pcd)
-                del detailed_pcd
-                vicinity_pts = []
-                v_colors = []
-                skel_ids = []
+            if len(vicinity_pts)>10000000:
+                all_vicinity_pts = vicinity_pts
+                all_vicinity_colors = v_colors
+                for chunk in range(int(((len(vicinity_pts)-len(vicinity_pts)%10000000)/10000000 )+1)):
+                    cnt=cnt+1
+                    end= (chunk+1)*10000000
+                    if end>=len(all_vicinity_pts): end= len(all_vicinity_pts)-1
+                    start =chunk*10000000
+                    vicinity_pts = all_vicinity_pts[start:end]
+                    v_colors = all_vicinity_colors[start:end]
+                    print(f'range {start} to {end}, {chunk=} {cnt=}')
+                    if len(vicinity_pts)>0:
+                        print(f'Building pcd in parts due to a large volume of vicinity points: {len(vicinity_pts)}')
+                        query_pts = arr(cluster_pcd.points)
+                        whole_tree = sps.KDTree(vicinity_pts)
+                        print('Finding neighbors in vicinity') 
+                        dists,nbrs = whole_tree.query(query_pts, k=400, distance_upper_bound= .3)
+                        del whole_tree
+                        nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x< len(vicinity_pts) ]
+                        print('extracting nbr pts') 
+
+                        nbr_pts = arr(vicinity_pts)[nbrs]
+                        detailed_pcd = o3d.geometry.PointCloud()
+                        detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)
+                        print('extracting nbr colors') 
+                        nbr_colors = arr(v_colors)[nbrs]                
+                        # detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)
+                        detailed_pcd.colors = o3d.utility.Vector3dVector(nbr_colors) 
+                        write_point_cloud(f'{save_file}_orig_detail{cnt}.pcd', detailed_pcd)
+                        print(f'adding pcd {detailed_pcd}')
+
+                        del detailed_pcd
+                        
+                        vicinity_pts = []
+                        v_colors = []
         if len(vicinity_pts)>0:
             try:
                 print('Building pcd from points in vicinity')
