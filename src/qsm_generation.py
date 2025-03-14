@@ -75,9 +75,7 @@ def get_stem_pcd(pcd=None, source_file=None
     pcd_pts = arr(pcd.points)
     pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
     pcd = pcd.select_by_index(pcd_cropped_idxs)
-    pcd.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn)
-    )
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn))
     stem_cloud = filter_by_norm(pcd, angle_cutoff)
     if voxel_size:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
@@ -423,6 +421,7 @@ def color_and_draw(pcd , labels):
     # global_x = min(extents[:,0,0])
 
 if __name__ == "__main__":
+    breakpoint()
     import pickle 
     # extents, contains_region, pcds = find_extents()
     # with open(f'part_file_extent_dict.pkl','wb') as f: pickle.dump(extents,f)

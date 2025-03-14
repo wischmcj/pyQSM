@@ -16,6 +16,13 @@ from set_config import log, config
 from viz.viz_utils import color_continuous_map, draw
 
 
+def normalize_to_origin(pcd):
+    print(f'original: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
+    center =pcd.get_min_bound()+((pcd.get_max_bound() -pcd.get_min_bound())/2)
+    pcd.translate(-center)
+    print(f'translated: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
+    return pcd
+
 def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
     """Reduces the number of points in the point cloud via
     voxel downsampling. Reducing noise via statistical outlier removal.

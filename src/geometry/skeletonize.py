@@ -3,6 +3,7 @@ import sys
 from collections import defaultdict
 from itertools import chain
 import scipy.spatial as sps
+import pickle
 
 sys.path.insert(0,'/code/code/pyQSM/src/')
 import robust_laplacian
@@ -21,13 +22,15 @@ import rustworkx as rx
 import networkx as nx
 
 
-from qsm_generation import recover_original_detail, zoom, extend_seed_clusters,create_one_or_many_pcds
+
+# from tree_isolation import recover_original_detail, zoom, extend_seed_clusters,create_one_or_many_pcds
 from geometry.point_cloud_processing import clean_cloud,cluster_plus,crop_by_percentile,get_ball_mesh
-from geometry.mesh_processing import map_density,get_surface_clusters
+from geometry.mesh_processing import map_density,get_surface_clusters 
 from set_config import config, log
-from viz.viz_utils import draw, color_continuous_map
+from viz.viz_utils import draw, color_continuous_map 
 from utils.lib_integration import pts_to_cloud,get_neighbors_in_tree
 from utils.math_utils import get_center,rot_90_x,unit_vector, get_percentile
+from utils.io import save,load
 
 
 def extract_skeletal_graph(skeletal_points: np.ndarray, graph_k_n):
@@ -61,6 +64,8 @@ def simplify_graph(G):
     """
 
     g = G.copy()
+    keept_node_pos = []
+    keept_node_idx = []
     while any(degree == 2 for _, degree in g.degree):
         keept_node_pos = []
         keept_node_idx = []
@@ -155,9 +160,11 @@ def least_squares_sparse(pts,
     b = np.vstack([np.zeros((pts.shape[0], 3)), WH.dot(pts)])
 
     A_new = A.T @ A
-
+    log.info('defined least squares equation, solving 1...')
     x = sla.spsolve(A_new, A.T @ b[:, 0], permc_spec='COLAMD')
+    log.info('solving 2...')
     y = sla.spsolve(A_new, A.T @ b[:, 1], permc_spec='COLAMD')
+    log.info('solving 3...')
     z = sla.spsolve(A_new, A.T @ b[:, 2], permc_spec='COLAMD')
 
     ret = np.vstack([x, y, z]).T
@@ -220,7 +227,9 @@ def extract_skeleton(pcd,
                      attraction_factor= config['skeletonize']['init_attraction'],
                      max_contraction = config['skeletonize']['max_contraction'],
                      max_attraction = config['skeletonize']['max_attraction'],
-                     step_wise_contraction_amplification = config['skeletonize']['step_wise_contraction_amplification']):
+                     step_wise_contraction_amplification = config['skeletonize']['step_wise_contraction_amplification'],
+                     cmag_save_file = '',
+                     min_contraction = 0):
     # Hevily inspired by https://github.com/meyerls/pc-skeletor
     obb = pcd.get_oriented_bounding_box()
     allowed_range = (obb.get_min_bound(), obb.get_max_bound())
@@ -273,6 +282,13 @@ def extract_skeleton(pcd,
                         point[i] = allowed_range[0][i]
                     if point[i] > allowed_range[1][i]:
                         point[i] = allowed_range[1][i]
+            # for curr,new in zip(pts_new_raw,pts_current):
+            #     diff = curr-new
+            #     dist = np.linalg.norm(diff)
+            #     if dist >= min_contraction:
+            #         pts_new.append(new)
+            #     else:
+            #         pts_new.append(curr)
             pcd_point_shift = pts_current-pts_new
             total_point_shift += pcd_point_shift
             pts_current = pts_new
@@ -280,46 +296,16 @@ def extract_skeleton(pcd,
 
         print('running debug')
         if debug or iteration ==0:
-            c_mag = np.array([np.linalg.norm(x) for x in pcd_point_shift])
-            color_continuous_map(pcd,c_mag)
-            draw([pcd])
-            curr_pts_pcd = pts_to_cloud(pts_current)
-            color_continuous_map(curr_pts_pcd,c_mag)
-            draw([curr_pts_pcd])
-            if iteration==0:
-                # Investigating points with high inital contraction
-                high_c_idxs = np.where(c_mag>np.percentile(c_mag,60))[0]
-                high_c_pcd = pcd.select_by_index(high_c_idxs)
-                low_c_pcd = pcd.select_by_index(high_c_idxs,invert=True)
-                draw([high_c_pcd])
-                draw([low_c_pcd])
-                clean_high_c_pcd = clean_cloud(high_c_pcd, iters=1)
-                clean_high_c_pcd, inds = high_c_pcd.remove_statistical_outlier( nb_neighbors=20, std_ratio=2)
-                draw([clean_high_c_pcd])
-                clean_high_c_pcd.paint_uniform_color([1,0,0])
-
-                clean_low_c_pcd = clean_cloud(low_c_pcd, iters=1)
-                draw([clean_low_c_pcd])
-                breakpoint()   
-                # idxs_in_orig = high_c_idxs[inds]
-                # draw([pcd,clean_high_c_pcd])
-                # left =  pcd.select_by_index(high_c_idxs,invert=True)
-                # draw(left)    
-
-                src_tree = sps.KDTree(arr(pcd.points))
-                num_pts = len(arr(pcd.points))
-                dists,nbrs = src_tree.query(arr(clean_high_c_pcd.points),k=50,distance_upper_bound= .3)
-                dist_nbrs = [x for x in set(chain.from_iterable(nbrs)) if x !=268598] #num_pts]     
-                nbr_pcd = pcd.select_by_index(dist_nbrs)
-                draw(nbr_pcd)
-
-                non_nbr_pcd = pcd.select_by_index(dist_nbrs, invert=True)
-                draw(non_nbr_pcd)
-
-                largest, largest_idxs = cluster_plus(nbr_pcd,.11,5,top=1)
-                test = nbr_pcd.select_by_index(largest_idxs,invert = True)
+            try:
+                print('saving cmag')
+                # c_mag = np.array([np.linalg.norm(x) for x in pcd_point_shift])
+                save(f'{cmag_save_file}_point_shift.pkl',pcd_point_shift)
+                # curr_pts_pcd = pts_to_cloud(pts_current)
+                # o3d.write_point_cloud(f'{cmag_save_file}_contracted.pcd',curr_pts_pcd)
+            except Exception as e:
                 breakpoint()
-                # test = curr_pts_pcd.remove_duplicated_points()
+                print(f'error in cmag saving: {e}')
+            # breakpoint()
 
         # Update laplacian weights with amplification factor
         laplacian_weights *= contraction_factor
@@ -354,7 +340,53 @@ def extract_skeleton(pcd,
 
     return contracted, total_point_shift, shift_by_step
 
-def skeleton_to_QSM(lines,points,edge_to_orig,contraction_dist, test = True):
+def contraction_mag_processing(pcd, contracted_pcd, file ):
+    c_mag = load(file)
+    color_continuous_map(pcd,c_mag)
+    color_continuous_map(contracted_pcd,c_mag)
+    draw([curr_pts_pcd])
+    breakpoint()   
+    if iteration==0:
+        # Investigating points with high inital contraction
+        color_continuous_map(pcd,c_mag)
+        high_c_idxs = np.where(c_mag>np.percentile(c_mag,60))[0]
+        high_c_pcd = pcd.select_by_index(high_c_idxs)
+        low_c_pcd = pcd.select_by_index(high_c_idxs,invert=True)
+        draw([high_c_pcd])
+        draw([low_c_pcd])
+        clean_high_c_pcd = clean_cloud(high_c_pcd, iters=1)
+        clean_high_c_pcd, inds = high_c_pcd.remove_statistical_outlier( nb_neighbors=20, std_ratio=2)
+        draw([clean_high_c_pcd])
+        clean_high_c_pcd.paint_uniform_color([1,0,0])
+        # o3d.write_point_cloud('rf_cluster_high_c_pcd',high_c_pcd)
+        # save('rf_cluster0_c_mag.pkl',c_mag)
+        clean_low_c_pcd = clean_cloud(low_c_pcd, iters=1)
+        draw([clean_low_c_pcd])
+        breakpoint()   
+        # idxs_in_orig = high_c_idxs[inds]
+        # draw([pcd,clean_high_c_pcd])
+        # left =  pcd.select_by_index(high_c_idxs,invert=True)
+        # draw(left)    
+
+        # src_tree = sps.KDTree(arr(pcd.points))
+        # num_pts = len(arr(pcd.points))
+        # dists,nbrs = src_tree.query(arr(clean_high_c_pcd.points),k=50,distance_upper_bound= .3)
+        # dist_nbrs = [x for x in set(chain.from_iterable(nbrs)) if x !=268598] #num_pts]     
+        # nbr_pcd = pcd.select_by_index(dist_nbrs)
+        # draw(nbr_pcd)
+
+        # non_nbr_pcd = pcd.select_by_index(dist_nbrs, invert=True)
+        # draw(non_nbr_pcd)
+
+        # largest, largest_idxs = cluster_plus(nbr_pcd,.11,5,top=1)
+        # test = nbr_pcd.select_by_index(largest_idxs,invert = True)
+
+def skeleton_to_QSM(topologogy, total_point_shift, test = True):
+    edges = topology_graph.edges(data=True)
+    edge_to_orig = {tuple((x[0],x[1])):x[2].get('data') for x in edges}
+    points = np.asarray(topology.points)
+    lines = np.asarray(topology.lines)
+    contraction_dist = np.linalg.norm(total_point_shift, axis=1)
     cyls = []
     cyl_objects = []
     for idx, line in enumerate(lines):
@@ -455,7 +487,6 @@ def remove_leaves():
 if __name__ == "__main__":
     with o3d.utility.VerbosityContextManager(
         o3d.utility.VerbosityLevel.Info) as cm:
-        import pickle
         ########### Notes ##############
         ###
         ### - density mesh doenst seem to capture the same as 
@@ -479,8 +510,7 @@ if __name__ == "__main__":
 
         labels =[arr([y[1] for y in x]) for x in skel_completed.values()] 
 
-        # pcds = [skel.select_by_index(idxs) for idxs in idx_lists]
-        
+        # pcds = [skel.select_by_index(idxs) for idxs in idx_lists] 
         pcds = create_one_or_many_pcds([pts[0]])
         draw(pcds)
         contracted, total_point_shift, shift_by_step = extract_skeleton(pcds[0], max_iter = 5, debug=True)

@@ -54,6 +54,8 @@ MANIFEST
 
 # Environments
 venv/
+newvenv/
+app/
 
 ENV/
 env.bak/

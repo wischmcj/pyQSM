@@ -159,6 +159,7 @@ def kmeans(points, min_clusters):
     best_score = 0.4
     best = None
     for num in clusters_to_try:
+        log.info(f"trying {num} clusters")
         if num > 0:
             codes, book = spc.vq.kmeans2(pts_2d, num)
             cluster_sizes = np.bincount(book)
