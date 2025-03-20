@@ -60,13 +60,15 @@ def recover_original_details(cluster_pcds,
                             save_file = 'orig_dets',
                             file_num_base = 20000000,
                             file_num_iters = 39,
-                            starting_num = 0):
+                            starting_num = 0,
+                            scale=1.1):
     """
         Reversing the initial voxelization (which was done to increase algo speed)
         Functions by (for each cluster) limiting parent pcd to just points within the
             vicinity of the search cluster then performs a KNN search 
             to find neighobrs of points in the cluster
     """
+    file_bounds = dict(load('skio_bounds.pkl'))
     # defining files in which initial details are stored
     files = []
     if file_num_base:
@@ -76,45 +78,50 @@ def recover_original_details(cluster_pcds,
     else:
         files = [file_prefix]
     pt_branch_assns = defaultdict(list)
+
     # iterating a bnd_box for each pcd for which
     #    we want to recover the orig details
     for idb, cluster_pcd in enumerate(cluster_pcds):
-        # max_bnd = cluster_pcd.get_max_bound()
-        # min_bnd = cluster_pcd.get_min_bound()
+        cluster_max = cluster_pcd.get_max_bound()
+        cluster_min = cluster_pcd.get_min_bound()
         bnd_box = cluster_pcd.get_oriented_bounding_box() 
+        bnd_box.scale(scale,center = bnd_box.center)
         vicinity_pts = []
         v_colors = []
         skel_ids = []
         cnt=0
         # Limiting the search field to points in the general
-        #   vicinity of the non-detailed pcd
-        file_bounds=[]
+        #   vicinity of the non-detailed pcd\
         for file in files:
+            bounds = file_bounds[file]
+            file_min,file_max = bounds[0], bounds[1]
             print(f'checking file {file}')
-            pcd = read_point_cloud(file)
-            # section_max_bnd = pcd.get_max_bound()
-            # section_min_bnd = pcd.get_min_bound()
-            # file_bounds.append((section_min_bnd,section_max_bnd))
-            # x_overlap = (section_min_bnd[0]>max_bnd[0] or section_max_bnd[0]<min_bnd[0])
-            # y_overlap = (section_min_bnd[1]>max_bnd[1] or section_max_bnd[1]<min_bnd[1])
-            pts = arr(pcd.points)
-            if len(pts)>0: # and (x_overlap or y_overlap):
-                cols = arr(pcd.colors)
-                all_pts_vect = o3d.utility.Vector3dVector(pts)
-                vicinity_pt_ids = bnd_box.get_point_indices_within_bounding_box(all_pts_vect) 
-                v_pt_values = pts[vicinity_pt_ids]
-                pts_gr_zero = np.where(v_pt_values[:,2]>0)[0]
-                vicinity_pt_ids = arr(vicinity_pt_ids)[pts_gr_zero]
-                if len(vicinity_pt_ids)>0:
-                    v_pt_values = pts[vicinity_pt_ids]
-                    colors = cols[vicinity_pt_ids]
-                    print(f'adding {len(vicinity_pt_ids)} out of {len(pts)}')
-                    vicinity_pts.extend(v_pt_values)
-                    v_colors.extend(colors)
+            l_overlap = all([a>b for a,b in zip(cluster_min,file_min)]) and all([a<b for a,b in zip(cluster_min,file_max)])
+            r_overlap = all([a>b for a,b in zip(cluster_max,file_min)]) and all([a<b for a,b in zip(cluster_max,file_max)])
+            if l_overlap or r_overlap: 
+                pcd = read_point_cloud(file)
+                # x_overlap = (any([a<b for a,b in zip(minb,min_bnd)]) and 1==1)
+                # y_overlap = (bounds[1]>max_bnd[1] or section_max_bnd[1]<min_bnd[1])
+                pts = arr(pcd.points)
+                if len(pts)>0: # and (x_overlap or y_overlap):
+                    cols = arr(pcd.colors)
+                    all_pts_vect = o3d.utility.Vector3dVector(pts)
+                    vicinity_pt_ids = bnd_box.get_point_indices_within_bounding_box(all_pts_vect) 
+                    # v_pt_values = pts[vicinity_pt_ids]
+                    # pts_gr_zero = np.where(v_pt_values[:,2]>0)[0]
+                    # vicinity_pt_ids = arr(vicinity_pt_ids)[pts_gr_zero]
+                    if len(vicinity_pt_ids)>0:
+                        v_pt_values = pts[vicinity_pt_ids]
+                        colors = cols[vicinity_pt_ids]
+                        print(f'adding {len(vicinity_pt_ids)} out of {len(pts)}')
+                        vicinity_pts.extend(v_pt_values)
+                        v_colors.extend(colors)
+                    else:
+                        print(f'No points in vicinity from fole {file}')
                 else:
-                    print(f'No points in vicinity from fole {file}')
+                    print(f'No points found in {file}')
             else:
-                print(f'No points found in {file}')
+                print(f'No overlap between {bounds} and cluster with {cluster_min=}, {cluster_max=}')
                 # del pcd
                 # del vicinity_pt_ids
                 # del pts
@@ -154,6 +161,7 @@ def recover_original_details(cluster_pcds,
                         
                         vicinity_pts = []
                         v_colors = []
+        save('skio_bounds.pkl', file_bounds)
         if len(vicinity_pts)>0:
             try:
                 print('Building pcd from points in vicinity')
