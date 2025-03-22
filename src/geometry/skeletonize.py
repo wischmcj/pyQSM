@@ -299,7 +299,7 @@ def extract_skeleton(pcd,
             try:
                 print('saving cmag')
                 # c_mag = np.array([np.linalg.norm(x) for x in pcd_point_shift])
-                save(f'{cmag_save_file}_point_shift.pkl',pcd_point_shift)
+                save(f'{cmag_save_file}_shift.pkl',pcd_point_shift)
                 # curr_pts_pcd = pts_to_cloud(pts_current)
                 # o3d.write_point_cloud(f'{cmag_save_file}_contracted.pcd',curr_pts_pcd)
             except Exception as e:

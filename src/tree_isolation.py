@@ -6,6 +6,8 @@ from numpy import asarray as arr
 import pickle
 from copy import deepcopy
 import itertools
+from glob import glob
+import re
 
 from collections import defaultdict
 
@@ -14,11 +16,10 @@ import numpy as np
 from numpy import asarray as arr
 
 import matplotlib.pyplot as plt
-
 from open3d.io import read_point_cloud, write_point_cloud
 
 from set_config import config, log
-from test19 import recover_original_details, get_neighbors_kdtree, get_pcd
+from reconstruction import recover_original_details, get_neighbors_kdtree, get_pcd
 from utils.math_utils import (
     get_center,
     generate_grid
@@ -36,7 +37,7 @@ from geometry.point_cloud_processing import ( filter_by_norm,
     cluster_plus
 )
 from utils.io import save,load,update
-from viz.viz_utils import iter_draw, color_continuous_map, draw
+from viz.viz_utils import iter_draw, color_continuous_map, draw, rotating_compare_gif
 from viz.color import *
 
 def join_pcds(pcds):
@@ -396,10 +397,11 @@ def contract(in_pcd,shift):
     pcd = o3d.geometry.PointCloud()
     pcd.colors = o3d.utility.Vector3dVector(arr(in_pcd.colors))
     pcd.points = o3d.utility.Vector3dVector(shifted)
-    return  pcd
+    return pcd
 
-def get_shifts(file):
-    orig = o3d.io.read_point_cloud(file)
+def get_shift(pcd, seed, iters=1):
+
+    orig = pcd
     # print(f'full detail: {orig}')
     test = orig.voxel_down_sample(voxel_size=.05)
     # print(f'post vox: {test}')
@@ -409,7 +411,7 @@ def get_shifts(file):
     # print(f'post vox + uni+ rm_white: {test}')
     ratio = len(arr(test.points))/len(arr(orig.points))
     print(f'final ratio {ratio}')
-    # skel_res = extract_skeleton(test, max_iter = 1, cmag_save_file=f'{file}')
+    skel_res = extract_skeleton(test, max_iter = iters, cmag_save_file=f'seed{seed}_voxpt05_uni3')
     # contracted, total_point_shift, shift_by_step = skel_res
     # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
 
@@ -420,35 +422,72 @@ def color_on_percentile(pcd,val_list,pctile,comp=lambda x,y:x>y ):
     highc_idxs = np.where(comp(val_list,val))[0]
     highc_pcd = pcd.select_by_index(highc_idxs,invert=True)
     lowc_pcd = pcd.select_by_index(highc_idxs,invert=False)
-    draw(highc_pcd)
-    draw(lowc_pcd)
+    # draw(highc_pcd)
+    # draw(lowc_pcd)
     return highc_idxs, highc_pcd,lowc_pcd
 
-def draw_shift(file, shift):
+def center_on_axes(pcd):
+    base_center = get_center(arr(pcd.points),center_type = "bottom")
+    rot_90_y = np.array([[0,1,0],[1,0,0],[0,0,-1]]) # rotates dead on
+    rot_90_z = np.array([[0,-1,0],[1,0,0],[0,0,1]]) 
+    rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
+    rot_n90_x = np.array([[1,0,0],[0,-1,0],[0,0,1]]) 
+    white_removed.rotate(rot_90_x)
+    white_removed.rotate(rot_90_x)
+    white_removed.rotate(rot_90_x)
+    # mn = pcd.get_min_bound()
+    # mx = pcd.get_max_bound()
+    # centroid = mn+((mx-mn)/2)
+    # base = (base_center[0], base_center[1], mn[2])
+    # sp = o3d.geometry.TriangleMesh.create_sphere(radius=1)
+    # sp.paint_uniform_color([1,0,0])
+    # sp.translate(base)
+    pcd.translate(np.array([x for x in base_center ]))
+    return base_center
+
+def draw_shift(pcd, shift):
     #[need shift rerun]
     #[133,151,113,132] [191,193,194, 189]
     # First get details for :
     # 189 matches with rf_ext_pcds[16], has 3 roots ids 50,51,58
     # 193 matches with rf_ext_pcds[18]
-    orig = o3d.io.read_point_cloud(file)
-    voxed_down = orig.voxel_down_sample(voxel_size=.05)
+    print('preping pcd')
+    voxed_down = pcd.voxel_down_sample(voxel_size=.05)
     uni_down = voxed_down.uniform_down_sample(3)
     white_removed = remove_color_pts(uni_down,invert = True)
-    
-    # contracted = contract(test,shift)
+
+    print('preping contraction/coloring')
+    contracted = contract(white_removed,shift)
     c_mag = np.array([np.linalg.norm(x) for x in shift])
     highc_idxs, highc_pcd,lowc_pcd = color_on_percentile(white_removed,c_mag,70)
+    draw(highc_pcd)
+    draw(lowc_pcd)
+    draw(white_removed)
+    print('giffing')
+    center_on_axes(white_removed)
+    center_on_axes(highc_pcd)
+    center_on_axes(lowc_pcd)
+    breakpoint()
+    out_path = f'data/results/gif/{seed}'
+    rotating_compare_gif(highc_pcd,lowc_pcd, 
+                         output=out_path,
+                         save = True,
+                         transient_period = 75)
+    rotating_compare_gif(lowc_pcd,contracted, 
+                         output=out_path,
+                         save = True,
+                         transient_period = 75)
     breakpoint()
     # draw(white_removed)
 
     # # voxed_down = pcd.voxel_down_sample(voxel_size=.01)
-    pcd, nbrs = get_neighbors_kdtree(orig,highc_pcd,k=50)
+    # pcd, nbrs = get_neighbors_kdtree(orig,highc_pcd,k=50)
     
-    highc_pts = [arr(highc_pcd.points)]
-    c_mag_orig = {}
-    for src_pt_id, nbr_list in enumerate(nbrs):
-        c_mag_orig.update({nbr:c_mag[src_pt_id] for nbr in nbr_list})
-    breakpoint()
+    # highc_pts = [arr(highc_pcd.points)]
+    # c_mag_orig = {}
+    # for src_pt_id, nbr_list in enumerate(nbrs):
+    #     c_mag_orig.update({nbr:c_mag[src_pt_id] for nbr in nbr_list})
+    # breakpoint()
 
 
     # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
@@ -567,6 +606,33 @@ def run_extend():
                             file_label='other_clusters',cycles=250,save_every=20,draw_every=160, max_distance=.1)
 
 if __name__ =="__main__":
+    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
+    detail_files = glob('data/results/full_skio_iso/*detail*')
+    shift_files = glob('data/results/full_skio_iso/*shift*')
+    
+    seed_to_detail = {re.match(seed_pat,file).groups(1)[0]:file for file in detail_files}
+    # for seed,file in seed_to_detail.items(): get_shift(read_point_cloud(file),seed)
+    seed_to_shift = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_files}
+    seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift.get(seed)))  for seed in seed_to_detail.keys() ]
+    seed_to_content = {seed:(detail,shift) for seed,(detail,shift) in seed_to_files}
+
+    # for pcd in pcd_list: draw(pcd)
+    paired_exts = [(107,108),
+                    (133,151),
+                    (189,191),
+                    (190,193),
+                    ]
+    for seed, (pcd_file, shift_file) in seed_to_content.items():
+        try:
+            print('loading pcd')
+            pcd = read_point_cloud(pcd_file)
+            print('loading shift')
+            shift = load(shift_file)
+            print('drawing shift')
+            draw_shift(pcd,shift)    
+        except Exception as e:
+            breakpoint()
+            print(f'error with {seed},{e}')
     # axes = o3d.geometry.create_mesh_coordinate_frame()
     # exclude_regions = {
     #         'building1' : [ (77,350,0),(100, 374,5.7)], 
@@ -652,28 +718,7 @@ if __name__ =="__main__":
     # ext_pcds = pcds_from_extend_seed_file(ext_result_file)
     # draw(unmatched_ext_pcds+all_seeds)
     # 133,151,113,132, 191,193,194, 189]
-    files = [
-            #  'data/results/full_skio_iso/full_ext_seed194_rf18_orig_detail.pcd',
-            #  'data/results/full_skio_iso/full_ext_seed193_194_rf18_orig_detail.pcd',
-            #  'data/results/full_skio_iso/full_ext_seed190_rf15_orig_detail.pcd',
-            #  'data/results/full_skio_iso/full_ext_seed193_194_rf18_orig_detail.pcd',
-             
-             'data/results/full_skio_iso/full_ext_seed191_rf16_orig_detail.pcd',
-             'data/results/full_skio_iso/full_ext_seed189_rf16_orig_detail.pcd',
-
-            #  'data/results/full_skio_iso/full_ext_seed133_rf9_orig_detail.pcd',
-            #  'data/results/full_skio_iso/full_ext_seed151_rf9_orig_detail.pcd',
-
-            #  'data/results/full_skio_iso/full_ext_seed113_rf5_orig_detail.pcd',
-            #  'data/results/full_skio_iso/full_ext_seed132_rf9_orig_detail.pcd',
-            ]
-    pcds = {file: read_point_cloud(file) for file in files}
-    pcd_list = [pcd for pcd in pcds.values()]
     
-    for pcd in pcd_list: draw(pcd)
-    breakpoint()
-    for file in pcds.keys():
-        get_shifts(file)    
   
     # o3d.io.write_point_cloud(f'data/refined_clusters/k_cluster_{152}.pcd',c_tc)
     good_ids = []
@@ -692,21 +737,11 @@ if __name__ =="__main__":
             if rf_ext_id ==-1:
                 print(f'ext for seed {seed} not found ')
                 bad_ids.append((seed,None,None))
-            else:
-                file= f'data/results/full_skio_iso/full_ext_seed{seed}_rf{rf_ext_id}_orig_detail.pcd'
-                get_shifts(file)
-                # shift_file = f'data/results/full_skio_iso/seed{seed}_rf{rf_ext_id}_voxpt05_uni3_shift.pkl'
-                # shift = load(shift_file) 
-                # draw_shift(file, shift)
 
             # ext_pcd = ext_pcds[rf_ext_id]
-
-            # seed_pcd.paint_uniform_color([1,0,1])
-            # # root_pcd = seed_to_root_map[21] and 22 correspond to cluster 1 
             # root_pcd.paint_uniform_color([1,0,0])
             # # draw([root_pcd]+[ext_pcd,seed_pcd])
-            # # prnt = True
-            # # reext = True
+
             # detail_pcd_file = f'rf_cluster{rf_ext_id}_orig_detail.pcd'
             # # if reext:
             # #     # Rebuilds cluster from root_pcd to seperate tree from neighbors
