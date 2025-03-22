@@ -58,9 +58,9 @@ def recover_original_details(cluster_pcds,
                             file_prefix = Template('data/input/SKIO/part_skio_raffai_$idc.pcd'),
                             #= 'data/input/SKIO/part_skio_raffai',
                             save_result = False,
-                            save_file = 'orig_dets',
-                            file_num_base = 20000000,
-                            file_num_iters = 40,
+                            save_file_base = 'orig_dets',
+                            file_num_base = 2000000,
+                            file_num_iters = 41,
                             starting_num = 0,
                             scale=1.1,
                             num_nbrs = 200,max_distance = .4,chunk_size =10000000):
@@ -98,14 +98,16 @@ def recover_original_details(cluster_pcds,
         # Limiting the search field to points in the general
         #   vicinity of the non-detailed pcd\
         for file in files:
-            bounds = file_bounds[file]
-            file_min,file_max = bounds[0], bounds[1]
+            bounds = file_bounds.get(file,[cluster_min,cluster_max])
+            # file_min,file_max = bounds[0], bounds[1]
             print(f'checking file {file}')
-            # l_overlap = any([a>b for a,b in zip(cluster_min,file_min)]) and all([a<b for a,b in zip(cluster_min,file_max)])
-            # r_overlap = any([a>b for a,b in zip(cluster_max,file_min)]) and all([a<b for a,b in zip(cluster_max,file_max)])
+            # l_overlap = all([a>b for a,b in zip(cluster_min,file_min)]) and all([a<b for a,b in zip(cluster_min,file_max)])
+            # r_overlap = all([a>b for a,b in zip(cluster_max,file_min)]) and all([a<b for a,b in zip(cluster_max,file_max)])
+            l_overlap=True
+            r_overlap=True
             pcd = read_point_cloud(file)
             # draw([cluster_pcd,bnd_box,pcd])
-            if True: #l_overlap or r_overlap: 
+            if l_overlap or r_overlap: 
                 # pcd = read_point_cloud(file)
                 # x_overlap = (any([a<b for a,b in zip(minb,min_bnd)]) and 1==1)
                 # y_overlap = (bounds[1]>max_bnd[1] or section_max_bnd[1]<min_bnd[1])
@@ -163,17 +165,19 @@ def recover_original_details(cluster_pcds,
 
                         nbr_pts = arr(vicinity_pts)[nbrs]
                         detailed_pcd = o3d.geometry.PointCloud()
-                        detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)
+                        detailed_pcd.points = o3d.utility.Vector3dVector(arr(nbr_pts))
                         print('extracting nbr colors') 
                         nbr_colors = arr(v_colors)[nbrs]                
                         # detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)
-                        detailed_pcd.colors = o3d.utility.Vector3dVector(nbr_colors) 
+                        detailed_pcd.colors = o3d.utility.Vector3dVector(arr(nbr_colors)) 
 
                         print(f'adding pcd {detailed_pcd}')
+                        pcds.append(detailed_pcd)
                         del whole_tree
                         try:
-                            file = f'{save_file}_orig_detail{cnt}.pcd'
-                            write_point_cloud(file, detailed_pcd)
+                            save_file = f'{save_file_base}_orig_detail{cnt}.pcd'
+                            write_point_cloud(save_file, detailed_pcd)
+                            files_written.append(save_file)
                         except Exception as e:
                             breakpoint()
                             print(f'error writing pcd {e}')
@@ -182,70 +186,79 @@ def recover_original_details(cluster_pcds,
                         
                         vicinity_pts = []
                         v_colors = []
-        save('skio_bounds.pkl', file_bounds)
+        # save('skio_bounds.pkl', file_bounds)
         if len(vicinity_pts)>0:
-            detailed_pcd = o3d.geometry.PointCloud()
-            detailed_pcd.points = o3d.utility.Vector3dVector(vicinity_pts)
-            detailed_pcd.colors = o3d.utility.Vector3dVector(v_colors) 
-            # draw(detailed_pcd)
-            # draw([detailed_pcd,cluster_pcd])
-            # draw([detailed_pcd,cluster_pcd,bnd_box])
-            print('Building pcd from points in vicinity')
-            query_pts = arr(cluster_pcd.points)
-            whole_tree = sps.KDTree(vicinity_pts)
-            print('Finding neighbors in vicinity') 
-            dists,nbrs = whole_tree.query(query_pts, k=num_nbrs, distance_upper_bound= max_distance)
-            
-            print(f'{len(nbrs)} nbrs found')
-            nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x< len(vicinity_pts) ]
-            print(f'{len(nbrs)} valid nbrs found') 
-            if len(nbrs)>0:
+            try:
+                # detailed_pcd = o3d.geometry.PointCloud()
+                # detailed_pcd.points = o3d.utility.Vector3dVector(vicinity_pts)
+                # detailed_pcd.colors = o3d.utility.Vector3dVector(v_colors) 
+                # draw(detailed_pcd)
+                # draw([detailed_pcd,cluster_pcd])
+                # draw([detailed_pcd,cluster_pcd,bnd_box])
+                print('Building pcd from points in vicinity')
+                query_pts = arr(cluster_pcd.points)
+                whole_tree = sps.KDTree(vicinity_pts)
+                print('Finding neighbors in vicinity') 
+                dists,nbrs = whole_tree.query(query_pts, k=num_nbrs, distance_upper_bound= max_distance)
+                
+                print(f'{len(nbrs)} nbrs found')
+                nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x< len(vicinity_pts) ]
+                print(f'{len(nbrs)} valid nbrs found') 
+                if len(nbrs)>0:
+                    try:
+                        nbr_pts = arr(vicinity_pts)[nbrs]
+                    except Exception as e:
+                        nbrs = [x for x in nbrs if x< len(vicinity_pts)-1 ]
+                        nbr_pts = arr(vicinity_pts)[nbrs]
+                        print(f'error {e} when getting neighbors in vicinity')
+                    nbr_colors = arr(v_colors)[nbrs]
+                    detailed_pcd = o3d.geometry.PointCloud()
+                    detailed_pcd.points = o3d.utility.Vector3dVector(arr(nbr_pts))
+                    detailed_pcd.colors = o3d.utility.Vector3dVector(arr(nbr_colors) )
+                    print(f'adding pcd {detailed_pcd}')
+                    # pcds.append(detailed_pcd)
+                    del whole_tree
                 try:
-                    nbr_pts = arr(vicinity_pts)[nbrs]
-                except Exception as e:
-                    nbrs = [x for x in nbrs if x< len(vicinity_pts)-1 ]
-                    nbr_pts = arr(vicinity_pts)[nbrs]
-                    print(f'error {e} when getting neighbors in vicinity')
-                nbr_colors = arr(v_colors)[nbrs]
-                detailed_pcd = o3d.geometry.PointCloud()
-                detailed_pcd.points = o3d.utility.Vector3dVector(nbr_pts)
-                detailed_pcd.colors = o3d.utility.Vector3dVector(nbr_colors)  
-                print(f'adding pcd {detailed_pcd}')
-                del whole_tree
-                try:
-                    file = f'{save_file}_orig_detail.pcd' if cnt==0 else f'{save_file}_orig_detail{cnt}.pcd'
-                    write_point_cloud(file, detailed_pcd)
-                    files_written.append(file)
+                    print(f'writing pcd {detailed_pcd}')
+                    save_file = f'{save_file_base}_orig_detail.pcd' if cnt==0 else f'{save_file_base}_orig_detail{cnt}.pcd'
+                    print(f'writing to {save_file}')
+                    write_point_cloud(save_file, detailed_pcd)
+                    print(f'wrote to {save_file}')
+                    files_written.append(save_file)
                 except Exception as e:
                     breakpoint()
                     print(f'error writing pcd {e}')
-            # detailed_pcds.append(detailed_pcd)
-            # pt_branch_assns[idb] = arr(vicinity_pt_ids)[nbrs]
-            
-            # if idb%5==0 and idb>5:
-            # complete = list([tuple((idb,nbrs)) for idb,nbrs in  pt_branch_assns.items()])
-            # save(f'skeletor_branch{idb}_complete.pkl', complete) 
-            # save(f'{save_file}_{idb}_orig_detail.pkl', complete)
-    if len(files_written)>0:
-        pcds = []
-        for file in files_written:
-            try:
-                pcds.append(read_point_cloud(file))
+                # detailed_pcds.append(detailed_pcd)
+                # pt_branch_assns[idb] = arr(vicinity_pt_ids)[nbrs]
+                
+                # if idb%5==0 and idb>5:
+                # complete = list([tuple((idb,nbrs)) for idb,nbrs in  pt_branch_assns.items()])
+                # save(f'skeletor_branch{idb}_complete.pkl', complete) 
+                # save(f'{save_file}_{idb}_orig_detail.pkl', complete)
             except Exception as e:
-                print(f'couldnt read in {file}: {e}')
-        pcd = o3d.geometry.PointCloud()
-        pts = [arr(pcd.points) for pcd in pcds]
-        colors = [arr(pcd.colors) for pcd in pcds]
-        pcd.points = o3d.utility.Vector3dVector(pts)
-        pcd.colors = o3d.utility.Vector3dVector(colors)
-        try:
-            write_point_cloud(f'{save_file}_orig_detail.pcd', pcd)
-        except Exception as e:
-            breakpoint()
-            print(f'error writing pcd {e}')
-        return pcd
-    else:
-        return detailed_pcd
+                breakpoint()
+                print(f'error finding pts in final vicinity pcd {e}')
+    # if len(files_written)>0:
+    #     print(f'aggregating files written')
+    #     pcds = []
+    #     for save_file in files_written:
+    #         try:
+    #             pcds.append(read_point_cloud(save_file))
+    #         except Exception as e:
+    #             print(f'couldnt read in {save_file}: {e}')
+    #     pcd = o3d.geometry.PointCloud()
+    #     pts = [arr(pcd.points) for pcd in pcds]
+    #     colors = [arr(pcd.colors) for pcd in pcds]
+    #     pcd.points = o3d.utility.Vector3dVector(pts)
+    #     pcd.colors = o3d.utility.Vector3dVector(colors)
+    #     try:
+    #         write_point_cloud(f'{save_file_base}_orig_detail.pcd', pcd)
+    #     except Exception as e:
+    #         breakpoint()
+    #         print(f'error writing pcd {e}')
+    #     return pcd
+    # else:
+    return pcds
         
 
     # return detailed_pcd
