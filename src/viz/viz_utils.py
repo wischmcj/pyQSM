@@ -7,7 +7,18 @@ from open3d.visualization import draw_geometries
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
+from utils.io import be_root
+import os 
+import time
 from scipy.spatial.transform import Rotation as R
+import imageio
+from numpy import array as arr
+from time import sleep
+from scipy.spatial.transform import Rotation as R
+
+from set_config import log
+
+
 s27d = "s32_downsample_0.04.pcd"
 
 
@@ -58,14 +69,30 @@ def draw(pcds, raw=True, side_by_side=False, **kwargs):
             **kwargs,
         )
 
-def cdraw(pcd, 
-          render_option_path):
+def vdraw(pcds, 
+          render_option_path,
+          save_image=True,
+          point_size=3,
+          line_width = 15,
+          display_time = 60):
+    
     vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    vis.add_geometry(pcd)
-    vis.get_render_option().load_from_json(render_option_path)
+    vis.create_window(width=1920, height=1080)
+    for pcd in pcds:
+        vis.add_geometry(pcd)
+
+    ctl = vis.get_view_control()
+    ctl.set_zoom(0.6)
+
+    # Set smaller point size. Default is 5.0
+    vis.get_render_option().point_size = point_size
+    vis.get_render_option().line_width = 15
+    vis.get_render_option().light_on = False
+    vis.update_renderer()
     vis.run()
+    sleep(display_time)
     vis.destroy_window()
+
 
 def color_continuous_map(pcd, cvar):
     density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
@@ -74,22 +101,22 @@ def color_continuous_map(pcd, cvar):
     return pcd
 
 
-def rotating_compare_gif(transient_pcd, constant_pcd_in,
+def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
                                init_rot: np.ndarray = np.eye(3),
                                steps: int = 360,
-                               transient_period: int = 45,
+                               on_frames: int = 45,
+                               off_frames: int = 45,
                                point_size: float = 1.0,
                                output = '/code/code/pyQSM/test/',
                                rot_center = [0,0,0],
                                save = False,
-                               file_name = 'pcd_compare_animation'):
+                               file_name = 'pcd_compare_animation',
+                               addnl_frame_duration = 0):
         """
             Creates a GIF comparing two point clouds. 
         """
-        import os 
-        import time
-        from scipy.spatial.transform import Rotation as R
-        import imageio
+        
+        be_root()
 
         output_folder = os.path.join(output, 'tmp')
         print(output_folder)
@@ -98,7 +125,6 @@ def rotating_compare_gif(transient_pcd, constant_pcd_in,
         # We 
 
         # Load PCD
-        orig = deepcopy(transient_pcd)
         # if not trans_has_color:
         #     orig.rotate(init_rot, center=[0, 0, 0])
 
@@ -110,8 +136,21 @@ def rotating_compare_gif(transient_pcd, constant_pcd_in,
         # constant_pcd.paint_uniform_color([0, 0, 0])
         constant_pcd.rotate(init_rot, center=[0, 0, 0])
 
-        transient_pcd = deepcopy(orig)
+        transient_pcd = deepcopy(transient_pcd_in)
+        transient_pcd_ref = deepcopy(transient_pcd_in)
 
+        tran_pts = arr(transient_pcd.points)
+        const_pts = arr(constant_pcd.points)
+        sz_tran,sz_const = len(tran_pts),len(const_pts)
+        sz_diff= sz_tran-sz_const
+        if sz_diff>0:#tran is bigger than const
+            last_pt =  o3d.utility.Vector3dVector([const_pts[-1]]*sz_diff)
+            last_col =   o3d.utility.Vector3dVector([arr(constant_pcd.colors)[-1]]*sz_diff)
+            constant_pcd.points.extend(last_pt)
+            constant_pcd.colors.extend(last_col)
+            # pcd = o3d.geometry.PointCloud()
+            # new_pts = o3d.utility.Vector3dVector()
+        
         vis = o3d.visualization.Visualizer()
         vis.create_window(width=1920, height=1080)
         vis.add_geometry(transient_pcd)
@@ -132,15 +171,17 @@ def rotating_compare_gif(transient_pcd, constant_pcd_in,
         image_path_list = []
 
         pcd_idx = 0
+        stage_duration = on_frames
+        stage_durations = [on_frames,off_frames]
         for i in range(steps):
-            orig.rotate(Rot_mat, center=rot_center)
+            transient_pcd_ref.rotate(Rot_mat, center=rot_center)
             # skel.rotate(Rot_mat, center=rot_center)
             constant_pcd.rotate(Rot_mat, center=rot_center)
 
             if pcd_idx == 0:
-                transient_pcd.points = orig.points
-                transient_pcd.colors = orig.colors
-                transient_pcd.normals = orig.normals
+                transient_pcd.points = transient_pcd_ref.points
+                transient_pcd.colors = transient_pcd_ref.colors
+                transient_pcd.normals = transient_pcd_ref.normals
             if pcd_idx == 1:
                 # pcd.paint_uniform_color([0, 0, 0])
                 transient_pcd.points = constant_pcd.points
@@ -153,13 +194,21 @@ def rotating_compare_gif(transient_pcd, constant_pcd_in,
 
             # Draw pcd for 30 frames at a time
             #  remove for 30 between then
-            if ((i % transient_period) == 0) and i != 0:
-                pcd_idx = (pcd_idx + 1) % 2
+            if ((i % stage_durations[pcd_idx]) == 0):
+                pcd_idx = (pcd_idx+1) % 2
+                if pcd_idx==0: 
+                    print(f'switching to off frames: {i},{pcd_idx=}')
+                else:
+                    print(f'switching to on frames: {i},{pcd_idx=}')
                 
             current_image_path = f"{output_folder}/img_{i}.jpg"
             if save:
                 vis.capture_screen_image(current_image_path)
                 image_path_list.append(current_image_path)
+            else:
+                sleep(.01)
+            sleep(addnl_frame_duration)
+
 
         vis.destroy_window()
         images = []

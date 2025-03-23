@@ -59,7 +59,7 @@ def recover_original_details(cluster_pcds,
                             #= 'data/input/SKIO/part_skio_raffai',
                             save_result = False,
                             save_file_base = 'orig_dets',
-                            file_num_base = 2000000,
+                            file_num_base = 20000000,
                             file_num_iters = 41,
                             starting_num = 0,
                             scale=1.1,
@@ -70,7 +70,7 @@ def recover_original_details(cluster_pcds,
             vicinity of the search cluster then performs a KNN search 
             to find neighobrs of points in the cluster
     """
-    file_bounds = dict(load('skio_bounds.pkl'))
+    # file_bounds = dict(load('skio_bounds.pkl'))
     # defining files in which initial details are stored
     files = []
     if file_num_base:
@@ -98,7 +98,7 @@ def recover_original_details(cluster_pcds,
         # Limiting the search field to points in the general
         #   vicinity of the non-detailed pcd\
         for file in files:
-            bounds = file_bounds.get(file,[cluster_min,cluster_max])
+            # bounds = file_bounds.get(file,[cluster_min,cluster_max])
             # file_min,file_max = bounds[0], bounds[1]
             print(f'checking file {file}')
             # l_overlap = all([a>b for a,b in zip(cluster_min,file_min)]) and all([a<b for a,b in zip(cluster_min,file_max)])
