@@ -144,73 +144,34 @@ def color_on_percentile(pcd,
     lowc_pcd = pcd.select_by_index(highc_idxs,invert=True)
     return highc_idxs, highc_pcd,lowc_pcd
 
-def assess_skeletons():
-    file_types = ['lines'
-                    ,'points'
-                    #  ,'shift'
-                    ,'tpshift']
-    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
-    factors_pat = re.compile('([0-9]*\\.?[0-9]*_[0-9]*\\.?[0-9]*).*')
-    root_dir = 'data/results/skio/3_1pt1/'
-
-    files = defaultdict(list)
-    # for ftype in file_types:
-    points_files = glob('*_points.pkl',root_dir=root_dir)
-    for f in points_files:
-        try:
-            if '135' not in f:
-                factors = re.match(factors_pat,f).groups(1)[0]
-                seed = re.match(seed_pat,f).groups(1)[0]
-                base_name = f.replace('_points.pkl','')
-                tp_shift = load(f'{base_name}_tpshift.pkl',dir = root_dir)
-                total_shift = np.sum(arr(tp_shift),axis=0)
-                # topo = load_line_set(base_name,root_dir)
-                detail_file = glob(f'data/results/skio/full_ext_seed{seed}*')[0]
-                pcd = read_pcd(detail_file)
-                
-                clean_pcd = get_downsample(pcd=pcd, normalize=True)
-                skeleton = contract(clean_pcd,tp_shift[0])
-                topo= extract_topology(skeleton)
-                breakpoint()
-                # draw(topo)
-                log.info(f)
-                # detail_file = glob(f'data/results/skio/{factors}_{base_name}_orig_detail.pcd')
-                draw_skel(pcd,seed,tp_shift[0])#,skeleton=topo)
-                draw_shift(pcd,seed,tp_shift[0])
-                breakpoint()
-        except Exception as e:
-            log.info(f'error running seed {seed}: {e}. Skipping...')
-
-
-
-def run_skeleton_cases():
-    seed = 135
-    file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
-    test = read_pcd(file)
-    config_list = [#(1,1), # lvl 5 monkey puzzle, has vertical lines for moss
-                   (2,1),   # monkey puzzle, not enough contraction
-                   (4,1),  #
-                   (1,1),  #
-                   (1,2),  # lvl6 monkey puzzle, has vertical lines for moss
-                   (1,4),  #
-                   (1,1),  #
-                   (4,3),  # lvl 3 monkey puzzle,
-                   (4,2),  #
-                   (2,.5), #
-                   (3,.8),  # lvl4 monkey puzzle, has vertical lines for moss
-                   (.5,2), # lvl6 monkey puzzle, has vertical lines for moss
-                   (.8,3), #
-                   (5,6),  #
-                   (6,5),] #
-    res = []
-    for cont, att in config_list:
-        try:
-            shift_res = get_shift(test,135,iters=15,
-                                  contraction = cont, attraction = att,
-                                  debug=True)
-            res.append(shift_res)
-        except Exception as e:
-            log.info(f'error getting shift for {seed}:{e}')
+def get_shift(pcd, seed,
+              contraction,
+              attraction,
+              iters=15, 
+              debug=True):
+    """
+        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
+    """
+    file_base = f'{str(contraction).replace('.','pt')}_{str(attraction).replace('.1','pt')}/seed{seed}_two_voxpt05_uni3'
+    log.info(f'getting shift for {seed}')
+    orig = pcd
+    test = orig.voxel_down_sample(voxel_size=.05)
+    test = test.uniform_down_sample(3)
+    test = remove_color_pts(test,invert = True)
+    ratio = len(arr(test.points))/len(arr(orig.points))
+    log.info(f'final ratio {ratio}')
+    skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base,
+                                    contraction_factor=contraction,
+                                    attraction_factor=attraction)
+    # contracted, total_point_shift, shift_by_step = skel_res
+    # breakpoint()
+    try:
+        topo = extract_topology(skel_res[0])
+        save_line_set(topo[0],file_base)
+    except Exception as e:
+        log.info(f'error getting topo {e}')
+    return skel_res, topo
+    # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
 
 def center_and_rotate(pcd, center=None):
     center = pcd.get_center() if center is None else center
@@ -307,34 +268,42 @@ def draw_shift(pcd,
     # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
     # draw(highc_detail
 
-def get_shift(pcd, seed,
-              contraction,
-              attraction,
-              iters=15, 
-              debug=True):
-    """
-        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
-    """
-    file_base = f'{str(contraction).replace('.','pt')}_{str(attraction).replace('.1','pt')}/seed{seed}_two_voxpt05_uni3'
-    log.info(f'getting shift for {seed}')
-    orig = pcd
-    test = orig.voxel_down_sample(voxel_size=.05)
-    test = test.uniform_down_sample(3)
-    test = remove_color_pts(test,invert = True)
-    ratio = len(arr(test.points))/len(arr(orig.points))
-    log.info(f'final ratio {ratio}')
-    skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base,
-                                    contraction_factor=contraction,
-                                    attraction_factor=attraction)
-    # contracted, total_point_shift, shift_by_step = skel_res
-    # breakpoint()
-    try:
-        topo = extract_topology(skel_res[0])
-        save_line_set(topo[0],file_base)
-    except Exception as e:
-        log.info(f'error getting topo {e}')
-    return skel_res, topo
-    # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
+def identify_epiphytes(file, pcd, shift):
+
+    green = get_green_surfaces(pcd)
+    not_green = get_green_surfaces(pcd,True)
+    # draw(lowc_pcd)
+    draw(green)
+    draw(not_green)
+
+
+    c_mag = np.array([np.linalg.norm(x) for x in shift])
+    z_mag = np.array([x[2] for x in shift])
+
+    highc_idxs, highc, lowc = color_on_percentile(pcd,c_mag,70)
+
+    z_cutoff = np.percentile(z_mag,80)
+    log.info(f'{z_cutoff=}')
+    low_idxs = np.where(z_mag<=z_cutoff)[0]
+    lowc = clean_pcd.select_by_index(low_idxs)
+    ztrimmed_shift = shift[low_idxs]
+    ztrimmed_cmag = c_mag[low_idxs]
+    draw(lowc)
+    highc_idxs, highc, lowc = color_on_percentile(lowc,c_mag,70)
+
+
+    # color_continuous_map(test,c_mag)
+    highc_idxs = np.where(c_mag>np.percentile(c_mag,70))[0]
+    highc_pcd = test.select_by_index(highc_idxs)
+    lowc_pcd = test.select_by_index(highc_idxs,invert=True)
+    draw([lowc_pcd])
+    draw([highc_pcd])
+
+    breakpoint()
+    
+    lowc_detail = get_neighbors_kdtree(pcd,lowc_pcd)
+    draw(lowc_detail)
+    breakpoint()
 
 def draw_two_shifts(file_info,dir):
     seed, (pcd_file, shift_file_one,shift_file_two) = file_info
@@ -388,43 +357,6 @@ def draw_two_shifts(file_info,dir):
     log.info('loading shift')                
     get_shift(lowc,seed,iters=15,debug=False)    
 
-def identify_epiphytes(file, pcd, shift):
-
-    green = get_green_surfaces(pcd)
-    not_green = get_green_surfaces(pcd,True)
-    # draw(lowc_pcd)
-    draw(green)
-    draw(not_green)
-
-
-    c_mag = np.array([np.linalg.norm(x) for x in shift])
-    z_mag = np.array([x[2] for x in shift])
-
-    highc_idxs, highc, lowc = color_on_percentile(pcd,c_mag,70)
-
-    z_cutoff = np.percentile(z_mag,80)
-    log.info(f'{z_cutoff=}')
-    low_idxs = np.where(z_mag<=z_cutoff)[0]
-    lowc = clean_pcd.select_by_index(low_idxs)
-    ztrimmed_shift = shift[low_idxs]
-    ztrimmed_cmag = c_mag[low_idxs]
-    draw(lowc)
-    highc_idxs, highc, lowc = color_on_percentile(lowc,c_mag,70)
-
-
-    # color_continuous_map(test,c_mag)
-    highc_idxs = np.where(c_mag>np.percentile(c_mag,70))[0]
-    highc_pcd = test.select_by_index(highc_idxs)
-    lowc_pcd = test.select_by_index(highc_idxs,invert=True)
-    draw([lowc_pcd])
-    draw([highc_pcd])
-
-    breakpoint()
-    
-    lowc_detail = get_neighbors_kdtree(pcd,lowc_pcd)
-    draw(lowc_detail)
-    breakpoint()
-
 def loop_over_files(func,requested_seeds=[]):
     dir = 'data/results/skio/skels2/'
     seed_pat = re.compile('.*seed([0-9]{1,3}).*')
@@ -448,6 +380,74 @@ def loop_over_files(func,requested_seeds=[]):
             except Exception as e:
                 breakpoint()
                 log.info(f'error with {seed},{e}')
+
+def assess_skeletons():
+    file_types = ['lines'
+                    ,'points'
+                    #  ,'shift'
+                    ,'tpshift']
+    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
+    factors_pat = re.compile('([0-9]*\\.?[0-9]*_[0-9]*\\.?[0-9]*).*')
+    root_dir = 'data/results/skio/3_1pt1/'
+
+    files = defaultdict(list)
+    # for ftype in file_types:
+    points_files = glob('*_points.pkl',root_dir=root_dir)
+    for f in points_files:
+        try:
+            if '135' not in f:
+                factors = re.match(factors_pat,f).groups(1)[0]
+                seed = re.match(seed_pat,f).groups(1)[0]
+                base_name = f.replace('_points.pkl','')
+                tp_shift = load(f'{base_name}_tpshift.pkl',dir = root_dir)
+                total_shift = np.sum(arr(tp_shift),axis=0)
+                # topo = load_line_set(base_name,root_dir)
+                detail_file = glob(f'data/results/skio/full_ext_seed{seed}*')[0]
+                pcd = read_pcd(detail_file)
+                
+                clean_pcd = get_downsample(pcd=pcd, normalize=True)
+                skeleton = contract(clean_pcd,tp_shift[0])
+                topo= extract_topology(skeleton)
+                breakpoint()
+                # draw(topo)
+                log.info(f)
+                # detail_file = glob(f'data/results/skio/{factors}_{base_name}_orig_detail.pcd')
+                draw_skel(pcd,seed,tp_shift[0])#,skeleton=topo)
+                draw_shift(pcd,seed,tp_shift[0])
+                breakpoint()
+        except Exception as e:
+            log.info(f'error running seed {seed}: {e}. Skipping...')
+
+
+
+def run_skeleton_cases():
+    seed = 135
+    file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    test = read_pcd(file)
+    config_list = [#(1,1), # lvl 5 monkey puzzle, has vertical lines for moss
+                   (2,1),   # monkey puzzle, not enough contraction
+                   (4,1),  #
+                   (1,1),  #
+                   (1,2),  # lvl6 monkey puzzle, has vertical lines for moss
+                   (1,4),  #
+                   (1,1),  #
+                   (4,3),  # lvl 3 monkey puzzle,
+                   (4,2),  #
+                   (2,.5), #
+                   (3,.8),  # lvl4 monkey puzzle, has vertical lines for moss
+                   (.5,2), # lvl6 monkey puzzle, has vertical lines for moss
+                   (.8,3), #
+                   (5,6),  #
+                   (6,5),] #
+    res = []
+    for cont, att in config_list:
+        try:
+            shift_res = get_shift(test,135,iters=15,
+                                  contraction = cont, attraction = att,
+                                  debug=True)
+            res.append(shift_res)
+        except Exception as e:
+            log.info(f'error getting shift for {seed}:{e}')
 
 if __name__ =="__main__":
     # assess_skeletons()
