@@ -1,33 +1,54 @@
-
+import os 
+import subprocess
+import sys
 import pickle 
+import open3d as o3d
+import numpy as np
+from set_config import log, config
+
+use_super_user = config['io']['super_user']
+data_root = config['io']['data_root']
 
 def save_line_set(line_set, base_file = 'skel_stem20_topology'):
-    import pickle 
-    with open(f'{base_file}_lines.pkl','wb') as f:     pickle.dump(np.asarray(line_set.lines),f)
-    with open(f'{base_file}_points.pkl','wb') as f:     pickle.dump(np.asarray(line_set.points),f)
+    base_file.replace('.pkl','')
+    save(f'{base_file}_lines.pkl', line_set)
+    save(f'{base_file}_points.pkl', line_set)
     
 def load_line_set(base_file = 'skel_stem20_topology'):
-    import pickle 
-    with open(f'{base_file}_lines.pkl','rb') as f: lines = pickle.load(f)
-    with open(f'{base_file}_points.pkl','rb') as f: points = pickle.load(f)
+    base_file.replace('.pkl','')
+    lines = load(f'{base_file}_lines.pkl')
+    points = load(f'{base_file}_points.pkl')
     line_set = o3d.geometry.LineSet()
     line_set.points = o3d.utility.Vector3dVector(points)
     line_set.lines = o3d.utility.Vector2iVector(lines)
     return line_set
 
+def be_root():
+    if os.geteuid() == 0:
+        return 1
+    else:
+        subprocess.call(['sudo', 'python3'] + sys.argv)  # modified
 
-def update(file, to_write):
-    curr = load(file)
+def update(file, to_write, dir = data_root):
+    # be_root()
+    curr = load(file,dir)
     curr.extend(to_write)
-    with open(file,'wb') as f:
-        pickle.dump(curr,f)
+    save(file,curr,dir)
 
-def save(file, to_write):
-    with open(file,'wb') as f:
+def save(file, to_write, dir = data_root):
+    # be_root()
+    if '.pkl' not in file: file=f'{file}.pkl'
+    fqp = f'{dir}{file}'
+
+    with open(fqp,'wb') as f:
         pickle.dump(to_write,f)
 
-def load(file):
-    with open(file,'rb') as f:
+def load(file, dir = data_root):
+    # be_root()
+    if '.pkl' not in file: file=f'{file}.pkl'
+    fqp = f'{dir}{file}'
+
+    with open(fqp,'rb') as f:
         ret = pickle.load(f)
     return ret
 
