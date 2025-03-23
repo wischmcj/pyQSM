@@ -11,7 +11,7 @@ from plyfile import PlyData
 import numpy as np
 from numpy import asarray as arr
 import polyscope as ps
-from scipy.sparse import csr_matrix, diags, csgraph, vstack, linalg as sla
+from scipy.sparse import csr_matrix, diags, csgraph, vstack, linalg as sla,eye
 import open3d as o3d
 from skspatial.objects import Cylinder
 
@@ -152,9 +152,13 @@ def least_squares_sparse(pts,
     """
     Perform least squares sparse solving for the Laplacian-based contraction.
     """
+    print('start least squares')
     # Define Weights
+    # I = eye(pts.shape[0])
+    # WL = I * laplacian_weighting
     WL = diags(laplacian_weighting)
     WH = diags(positional_weighting)
+    print('start lin alg')
 
     A = vstack([L.dot(WL), WH]).tocsc()
     b = np.vstack([np.zeros((pts.shape[0], 3)), WH.dot(pts)])
@@ -234,8 +238,10 @@ def extract_skeleton(pcd,
     obb = pcd.get_oriented_bounding_box()
     allowed_range = (obb.get_min_bound(), obb.get_max_bound())
     
-    termination_ratio,contraction_factor = set_amplification(step_wise_contraction_amplification,
+    termination_ratio,_ = set_amplification(step_wise_contraction_amplification,
                                                                 len(np.asarray(pcd.points)),termination_ratio)
+    # termination_ratio,contraction_factor = set_amplification(step_wise_contraction_amplification,
+    #                                                             len(np.asarray(pcd.points)),termination_ratio)
     
     max_iteration_steps = max_iter
 
@@ -252,9 +258,10 @@ def extract_skeleton(pcd,
 
     # Init weights
     positional_weights = attraction_factor * np.ones(M.shape[0]) # WH
-    laplacian_weights = (contraction_factor * 1000 * np.sqrt(np.mean(M.diagonal())) 
-                         * np.ones(M.shape[0])) # WL
-
+    laplacian_weights = (contraction_factor * np.sqrt(np.mean(M.diagonal()))) * np.ones(M.shape[0]) # WL
+    # (contraction_factor * np.sqrt(np.mean(M.diagonal())) 
+    #                      * np.ones(M.shape[0])) 
+    # Init weights, weighted by the mass matrix
     iteration = 0
     volume_ratio = 1 # since areas array is len 1
 
@@ -332,7 +339,16 @@ def extract_skeleton(pcd,
         volume_ratio = np.mean(M_list[-1]) / np.mean(M_list[0])
         log.info(f"Completed iteration {iteration}")
         if iteration >= max_iteration_steps:
+            try:
+                save(f'{cmag_save_file}_tpshift.pkl',shift_by_step)
+            except Exception as e:
+                print(f'error when saving total shift {e}.')
             break
+        if volume_ratio < termination_ratio:
+            try:
+                save(f'{cmag_save_file}_tpshift.pkl',shift_by_step)
+            except Exception as e:
+                print(f'error when saving total shift {e}.')
 
     log.info(f'Finished after {iteration} iterations')
 
