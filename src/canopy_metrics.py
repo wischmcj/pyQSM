@@ -1,5 +1,39 @@
+
 import open3d as o3d
 import numpy as np
+from numpy import asarray as arr
+from glob import glob
+import re
+
+from collections import defaultdict
+
+import open3d as o3d
+import numpy as np
+from numpy import asarray as arr
+
+import matplotlib.pyplot as plt
+from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
+
+from set_config import config, log
+from reconstruction import get_neighbors_kdtree
+from utils.math_utils import (
+    get_center,
+    generate_grid
+)
+from utils.fit import kmeans,cluster_DBSCAN
+from geometry.skeletonize import extract_skeleton, extract_topology, 
+from geometry.point_cloud_processing import ( filter_by_norm,
+    clean_cloud,
+    crop, get_shape,
+    orientation_from_norms,
+    filter_by_norm,
+    get_ball_mesh,
+    crop_by_percentile,
+    cluster_plus
+)
+from utils.io import load,save_line_set
+from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
+from viz.color import *
 
 
 class Projector:
@@ -103,7 +137,9 @@ def color_on_percentile(pcd,
     lowc_pcd = pcd.select_by_index(highc_idxs,invert=True)
     return highc_idxs, highc_pcd,lowc_pcd
 
-def get_shift(pcd, seed, iters=15, debug=False,contraction=6,attraction=4):
+def get_shift(pcd, seed, iters=15, debug=False,
+              contraction = config['skeletonize']['init_contraction'],
+              attraction = config['skeletonize']['init_attraction'],):
     """
         Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
     """
@@ -150,7 +186,7 @@ def contract(in_pcd,shift):
     return contracted
 
 def get_downsample(file = None, pcd = None, normalize = False):
-    if file: pcd = read_point_cloud(file)
+    if file: pcd = read_pcd(file)
     log.info('Down sampling pcd')
     voxed_down = pcd.voxel_down_sample(voxel_size=.05)
     uni_down = voxed_down.uniform_down_sample(3)
@@ -246,12 +282,13 @@ def identify_epiphytes(file, pcd, shift):
     breakpoint()
 
 def get_seed(requested_seeds=[]):
+    dir = 'data/results/skio/'
     seed_pat = re.compile('.*seed([0-9]{1,3}).*')
-    detail_files = glob('data/results/full_skio_iso/*detail*')
-    shift_files = glob('data/results/full_skio_iso/*shift*')
+    detail_files = glob('*detail*',root_dir=dir)
+    shift_files = glob('*shift*',root_dir=dir)
     
     seed_to_detail = {re.match(seed_pat,file).groups(1)[0]:file for file in detail_files}
-    # for seed,file in seed_to_detail.items(): get_shift(read_point_cloud(file),seed)
+    # for seed,file in seed_to_detail.items(): get_shift(read_pcd(file),seed)
     seed_to_shift = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_files}
     seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift.get(seed)))  for seed in seed_to_detail.keys() ]
     seed_to_content = {seed:(detail,shift) for seed,(detail,shift) in seed_to_files}
@@ -268,7 +305,7 @@ def get_seed(requested_seeds=[]):
             # try:
             log.info(f'processing seed {seed}')
             log.info('loading pcd')
-            pcd = read_point_cloud(pcd_file)
+            pcd = read_pcd(pcd_file)
             log.info('loading shift')
             shift = load(shift_file)
             log.info('drawing shift')
@@ -280,27 +317,67 @@ def get_seed(requested_seeds=[]):
 
 def assess_skeletons():
     file_types = ['lines'
-             ,'points'
-            #  ,'shift'
-             ,'tpshift']
+                    ,'points'
+                    #  ,'shift'
+                    ,'tpshift']
     seed_pat = re.compile('.*seed([0-9]{1,3}).*')
     factors_pat = re.compile('.*/([0-9]*\\.?[0-9]*_[0-9]*\\.?[0-9]*).*')
+    root_dir = 'data/results/skel_assess/'
 
     files = defaultdict(list)
     # for ftype in file_types:
-    points_files = glob('data/results/skel_assess/*_points.pkl')
-    detail_file = 'data/results/full_skio_iso/full_ext_seed135_rf11_orig_detail.pcd'
-    pcd = read_point_cloud(detail_file)
+    points_files = glob('*_points.pkl',root_dir=root_dir)
+    detail_file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    pcd = read_pcd(detail_file)
     for f in points_files:
-        seed = re.match(seed_pat,f).groups(1)[0]
-        factors = re.match(factors_pat,f).groups(1)[0]
-        base_name = f.replace('_points.pkl','')
-        tp_shift = load(f'{base_name}_tpshift.pkl')
-        topo = load_line_set(base_name)
-        # draw(topo)
-        log.info(f)
-        # detail_file = glob(f'data/results/full_skio_iso/{factors}_{base_name}_orig_detail.pcd')
+        if '4_2' in f:
+            factors = re.match(factors_pat,f).groups(1)[0]
+            seed = re.match(seed_pat,f).groups(1)[0]
+            base_name = f.replace('_points.pkl','')
+            tp_shift = load(f'{base_name}_tpshift.pkl',dir = root_dir)
 
-        draw_skel(pcd,seed,tp_shift[0])#,skeleton=topo)
-        # draw_shift(pcd,seed,tp_shift[0])
-        breakpoint()
+            # topo = load_line_set(base_name)
+
+            # clean_pcd = get_downsample(pcd=pcd, normalize=True)
+            # skeleton = contract(clean_pcd,tp_shift[0])
+            # draw(topo)
+            log.info(f)
+            # detail_file = glob(f'data/results/skio/{factors}_{base_name}_orig_detail.pcd')
+            # draw_skel(pcd,seed,tp_shift[0])#,skeleton=topo)
+            # draw_shift(pcd,seed,tp_shift[0])
+            breakpoint()
+
+def run_skeleton_cases():
+    seed = 135
+    file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    test = read_pcd(file)
+    config_list = [#(1,1), # lvl 5 monkey puzzle, has vertical lines for moss
+                   (2,1),   # monkey puzzle, not enough contraction
+                   (4,1),  #
+                   (1,1),  #
+                   (1,2),  # lvl6 monkey puzzle, has vertical lines for moss
+                   (1,4),  #
+                   (1,1),  #
+                   (4,3),  # lvl 3 monkey puzzle,
+                   (4,2),  #
+                   (2,.5), #
+                   (3,.8),  # lvl4 monkey puzzle, has vertical lines for moss
+                   (.5,2), # lvl6 monkey puzzle, has vertical lines for moss
+                   (.8,3), #
+                   (5,6),  #
+                   (6,5),] #
+    res = []
+    for cont, att in config_list:
+        try:
+            shift_res = get_shift(test,135,iters=15,contraction = cont, attraction = att)
+            res.append(shift_res)
+        except Exception as e:
+            log.info(f'error getting shift for {seed}:{e}')
+
+if __name__ =="__main__":
+    seed = 135
+    file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    test = read_pcd(file)
+    shift_res = get_shift(test,135,iters=15)
+    assess_skeletons()
+    breakpoint()
