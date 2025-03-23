@@ -16,7 +16,7 @@ import numpy as np
 from numpy import asarray as arr
 
 import matplotlib.pyplot as plt
-from open3d.io import read_point_cloud, write_point_cloud
+from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
 from set_config import config, log
 from reconstruction import recover_original_details, get_neighbors_kdtree, get_pcd
@@ -36,7 +36,7 @@ from geometry.point_cloud_processing import ( filter_by_norm,
     crop_by_percentile,
     cluster_plus
 )
-from utils.io import save,load,update
+from utils.io import save,load,update,save_line_set, load_line_set
 from viz.viz_utils import iter_draw, color_continuous_map, draw, rotating_compare_gif
 from viz.color import *
 
@@ -63,7 +63,7 @@ def create_one_or_many_pcds( pts,
         try:
             label_colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
         except Exception as e:
-            print('err')
+            log.info('err')
 
     # for pcd, color in zip(tree_pcds, colors): pcd.paint_uniform_color(color[:3])
     for pts, color in zip(pts, colors or label_colors): 
@@ -106,7 +106,7 @@ def labeled_pts_to_lists(labeled_pts,
         pts = list([[y for y in x] for x in tree_pts.values()])
         tree_pcds = create_one_or_many_pcds(pts = pts, labels = labels)
     if save_cycle:
-        print(f'Pickling {file}...')
+        log.info(f'Pickling {file}...')
         save(file, pt_lists)
     return pt_lists, tree_pcds
 
@@ -144,9 +144,9 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
         label_to_idc[label] = idc
 
     try: 
-        src_tree = load(f'{file_label}_kd_search_tree.pkl')
+        src_tree = load(f'{file_label}_kd_search_tree.pkl',dir ='')
     except Exception as e:
-        print('creating KD search tree')
+        log.info('creating KD search tree')
         src_pts = arr(src_pcd.points)
         src_tree = sps.KDTree(src_pts)
         with open(f'{file_label}_kd_search_tree.pkl','wb') as f: pickle.dump(src_tree,f)
@@ -163,7 +163,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
     check_overlap = True
     # all_nbrs= []
     for cycle_num in range(cycles):
-        print('start iter')
+        log.info('start iter')
         draw_cycle,save_cycle = draw_iters<=0, save_iters<=0 
         if draw_cycle or save_cycle:
             pt_lists, tree_pcds = labeled_pts_to_lists(high_c_pt_assns,
@@ -181,7 +181,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
             break
         save_iters=save_iters-1
         draw_iters=draw_iters-1
-        print(f'querying {cycle_num}')
+        log.info(f'querying {cycle_num}')
         for label, cluster in clusters_and_idxs:
             idx = label_to_idc[label]
             if idx not in complete:               
@@ -205,7 +205,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                     #         overlap_pcd.paint_uniform_color([1,0,1])
                     #         draw([overlap_pcd]+tree_pcds)
                     #         breakpoint()
-                    #         print('breakpoint in overlap draw')
+                    #         log.info('breakpoint in overlap draw')
                         # label_to_clusters = cluster_plus(nbr_pcd,eps=.3, min_points=5,return_pcds=False)
                     # order = cycle_num
                     if len(nbr_pts)>0:
@@ -217,13 +217,13 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                         all_nbrs[idx].extend(nbrs)
                         if len(curr_pts[idx])<5:
                             complete.append(idx)
-                            print(f'{idx} added to complete')
+                            log.info(f'{idx} added to complete')
 
                 if len(curr_pts[idx])==0:
                     complete.append(idx)
-                    print(f'{idx} added to complete')
+                    log.info(f'{idx} added to complete')
     
-    print('finish!')
+    log.info('finish!')
     try:
         pt_lists, tree_pcds = labeled_pts_to_lists(high_c_pt_assns,
                                                         idc_to_label,
@@ -234,7 +234,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
         return tree_pcds
     except Exception as e:
         breakpoint()
-        print(f'error saving {e}')
+        log.info(f'error saving {e}')
         return None
 
 def id_trunk_bases(pcd =None, 
@@ -248,28 +248,28 @@ def id_trunk_bases(pcd =None,
     """Splits input cloud into a 'low' and 'high' component.
         Identifies clusters in the low cloud that likely correspond to 
     """
-    print('getting low (slightly above ground) cross section')
+    log.info('getting low (slightly above ground) cross section')
     low_lb,low_ub = low_percentiles[0],low_percentiles[1]
     hi_lb,hi_ub = high_percentiles[0],high_percentiles[1]
     lowc, lowc_ids_from_col = crop_by_percentile(pcd,low_lb,low_ub)
     lowc = clean_cloud(lowc)
 
-    print('getting "high" portion of cloud')
+    log.info('getting "high" portion of cloud')
     highc, highc_ids_from_col = crop_by_percentile(pcd,hi_lb,hi_ub)
     draw(highc)
 
-    print('Removing buildings')
+    log.info('Removing buildings')
     for region in exclude_boundaries:
         test = zoom_pcd( region, test, reverse=True)
         highc = zoom_pcd(region,  highc,reverse=True)
 
     # with open('skio_labels_low_16-18_cluster_pt5-20.pkl','rb') as f: 
     #         labels = pickle.load(f)
-    print('clustering')
+    log.info('clustering')
     try:
         label_to_clusters = cluster_plus(lowc,eps=.3, min_points=20,return_pcds=False)
     except Exception as e:
-        print(f'error {e} when clustering ')
+        log.info(f'error {e} when clustering ')
     if save_files:
         with open(f'{file_name_base}_low_16-18_cluster_pt5-20.pkl','wb') as f: 
             pickle.dump(label_to_clusters,f)
@@ -302,7 +302,7 @@ def build_trees_knn(pcd, exclude_boundaries=[],load_from_file=False,
     #     save('completed_cluster_idxs.pkl',completed_cluster_idxs)
     #     # save('completed_cluster_pts.pkl',completed_cluster_pts)
     # else:
-    #     completed_cluster_idxs = load('completed_cluster_idxs.pkl')
+    #     completed_cluster_idxs = load('completed_cluster_idxs.pkl',dir='')
 
     nk_clusters= [(idc, cluster) for idc, cluster in clusters if idc not in completed_cluster_idxs]
     breakpoint()
@@ -323,7 +323,7 @@ def build_trees_knn(pcd, exclude_boundaries=[],load_from_file=False,
 ####  KD tree with no prev. complete clusters 
     # creating the kd tree that will act as the search space 
     # when building the trees from seed clusters 
-    print('preparing KDtree')   
+    log.info('preparing KDtree')   
     if rerun_cluster_selection:
         # KD Tree reduction given completed clusters 
         highc_pts = [tuple(x) for x in highc.points]
@@ -391,140 +391,6 @@ def pcds_from_extend_seed_file(file,pcd_index=-1):
 def read_point_shift():
     shift=load('')
 
-def contract(in_pcd,shift):
-    pts=arr(in_pcd.points)
-    shifted=[(pt[0]+shift[0],pt[1]+shift[1],pt[2]+shift[2]) for pt, shift in zip(pts,shift)]
-    pcd = o3d.geometry.PointCloud()
-    pcd.colors = o3d.utility.Vector3dVector(arr(in_pcd.colors))
-    pcd.points = o3d.utility.Vector3dVector(shifted)
-    return pcd
-
-def get_shift(pcd, seed, iters=1):
-
-    orig = pcd
-    # print(f'full detail: {orig}')
-    test = orig.voxel_down_sample(voxel_size=.05)
-    # print(f'post vox: {test}')
-    test = test.uniform_down_sample(3)
-    # print(f'post vox + uni: {test}')
-    test = remove_color_pts(test,invert = True)
-    # print(f'post vox + uni+ rm_white: {test}')
-    ratio = len(arr(test.points))/len(arr(orig.points))
-    print(f'final ratio {ratio}')
-    skel_res = extract_skeleton(test, max_iter = iters, cmag_save_file=f'seed{seed}_voxpt05_uni3')
-    # contracted, total_point_shift, shift_by_step = skel_res
-    # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
-
-def color_on_percentile(pcd,val_list,pctile,comp=lambda x,y:x>y ):
-    color_continuous_map(pcd,val_list)
-    draw(pcd)
-    val = np.percentile(val_list,pctile)
-    highc_idxs = np.where(comp(val_list,val))[0]
-    highc_pcd = pcd.select_by_index(highc_idxs,invert=True)
-    lowc_pcd = pcd.select_by_index(highc_idxs,invert=False)
-    # draw(highc_pcd)
-    # draw(lowc_pcd)
-    return highc_idxs, highc_pcd,lowc_pcd
-
-def center_on_axes(pcd):
-    base_center = get_center(arr(pcd.points),center_type = "bottom")
-    rot_90_y = np.array([[0,1,0],[1,0,0],[0,0,-1]]) # rotates dead on
-    rot_90_z = np.array([[0,-1,0],[1,0,0],[0,0,1]]) 
-    rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
-    rot_n90_x = np.array([[1,0,0],[0,-1,0],[0,0,1]]) 
-    white_removed.rotate(rot_90_x)
-    white_removed.rotate(rot_90_x)
-    white_removed.rotate(rot_90_x)
-    # mn = pcd.get_min_bound()
-    # mx = pcd.get_max_bound()
-    # centroid = mn+((mx-mn)/2)
-    # base = (base_center[0], base_center[1], mn[2])
-    # sp = o3d.geometry.TriangleMesh.create_sphere(radius=1)
-    # sp.paint_uniform_color([1,0,0])
-    # sp.translate(base)
-    pcd.translate(np.array([x for x in base_center ]))
-    return base_center
-
-def draw_shift(pcd, shift):
-    #[need shift rerun]
-    #[133,151,113,132] [191,193,194, 189]
-    # First get details for :
-    # 189 matches with rf_ext_pcds[16], has 3 roots ids 50,51,58
-    # 193 matches with rf_ext_pcds[18]
-    print('preping pcd')
-    voxed_down = pcd.voxel_down_sample(voxel_size=.05)
-    uni_down = voxed_down.uniform_down_sample(3)
-    white_removed = remove_color_pts(uni_down,invert = True)
-
-    print('preping contraction/coloring')
-    contracted = contract(white_removed,shift)
-    c_mag = np.array([np.linalg.norm(x) for x in shift])
-    highc_idxs, highc_pcd,lowc_pcd = color_on_percentile(white_removed,c_mag,70)
-    draw(highc_pcd)
-    draw(lowc_pcd)
-    draw(white_removed)
-    print('giffing')
-    center_on_axes(white_removed)
-    center_on_axes(highc_pcd)
-    center_on_axes(lowc_pcd)
-    breakpoint()
-    out_path = f'data/results/gif/{seed}'
-    rotating_compare_gif(highc_pcd,lowc_pcd, 
-                         output=out_path,
-                         save = True,
-                         transient_period = 75)
-    rotating_compare_gif(lowc_pcd,contracted, 
-                         output=out_path,
-                         save = True,
-                         transient_period = 75)
-    breakpoint()
-    # draw(white_removed)
-
-    # # voxed_down = pcd.voxel_down_sample(voxel_size=.01)
-    # pcd, nbrs = get_neighbors_kdtree(orig,highc_pcd,k=50)
-    
-    # highc_pts = [arr(highc_pcd.points)]
-    # c_mag_orig = {}
-    # for src_pt_id, nbr_list in enumerate(nbrs):
-    #     c_mag_orig.update({nbr:c_mag[src_pt_id] for nbr in nbr_list})
-    # breakpoint()
-
-
-    # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
-    # draw(highc_detail)
-
-def identify_epiphytes(file, pcd, shift):
-
-    green = get_green_surfaces(pcd)
-    not_green = get_green_surfaces(pcd,True)
-    # draw(lowc_pcd)
-    draw(green)
-    draw(not_green)
-
-    breakpoint()
-    z_mag = np.array([x[2] for x in shift])
-    z_cutoff = np.percentile(z_mag,80)
-    print(f'{z_cutoff=}')
-    high_z_idxs = np.where(z_mag>z_cutoff)[0]
-    high_z_pcd = test.select_by_index(high_z_idxs)
-    low_z_pcd = test.select_by_index(high_z_idxs,invert=True)
-    draw([low_z_pcd])
-    draw([high_z_pcd])
-  
-    breakpoint()
-
-    # color_continuous_map(test,c_mag)
-    highc_idxs = np.where(c_mag>np.percentile(c_mag,70))[0]
-    highc_pcd = test.select_by_index(highc_idxs)
-    lowc_pcd = test.select_by_index(highc_idxs,invert=True)
-    draw([lowc_pcd])
-    draw([highc_pcd])
-
-    breakpoint()
-    
-    lowc_detail = get_neighbors_kdtree(pcd,lowc_pcd)
-    draw(lowc_detail)
-    breakpoint()
 
 def inspect_others():
     
@@ -536,7 +402,7 @@ def inspect_others():
     oth_seed_to_ext = {40: 0, 41: 1, 44: 2, 45: 3, 48: 4, 49: 5, 51: 6, 52: 7, 54: 8, 62: 9, 63: 10, 64: 11, 65: 12, 66: 13, 77: 14, 78: 15, 79: 16, 85: 17, 86: 18, 88: 19, 90: 20, 121: 21, 122: 22, 123: 23, 125: 24, 126: 25, 128: 26, 144: 27, 146: 28, 147: 29, 149: 30, 150: 31, 152: 32, 153: 33, 156: 34, 157: 35, 181: 36, 182: 37}
 
     for pcd,seed_id_tup in zip(oth_ext_pcds,oth_seed_to_ext.items()):
-        print(f'{seed_id_tup}')
+        log.info(f'{seed_id_tup}')
         seed,idc = seed_id_tup
         draw(pcd)
         breakpoint()
@@ -588,9 +454,9 @@ def run_extend():
     pass_again = [107,108]
 
     # # #       and the clusters fed into extend seed clusters
-    lowc  = o3d.io.read_point_cloud('new_low_cloud_all_16-18pct.pcd')
-    # highc = o3d.io.read_point_cloud('new_collective_highc_18plus.pcd')
-    label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl')
+    lowc  = o3d.io.read_pcd('new_low_cloud_all_16-18pct.pcd')
+    # highc = o3d.io.read_pcd('new_collective_highc_18plus.pcd')
+    label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl',dir='')
     empty_pcd= o3d.geometry.PointCloud() 
     # # # label_to_clusters = load('new_lowc_lbl_to_clusters_pt3_20.pkl')
     trunk_clusters = [lowc.select_by_index(x) for x in label_to_clusters.values()]
@@ -605,13 +471,175 @@ def run_extend():
                             src_pcd=highc,
                             file_label='other_clusters',cycles=250,save_every=20,draw_every=160, max_distance=.1)
 
-if __name__ =="__main__":
+
+def color_on_percentile(pcd,
+                        val_list,
+                        pctile,
+                        comp=lambda x,y:x>y ):
+    if len(pcd.points)!= len(val_list):
+        msg = f'length of val list does not match size of pcd'
+        log.error(f'length of val list does not match size of pcd')
+        raise ValueError(msg)
+
+    color_continuous_map(pcd,val_list)
+    val = np.percentile(val_list,pctile)
+    highc_idxs = np.where(comp(val_list,val))[0]
+    highc_pcd = pcd.select_by_index(highc_idxs,invert=False)
+    lowc_pcd = pcd.select_by_index(highc_idxs,invert=True)
+    return highc_idxs, highc_pcd,lowc_pcd
+
+def get_shift(pcd, seed, iters=15, debug=False,
+              contraction = config['skeletonize']['init_contraction'],
+              attraction = config['skeletonize']['init_attraction'],):
+    """
+        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
+    """
+    log.info(f'getting shift for {seed}')
+    orig = pcd
+    # log.info(f'full detail: {orig}')
+    test = orig.voxel_down_sample(voxel_size=.05)
+    # log.info(f'post vox: {test}')
+    test = test.uniform_down_sample(3)
+    # log.info(f'post vox + uni: {test}')
+    test = remove_color_pts(test,invert = True)
+    # log.info(f'post vox + uni+ rm_white: {test}')
+    ratio = len(arr(test.points))/len(arr(orig.points))
+    log.info(f'final ratio {ratio}')
+    skel_res = extract_skeleton(test, max_iter = iters, cmag_save_file=f'{contraction}_{attraction}_seed{seed}_two_voxpt05_uni3',
+                                contraction_factor=contraction,
+                                attraction_factor=attraction)
+    # contracted, total_point_shift, shift_by_step = skel_res
+    # breakpoint()
+    try:
+        topo = extract_topology(skel_res[0])
+        save_line_set(topo[0],f'{contraction}_{attraction}_seed{seed}_two_voxpt05_uni3')
+    except Exception as e:
+        log.info(f'error getting topo {e}')
+    return skel_res
+    # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
+
+def center_and_rotate(pcd, center=None):
+    center = pcd.get_center() if center is None else center
+    rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
+    pcd.translate(np.array([-x for x in center ]))
+    pcd.rotate(rot_90_x)
+    pcd.rotate(rot_90_x)
+    pcd.rotate(rot_90_x)
+    return center
+
+def contract(in_pcd,shift):
+    "Translates the points in the "
+    pts=arr(in_pcd.points)
+    shifted=[(pt[0]-shift[0],pt[1]-shift[1],pt[2]-shift[2]) for pt, shift in zip(pts,shift)]
+    contracted = o3d.geometry.PointCloud()
+    contracted.colors = o3d.utility.Vector3dVector(arr(in_pcd.colors))
+    contracted.points = o3d.utility.Vector3dVector(shifted)
+    return contracted
+
+def get_downsample(file = None, pcd = None, normalize = False):
+    if file: pcd = read_pcd(file)
+    log.info('Down sampling pcd')
+    voxed_down = pcd.voxel_down_sample(voxel_size=.05)
+    uni_down = voxed_down.uniform_down_sample(3)
+    clean_pcd = remove_color_pts(uni_down,invert = True)
+    if normalize: _ = center_and_rotate(clean_pcd)
+    return clean_pcd
+
+def draw_skel(pcd, 
+                seed,
+                shift=[], 
+                skeleton = None,
+                save_gif=False, 
+                out_path = None):
+    out_path = out_path or f'data/results/gif/{seed}'
+
+    clean_pcd = get_downsample(pcd=pcd, normalize=True)
+    if not skeleton:
+        skeleton = contract(clean_pcd,shift)
+    # _ = center_and_rotate(skeleton) #Rotation makes contraction harder
+    rotating_compare_gif(skeleton,clean_pcd, 
+                         point_size=4, output=out_path,
+                         save = save_gif, on_frames = 50,
+                         off_frames=50, addnl_frame_duration=.03)
+    # rotating_compare_gif(contracted,clean_pcd, point_size=4, output=out_path,save = save_gif, on_frames = 50,off_frames=50, addnl_frame_duration=.03)
+    return skeleton
+
+def draw_shift(pcd, 
+                seed,
+                shift,
+                draw_results=True, 
+                save_gif=False, 
+                out_path = None):
+    out_path = out_path or f'data/results/gif/{seed}'
+    clean_pcd = get_downsample(pcd=pcd, normalize=True)
+    c_mag = np.array([np.linalg.norm(x) for x in shift])
+    highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70)
+
+    log.info('preping contraction/coloring')
+    if draw_results:
+        draw(highc)
+        draw(lowc)
+        log.info('giffing')
+        # rotating_compare_gif(contracted,clean_pcd, output=out_path, output=out_path,save = save_gif,on_frames = 15,off_frames=3, addnl_frame_duration=.05)
+        rotating_compare_gif(highc,lowc, output=out_path, save = save_gif,on_frames = 15,off_frames=3, addnl_frame_duration=.05)
+        breakpoint()
+
+    #extrapolating point shift to the more detailed pcd
+    # # voxed_down = pcd.voxel_down_sample(voxel_size=.01)
+    # pcd, nbrs = get_neighbors_kdtree(highc_pcd,orig,k=50)
+    
+    # highc_pts = [arr(highc_pcd.points)]
+    # orig_shifts = [np.mean(c_mag[nbr_list]) for nbr_list in nbrs]
+
+
+    # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
+    # draw(highc_detail
+
+def identify_epiphytes(file, pcd, shift):
+
+    green = get_green_surfaces(pcd)
+    not_green = get_green_surfaces(pcd,True)
+    # draw(lowc_pcd)
+    draw(green)
+    draw(not_green)
+
+
+    c_mag = np.array([np.linalg.norm(x) for x in shift])
+    z_mag = np.array([x[2] for x in shift])
+
+    highc_idxs, highc, lowc = color_on_percentile(pcd,c_mag,70)
+
+    z_cutoff = np.percentile(z_mag,80)
+    log.info(f'{z_cutoff=}')
+    low_idxs = np.where(z_mag<=z_cutoff)[0]
+    lowc = clean_pcd.select_by_index(low_idxs)
+    ztrimmed_shift = shift[low_idxs]
+    ztrimmed_cmag = c_mag[low_idxs]
+    draw(lowc)
+    highc_idxs, highc, lowc = color_on_percentile(lowc,c_mag,70)
+
+
+    # color_continuous_map(test,c_mag)
+    highc_idxs = np.where(c_mag>np.percentile(c_mag,70))[0]
+    highc_pcd = test.select_by_index(highc_idxs)
+    lowc_pcd = test.select_by_index(highc_idxs,invert=True)
+    draw([lowc_pcd])
+    draw([highc_pcd])
+
+    breakpoint()
+    
+    lowc_detail = get_neighbors_kdtree(pcd,lowc_pcd)
+    draw(lowc_detail)
+    breakpoint()
+
+def get_seed(requested_seeds=[]):
+    dir = 'data/results/skio/'
     seed_pat = re.compile('.*seed([0-9]{1,3}).*')
-    detail_files = glob('data/results/full_skio_iso/*detail*')
-    shift_files = glob('data/results/full_skio_iso/*shift*')
+    detail_files = glob('*detail*',root_dir=dir)
+    shift_files = glob('*shift*',root_dir=dir)
     
     seed_to_detail = {re.match(seed_pat,file).groups(1)[0]:file for file in detail_files}
-    # for seed,file in seed_to_detail.items(): get_shift(read_point_cloud(file),seed)
+    # for seed,file in seed_to_detail.items(): get_shift(read_pcd(file),seed)
     seed_to_shift = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_files}
     seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift.get(seed)))  for seed in seed_to_detail.keys() ]
     seed_to_content = {seed:(detail,shift) for seed,(detail,shift) in seed_to_files}
@@ -623,16 +651,89 @@ if __name__ =="__main__":
                     (190,193),
                     ]
     for seed, (pcd_file, shift_file) in seed_to_content.items():
-        try:
-            print('loading pcd')
-            pcd = read_point_cloud(pcd_file)
-            print('loading shift')
+        log.info(f'processing seed {seed}')
+        if requested_seeds==[] or int(seed) in requested_seeds:
+            # try:
+            log.info(f'processing seed {seed}')
+            log.info('loading pcd')
+            pcd = read_pcd(pcd_file)
+            log.info('loading shift')
             shift = load(shift_file)
-            print('drawing shift')
-            draw_shift(pcd,shift)    
-        except Exception as e:
+            log.info('drawing shift')
+            draw_shift(pcd,shift,seed,save_gif=False)    
+            # except Exception as e:
+            #     breakpoint()
+            #     log.info(f'error with {seed},{e}')
             breakpoint()
-            print(f'error with {seed},{e}')
+
+def assess_skeletons():
+    file_types = ['lines'
+                    ,'points'
+                    #  ,'shift'
+                    ,'tpshift']
+    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
+    factors_pat = re.compile('.*/([0-9]*\\.?[0-9]*_[0-9]*\\.?[0-9]*).*')
+    root_dir = 'data/results/skel_assess/'
+
+    files = defaultdict(list)
+    # for ftype in file_types:
+    points_files = glob('*_points.pkl',root_dir=root_dir)
+    detail_file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    pcd = read_pcd(detail_file)
+    for f in points_files:
+        if '4_2' in f:
+            factors = re.match(factors_pat,f).groups(1)[0]
+            seed = re.match(seed_pat,f).groups(1)[0]
+            base_name = f.replace('_points.pkl','')
+            tp_shift = load(f'{base_name}_tpshift.pkl',dir = root_dir)
+
+            # topo = load_line_set(base_name)
+
+            # clean_pcd = get_downsample(pcd=pcd, normalize=True)
+            # skeleton = contract(clean_pcd,tp_shift[0])
+            # draw(topo)
+            log.info(f)
+            # detail_file = glob(f'data/results/skio/{factors}_{base_name}_orig_detail.pcd')
+            # draw_skel(pcd,seed,tp_shift[0])#,skeleton=topo)
+            # draw_shift(pcd,seed,tp_shift[0])
+            breakpoint()
+
+def run_skeleton_cases():
+    seed = 135
+    file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    test = read_pcd(file)
+    config_list = [#(1,1), # lvl 5 monkey puzzle, has vertical lines for moss
+                   (2,1),   # monkey puzzle, not enough contraction
+                   (4,1),  #
+                   (1,1),  #
+                   (1,2),  # lvl6 monkey puzzle, has vertical lines for moss
+                   (1,4),  #
+                   (1,1),  #
+                   (4,3),  # lvl 3 monkey puzzle,
+                   (4,2),  #
+                   (2,.5), #
+                   (3,.8),  # lvl4 monkey puzzle, has vertical lines for moss
+                   (.5,2), # lvl6 monkey puzzle, has vertical lines for moss
+                   (.8,3), #
+                   (5,6),  #
+                   (6,5),] #
+    res = []
+    for cont, att in config_list:
+        try:
+            shift_res = get_shift(test,135,iters=15,contraction = cont, attraction = att)
+            res.append(shift_res)
+        except Exception as e:
+            log.info(f'error getting shift for {seed}:{e}')
+
+if __name__ =="__main__":
+    seed = 135
+    file = 'data/results/skio/full_ext_seed135_rf11_orig_detail.pcd'
+    test = read_pcd(file)
+    shift_res = get_shift(test,135,iters=15)
+    assess_skeletons()
+    breakpoint()
+    # get_seed([135])
+    breakpoint()
     # axes = o3d.geometry.create_mesh_coordinate_frame()
     # exclude_regions = {
     #         'building1' : [ (77,350,0),(100, 374,5.7)], 
@@ -685,10 +786,10 @@ if __name__ =="__main__":
 
 
     # # load all seed clusters 
-    lowc  = o3d.io.read_point_cloud('new_low_cloud_all_16-18pct.pcd')
+    lowc  = o3d.io.read_pcd('new_low_cloud_all_16-18pct.pcd')
     label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl')
     trunk_clusters = [lowc.select_by_index(x) for x in label_to_clusters.values()]
-    # # highc = o3d.io.read_point_cloud('new_collective_highc_18plus.pcd')
+    # # highc = o3d.io.read_pcd('new_collective_highc_18plus.pcd')
     # empty_pcd= o3d.geometry.PointCloud() 
     # # # # label_to_clusters = load('new_lowc_lbl_to_clusters_pt3_20.pkl')
 
@@ -707,8 +808,8 @@ if __name__ =="__main__":
     #     breakpoint()
 
     # breakpoint()
-    # highc = o3d.io.read_point_cloud('new_collective_highc_18plus.pcd')
-    # pcd = o3d.io.read_point_cloud('partitioning_search_area_collective.pcd')
+    # highc = o3d.io.read_pcd('new_collective_highc_18plus.pcd')
+    # pcd = read_pcd('partitioning_search_area_collective.pcd')
     # highc, _ = crop_by_percentile(pcd, 17,100)
     # unmatched_ext_pcds = arr(ext_pcds)[unmatched_clusters]
     # unmatched_ext_pcds = [pcds_from_extend_seed_file(ext_result_file, pcd_index=i)[0] for i in unmatched_exts]
@@ -735,7 +836,7 @@ if __name__ =="__main__":
             reext = False
             rf_ext_id = seed_to_exts.get(seed,-1)
             if rf_ext_id ==-1:
-                print(f'ext for seed {seed} not found ')
+                log.info(f'ext for seed {seed} not found ')
                 bad_ids.append((seed,None,None))
 
             # ext_pcd = ext_pcds[rf_ext_id]
@@ -752,14 +853,14 @@ if __name__ =="__main__":
             # #         # cycles=800,save_every=70,draw_every=70,max_distance=.05) #
             # #     draw(tree_pcds)
             # #     breakpoint()
-            # #     detail_pcd = o3d.io.read_point_cloud(detail_pcd_file)
+            # #     detail_pcd = read_pcd(detail_pcd_file)
             # #     ext_pcd = tree_pcds[0]
             # #     breakpoint()
             # #     # Recovering original detail here, but no details for the root are available
             # #     new_detail_pcd,pts = get_neighbors_kdtree(detail_pcd, ext_pcd)
             # #     draw([root_pcd]+[new_detail_pcd,seed_pcd])
             # #     breakpoint()
-            # #     # write_point_cloud(f'data/results/full_skio_iso/rf_cluster{seed}_orig_detail.pcd', new_detail_pcd)
+            # #     # write_point_cloud(f'data/results/skio/rf_cluster{seed}_orig_detail.pcd', new_detail_pcd)
             # #     write_point_cloud(f'rf_cluster_rebuild{seed}_orig_detail.pcd', new_detail_pcd)
             # #     detail_pcd_file = f'rf_cluster_rebuild{seed}_orig_detail.pcd'
             # [189,191,   193,194]
@@ -776,19 +877,34 @@ if __name__ =="__main__":
             draw(root_pcd)
             draw([seed_pcd,root_pcd,rf_pcd])
         
+            ## The below proceeds as follows:
+            ##   0. User sets seed and rf_ext to run. Multiple provided will combine them into a single ext
+            ##   1. Manual input determines if extended seed needs to be rebuild 
+            ##      - i.e. if it is missing points
+            ##   2a. If so, the root is extened against the full set of points
+            ##   2b. If not, then the existing orig_detail file is read in 
+            ##   3. Original detail is then recovered for either:
+            #       - The new_ext (if step 2a was taken)
+            #       - Or just the existing root_pcd (if step 2b was taken)
+            #    4. All original details files are read in and joined to from the final detailed ext
 
+            #input
+            rf_ext_id = [rf_ext_id]
             seeds = [seed]
+            #setup
             roots = [(my_seed,seed_to_root_map[my_seed]) for my_seed in seeds]
             root_pcd_ids = [seed_to_root_id[my_seed] for my_seed in seeds]
             roots_pcds = [seed_to_root_map[my_seed] for my_seed in seeds]
-
+            rf_pcd = rf_ext_pcds[rf_ext_id]
+            draw([root_pcds])
+            draw([root_pcds])
             breakpoint()
             ## If partial ext, rebuild from larger source pcd
             src_type = ''
             if partial: # if the pcd is cutoff at a border
-                pcd = o3d.io.read_point_cloud('data/input/collective.pcd')
-                highc = crop_by_percentile(pcd,10,100)[0]
-                rf_new = extend_seed_clusters(roots,highc,f'rf_cluster_root{seed}_rebuild',cycles=601,save_every=300,draw_every=300,max_distance=.05,k=300)
+                pcd = read_pcd('collective.pcd')
+                highc = crop_by_percentile(pcd,20,100)[0]
+                rf_new = extend_seed_clusters(voxed_down,highc,f'rf_cluster_root{seed}_rebuild',cycles=50,save_every=10,draw_every=10,max_distance=.05,k=300)
                 # new_new_rf = extend_seed_clusters([(seed,new_rf)],low,f'rf_cluster_{seed}_plus_down',cycles=12,save_every=3,draw_every=3,max_distance=.2,k=50) 
                 draw(rf_new)
                 get_details_pcds,src_type = rf_new,'rf_new'
@@ -799,10 +915,10 @@ if __name__ =="__main__":
             roots_details = []
             for root,root_id in zip(get_details_pcds,root_pcd_ids):
                 try:
-                    recover_original_details(rf_new[0],save_file=f'rf_cluster_seed{seed}_root{root_id}',chunk_size=10000000)
+                    recover_original_details(rf_new[0],save_file=f'rf_cluster_seed{seed}_rf{11}',chunk_size=10000000)
                 except Exception as e:
-                    print(f'This fails but writes the file I need: {e}')
-                roots_details.append(read_point_cloud(f'rf_cluster_seed{seed}_root{root_id}_orig_detail',))
+                    log.info(f'This fails but writes the file I need: {e}')
+                roots_details.append(read_pcd(f'rf_cluster_seed{seed}_root{root_id}_orig_detail'))
             draw(roots_details)
 
             if src_type == 'roots_pcds':
@@ -811,10 +927,10 @@ if __name__ =="__main__":
                 finals = roots_details
             draw(finals)
 
-            write_point_cloud(f'data/results/full_skio_iso/full_ext_seed{'_'.join(seeds)}_rf{rf_ext_id}_orig_detail.pcd',finals)
+            write_point_cloud(f'data/results/skio/full_ext_seed{'_'.join(seeds)}_rf{11}_orig_detail.pcd',finals)
         
         # except Exception as e:
-        #     print(f'error on seed {seed}: {e}')
+        #     log.info(f'error on seed {seed}: {e}')
 
     # good_ids.extend([(seed,seed_to_exts[seed],seed_to_root_id[seed]) for seed in completed])
 
