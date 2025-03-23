@@ -107,7 +107,7 @@ def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
                                on_frames: int = 45,
                                off_frames: int = 45,
                                point_size: float = 1.0,
-                               output = '/code/code/pyQSM/test/',
+                               out_path = '/code/code/pyQSM/test/',
                                rot_center = [0,0,0],
                                save = False,
                                file_name = 'pcd_compare_animation',
@@ -115,10 +115,9 @@ def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
         """
             Creates a GIF comparing two point clouds. 
         """
-        
         be_root()
 
-        output_folder = os.path.join(output, 'tmp')
+        output_folder = os.path.join(out_path, 'tmp')
         print(output_folder)
         # os.mkdir(output_folder)
 
