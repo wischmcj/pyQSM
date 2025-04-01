@@ -22,6 +22,7 @@ from utils.math_utils import (
 )
 from geometry.point_cloud_processing import ( 
     clean_cloud,
+    create_one_or_many_pcds,
     crop_by_percentile,
     cluster_plus
 )
@@ -30,55 +31,6 @@ from geometry.point_cloud_processing import (
 from utils.io import save,load
 from viz.viz_utils import draw
 from viz.color import *
-
-def join_pcds(pcds):
-    pts = [arr(pcd.points) for pcd in pcds]
-    colors = [arr(pcd.colors) for pcd in pcds]
-    return create_one_or_many_pcds(pts, colors, single_pcd=True)
-
-def create_one_or_many_pcds( pts,
-                        colors = None,
-                        labels = None,
-                        single_pcd = False):    
-    log.info('creating pcds from points')
-    pcds = []
-    tree_pts= []
-    tree_color=[]
-    if not isinstance(pts[0],list) and not isinstance(pts[0],np.ndarray):
-        pts = [pts]
-    if not labels:
-        labels = np.asarray([idx for idx,_ in enumerate(pts)])
-    if (not colors):
-        labels = arr(labels)
-        max_label = labels.max()
-        try:
-            label_colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-        except Exception as e:
-            log.info('err')
-
-    # for pcd, color in zip(tree_pcds, colors): pcd.paint_uniform_color(color[:3])
-    for pts, color in zip(pts, colors or label_colors): 
-        if not colors: 
-            # if true, then colors were generated from labels
-            color = [color[:3]]*len(pts)
-        if single_pcd:
-            log.info(f'adding {len(pts)} points to final set')
-            tree_pts.extend(pts)
-            tree_color.extend(color)
-        else:
-            cols = [color[:3]]*len(pts)
-            log.info(f'creating pcd with {len(pts)} points')
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(pts)
-            pcd.colors = o3d.utility.Vector3dVector(color)
-            pcds.append(pcd)
-    if single_pcd:
-        log.info(f'combining {len(tree_pts)} points into final pcd')
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(tree_pts)
-        pcd.colors = o3d.utility.Vector3dVector([x for x in tree_color])
-        pcds.append(pcd)
-    return pcds
 
 def labeled_pts_to_lists(labeled_pts,
                             idc_to_label_map={},
@@ -411,6 +363,7 @@ def run_extend():
     #         'lside_brush':[ (0,0),(77, 50 all_ids = rf_seeds + final_int_ids0)],
     #         'far_back_brush': [ (0,0),(200, 325)]
     # }
+    [ (77,350,0),(100, 374,5.7)]
     rf_seeds = [151,107,108,109,110,111,112,113,114,115,116,132,133,134,135,136,137,138,148,180,189,190,191,193,194] 
     final_int_ids = [40, 41, 44, 45, 48, 49, 51, 52, 54, 62, 63, 64, 65, 66, 77, 78, 79, 85, 86, 88, 90, 121, 122, 123, 125, 126, 128, 144, 146, 147, 149, 150, 152, 153, 156, 157, 181, 182]
     all_ids = rf_seeds + final_int_ids
@@ -445,8 +398,8 @@ def run_extend():
     pass_again = [107,108]
 
     # # #       and the clusters fed into extend seed clusters
-    lowc  = o3d.io.read_pcd('new_low_cloud_all_16-18pct.pcd')
-    # highc = o3d.io.read_pcd('new_collective_highc_18plus.pcd')
+    lowc  = read_pcd('new_low_cloud_all_16-18pct.pcd')
+    # highc = read_pcd('new_collective_highc_18plus.pcd')
     label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl',dir='')
     empty_pcd= o3d.geometry.PointCloud() 
     # # # label_to_clusters = load('new_lowc_lbl_to_clusters_pt3_20.pkl')
@@ -508,17 +461,19 @@ if __name__ =="__main__":
 
     matched_rf_ext = [x for x in seed_to_exts.values()]#[0 ,1 ,1 ,2,3,4 ,6,7 ,8 ,9 ,10,11,12,13,14,15,16,18]
 
+    collective =  read_pcd('data/input/collective.pcd')
     root_pcds = pcds_from_extend_seed_file('cluster_roots_w_order_in_process.pkl')
+    breakpoint()
     seed_to_root_map = {seed_id: root_pcd for seed_id,root_pcd in zip(all_ids,root_pcds)}
     seed_to_root_id = {seed: idc for idc,seed in enumerate(all_ids)}
     unmatched_roots = [seed_to_root_id[seed] for seed in seed_to_exts.keys()]
 
 
     # # load all seed clusters 
-    lowc  = o3d.io.read_pcd('new_low_cloud_all_16-18pct.pcd')
+    lowc  = read_pcd('new_low_cloud_all_16-18pct.pcd')
     label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl')
     trunk_clusters = [lowc.select_by_index(x) for x in label_to_clusters.values()]
-    # # highc = o3d.io.read_pcd('new_collective_highc_18plus.pcd')
+    # # highc = read_pcd('new_collective_highc_18plus.pcd')
     # empty_pcd= o3d.geometry.PointCloud() 
     # # # # label_to_clusters = load('new_lowc_lbl_to_clusters_pt3_20.pkl')
 
