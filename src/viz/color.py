@@ -4,13 +4,21 @@ import numpy as np
 from numpy import array as arr, mean
 import scipy.spatial as sps
 import  open3d as o3d
-from open3d.geometry import 
+from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
-from canopy_metrics import get_downsample
 from utils.io import load
 from viz.viz_utils import color_continuous_map, draw
 from set_config import log, config
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
+
+
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+from matplotlib import colors   
+import cv2
+from math import floor
+from matplotlib.colors import hsv_to_rgb
+from matplotlib.colors import rgb_to_hsv
+
 
 def homog_colors(pcd):
     colors = arr(pcd.colors)
@@ -67,66 +75,195 @@ def bin_colors(zoom_region=[(97.67433, 118.449), (342.1023, 362.86)]):
     draw(limited_pcd)
 
 
-def plot_color(file_info,dir):
-    seed, (pcd_file, shift_file_one,shift_file_two) = file_info
-    log.info('')
-    log.info(f' {shift_file_one=},{shift_file_two=},{pcd_file=}')
-    log.info('loading shifts')
-    shift_one = load(shift_file_one)
-    # shift_two_total = load(shift_file_two,dir)
-    # shift_two = shift_two_total[0]
-    log.info('loading pcd')
-    pcd = read_pcd(f'data/results/skio/{pcd_file}')
-    log.info('downsampling/coloring pcd')
+def color_compare(in_colors_one, in_colors_two,color_conds, cutoff=.01,elev=40, azim=110, roll=0, 
+                space='none',min_s=.2,sat_correction=2,
+                sc_func =lambda sc: sc + (1-sc)/2, in_rgb = False ):
+    color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,'blues' : lambda tup:  tup[0]<.7 and tup[0]>.4 and tup[2]>.4 ,'subblue' : lambda tup:  tup[0]<.4 and tup[0]>.4 and tup[2]>.3 ,'greens' : lambda tup: tup[0]<=.5 and tup[0]>2/9 and tup[2]>.2 ,'light_greens' : lambda tup: tup[0]<=.5 and tup[0]>2/9 and tup[2]>.5 ,'red_yellow' : lambda tup:  tup[0]<=2/9 and tup[2]>.3}
+    hsv_one = arr(rgb_to_hsv(in_colors_one))
+    hsv_two = arr(rgb_to_hsv(in_colors_two))
+    if in_rgb:
+        hsv_one=in_colors_one
+        hsv_two=in_colors_two
+
+    rands = np.random.sample(len(in_colors_one))
+    in_colors_one = arr(in_colors_one)[rands<cutoff]
+    hsv_one = arr(hsv_one)[rands<cutoff]
+
+    rands = np.random.sample(len(in_colors_two))
+    in_colors_two = arr(in_colors_two)[rands<cutoff]
+    hsv_two = arr(hsv_two)[rands<cutoff]
+   
+    # hsv_two[:,2] = hsv_two
     
-    clean_pcd = get_downsample(pcd=pcd)
-    c_mag = np.array([np.linalg.norm(x) for x in shift_one])
-    highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70) 
+    hco,sco,vco = zip(*hsv_one)
+    hct,sct,vct = zip(*hsv_two)
 
-    tree,not_tree = highc,lowc 
-
-    corrected_colors, sc = color_dist2(arr(clean_pcd.colors))
-    color_continuous_map(clean_pcd,sc)
-    draw(clean_pcd)
-
-    corrected_colors, sc = color_dist2(arr(lowc.colors))
-    color_continuous_map(lowc,sc)
-    draw(lowc)
-
-    in_colors
-    rands = np.random.sample(len(in_colors))
-    in_colors = arr(in_colors)[rands<cutoff]
-    corrected_rgb =  arr(corrected_rgb_full)[rands<cutoff]
+    # breakpoint()
     fig = plt.figure(figsize=(12, 9))
+    # row=row+1
     axis = fig.add_subplot(1, 2, 1, projection="3d")
-    axis.scatter(c_mag, sc, np.zeros_like(sc), facecolors=in_colors, marker=".")
+    # breakpoint()
+    axis.scatter(hco, sco, vco, facecolors=in_colors_one, marker=".")
+    axis.set_xlabel("Hue")
+    axis.set_ylabel("Saturation")
+    axis.set_zlabel("Value")
+    axis.view_init(elev=elev, azim=azim, roll=roll)
 
+    axis = fig.add_subplot(1, 2,2, projection="3d")
+    axis.scatter(hct, sct, vct, facecolors=in_colors_two, marker=".")
+    axis.set_xlabel("Hue")
+    axis.set_ylabel("Saturation")
+    axis.set_zlabel("Value")
+    axis.view_init(elev=elev, azim=azim, roll=roll)
+    plt.show()
 
+def saturate_colors(pcd, cutoff=1,sc_func =lambda sc: sc + (1-sc)/3):
+    """
+        Calls color distribution, which applies translates
+        to hsv space, applies the sc_func to saturation and the
+        converts back to rgb. Preserves original colors.
+    """
+    target = pcd
+    orig_colors = arr(target.colors)
+    log.info(f'Correcting colors')
+    corrected_colors, sc = color_distribution(arr(target.colors),cutoff=1,sc_func =lambda sc: sc + (1-sc)/3)
+    target.colors = o3d.utility.Vector3dVector(corrected_colors)
+    return target, orig_colors
+
+def segment_hues(pcd, seed, hues=['white','blues','pink','red_yellow', 'greens'],
+                    draw_gif=False, down_sample=False,
+                    draw_results=True, save_gif=False,
+                    on_frames=25, off_frames=25, 
+                    addnl_frame_duration=.01, point_size=5):
+    log.info(f"Started 'segmenting_hues'")
+    color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,'blues' : lambda tup:  tup[0]<.7 and tup[0]>.4 and tup[2]>.4 ,'subblue' : lambda tup:  tup[0]<.4 and tup[0]>.4 and tup[2]>.3 ,'greens' : lambda tup: tup[0]<=.5 and tup[0]>2/9 and tup[2]>.2 ,'light_greens' : lambda tup: tup[0]<=.5 and tup[0]>2/9 and tup[2]>.5 ,'red_yellow' : lambda tup:  tup[0]<=2/9 and tup[2]>.3}
+    target,orig_colors = saturate_colors(pcd)
+    # if draw_gif: center_and_rotate(target)
+    # breakpoint()
+    
+    hue_pcds = [None]*(len(hues)+2)
+    no_hue_pcds = [None]*(len(hues)+2)
+    hue_idxs = [None]*(len(hues)+1)
+    no_hue_pcds[0] = target
+    hue_pcds[0] =target
+    log.info(f'Segmenting')
+    to_run = target
+    greens_pcd= None
+    try:
+        for tup in enumerate(hues): 
+            idh, hue = tup
+            hue_pcds[idh+1],no_hue_pcds[idh+1],hue_idxs[idh] = get_color_by_hue(to_run, color_conds[hue])
+            if len(hue_idxs[idh])>0:
+                to_run = no_hue_pcds[idh+1]
+            if hue =='greens': greens_pcd = hue_pcds[idh+1]
+    except Exception as e:
+        breakpoint()
+        # idh, hue=[x for x in   enumerate(hues)]
+        log.error(f'Error segmenting hues {e}')
+    hue_pcds = [x for x in hue_pcds if x is not None]
+    no_hue_pcds = [x for x in no_hue_pcds if x is not None]
+    if draw_gif:
+        try:
+            final = no_hue_pcds[len(no_hue_pcds)-1]
+            gif_kwargs = { 'sub_dir':f'{seed}_segment_hues_final' ,'on_frames': on_frames, 'off_frames': off_frames, 'addnl_frame_duration':addnl_frame_duration, 'point_size':point_size, 'save':save_gif, 'rot_center':final.get_center()}
+            target.colors = o3d.utility.Vector3dVector(orig_colors)
+            # rotating_compare_gif(target,final,**gif_kwargs)
+            # if greens_pcd is not None:
+            #     gif_kwargs['sub_dir']=f'{seed}_segment_hues_greens' 
+            #     rotating_compare_gif(greens_pcd,final,**gif_kwargs)
+        except Exception as e:
+            breakpoint()
+            # idh, hue=[x for x in   enumerate(hues)]
+            log.error(f'Error segmenting hues {e}')
+    # sizes = [len(arr(x.points)) for x in hue_pcds[1:]]
+    # hue_by_idhs = {hue: idhs for hue,idhs in zip(hues,hue_idxs)}
+    return hue_pcds,no_hue_pcds
+
+def get_color_by_hue(pcd,condition):
+    target = pcd
+    orig_colors = arr(target.colors)
+    hsv = arr(rgb_to_hsv(arr(target.colors))) #tup[0]<.5 or tup[0]>5/6 or 
+    hue_idxs,in_vals  = [x for x in zip(*[(idt,tup) for idt, tup in enumerate(hsv) if condition(tup) ])]
+    target.colors = o3d.utility.Vector3dVector(orig_colors)
+    hue = target.select_by_index(hue_idxs,invert=False)
+    no_hue = target.select_by_index(hue_idxs,invert=True)
+    # draw(hue)
+    # draw(no_hue)
+    return hue, no_hue, hue_idxs
+
+def isolate_color(in_colors,icolor='white',get_all=True, std='hsv'):
+    ################# NOT WORKING RN #############
+    color_dict_HSV = {'black': [[180, 255, 30], [0, 0, 0]],'white': [[180, 18, 255], [0, 0, 231]],'red1': [[180, 255, 255], [159, 50, 70]],'red2': [[9, 255, 255], [0, 50, 70]],'green': [[89, 255, 255], [36, 50, 70]],'blue': [[128, 255, 255], [90, 50, 70]],'yellow': [[35, 255, 255], [25, 50, 70]],'purple': [[158, 255, 255], [129, 50, 70]],'orange': [[24, 255, 255], [10, 50, 70]],'gray': [[180, 18, 230], [0, 0, 40]]}        
+    if std == 'hsv':
+        hsv = arr(rgb_to_hsv(in_colors))
+        color_dict_HSV ={'white':[[2/3,2/3,1],[0,0,0]], 'black': [[1/6,1,1],[0,.75,.75]],'red': [[.7,1,1],[0,.5,0.5]],
+                          'green': [[.5,1,1],[1/6,.5,.5]],'blue': [[5/6,1,1],[.5,.5,.5]],}
+        # color_dict_HSV= {col:arr(rgb_to_hsv(arr(vals)/255)) for col,vals in color_dict_HSV.items()}
+        # color_dict_HSV ={'white': [[0,0,1],[0,0,0.75]] ,'silver': [[0,0,0.75],[0,0,0.5]] ,'gray': [[0,0,0.5],[0,0,0]] ,
+                            # 'black': [[0,0,0],[0,1,1]] ,'red': [[0,1,1],[0,.5,0.5]] ,'maroon': [[0,1,0.5],[1/6,1,1]] ,'yellow': [[1/6,1,1],[1/6,1,0.5]] ,'olive': [[1/6,1,0.5],[1/3,1,1]] ,
+        # 'lime': [[1/3,1,1],[1/3,1,0.5]] ,'green': [[1/3,1,0.5],[0.5,1,1]] ,
+        # 'aqua': [[0.5,1,1],[0.5,1,0.5]] ,'teal': [[0.5,1,0.5],[2/3,1,1]] ,
+        # 'blue': [[2/3,1,1],[2/3,1,0.5]] ,'navy': [[2/3,1,0.5],[5/6,1,1]] ,'fuchsia': [[5/6,1,1],[5/6,1,0.5]] ,'purple': [[5/6,1,0.5],[100,1,1]]}
+        # color_dict_HSV = {col:[[vals[0][0],1,1],[vals[1][0],0,0]] for col,vals in color_dict_HSV.items()}
+    
+    else:
+        hsv = arr(rgb_to_hsv(in_colors))
+        hsv = in_colors*255
+
+    if icolor not in [x for x in color_dict_HSV.keys()]: 
+        raise ValueError(f'Color {icolor} not found in ranges, use one of {clist}')
+    clist=[x for x in color_dict_HSV.keys()]
+    ret={}
+    in_range=  lambda tup,ub,lb: all([lbv<val<ubv for val,lbv,ubv in zip(tup,ub,lb)])
+    test = []
+    for color,(ub,lb) in color_dict_HSV.items(): #test.append({color:{'ids':idt,'cols':arr(tup)} for idt,tup in zip(*[(idt,tup) for idt, tup in enumerate(hsv) if in_range(tup,lb,ub)])})
+        if get_all or color ==icolor: 
+            in_hsv = [x for x in zip(*[(idt,tup) for idt, tup in enumerate(hsv) if in_range(tup,lb,ub)])]
+            if len(in_hsv)>0:
+                in_ids,in_vals = in_hsv
+                color_details = {color: {'ids':in_ids,'cols':arr(in_vals)}}
+                ret.update(color_details)
+    for mydict in test: ret.update(mydict)
+    # new_hsv.append(idc) 
+    # new_hsv= hsv[np.logical_and(hsv<upper,hsv>lower)]
+    # rgb = arr(hsv_to_rgb(new_hsv))
+    log.info({col:len(x['ids']) for col, x in ret.items()})
+    return ret
+
+    non_white_idxs = remove_color(low_color)
+    
+    # center_and_rotate(clean_pcd)
+    # gif_kwargs = {'on_frames': on_frames,'off_frames': off_frames, 'addnl_frame_duration':addnl_frame_duration,'point_size':point_size,'save':save_gif,'out_path':out_path}
+    # rotating_compare_gif(skeleton,clean_pcd, **gif_kwargs)
+    
     breakpoint()
-    breakpoint()
 
-    # log.info('loading shift')                
-    # get_shift(lowc,seed,iters=15,debug=False)   
-    #  
-# def cluster_colors():
-#     kmeans(arr([(x,y) for x,y,_ in hsv_colors]),3)
-
-def color_dist2(in_colors, cutoff=.01,elev=40, azim=110, roll=0, 
-                                                 space='none',min_s=.2,sat_correction=2 ):
-
+def color_distribution(in_colors,cutoff=.01,elev=40, azim=110, roll=0, 
+                space='none',min_s=.2,sat_correction=2,sc_func =lambda sc: sc + (1-sc)/2):
+    data = []
     hsv = arr(rgb_to_hsv(in_colors))
     hc,sc,vc = zip(*hsv)
     sc = arr(sc)
+    vc = arr(vc)
     # low_saturation_idxs = np.where(sc<min_s)[0]
     # sc[sc<min_s] = sc[sc<min_s]*sat_correction
-    sc = sc + (1-sc)/2
-    corrected_rgb_full = arr(hsv_to_rgb([x for x in zip(hc,sc,vc)]))
+    ret_sc = sc_func(sc)
+    # vc =   sc_func(vc)
+    # sc = sc*.6
+    corrected_rgb_full = arr(hsv_to_rgb([x for x in zip(hc,ret_sc,vc)]))
     
+#    15     lower_blue = np.array([110,50,50])
+#    16     upper_blue = np.array([130,255,255])
+#    17 
+#    18     # Threshold the HSV image to get only blue colors
+#    19     mask = cv2.inRange(hsv, lower_blue, upper_blue)
 
     rands = np.random.sample(len(in_colors))
     in_colors = arr(in_colors)[rands<cutoff]
+    for sids,series in enumerate(data):
+        data[sids] = arr(series)[rands<cutoff]
     corrected_rgb =  arr(corrected_rgb_full)[rands<cutoff]
-
+    # osc = arr(osc)[rands<cutoff]
     ## RGB
     if space=='rgb':
         pixel_colors = in_colors
@@ -146,23 +283,45 @@ def color_dist2(in_colors, cutoff=.01,elev=40, azim=110, roll=0,
         hsv = arr(rgb_to_hsv(in_colors))
         # hsv = hsv[hsv[:,1]>min_s]
         hc,sc,vc = zip(*hsv)
-        
+        import math
         # sc[sc<.5] = sc[sc<.5]*1.5
-        fig = plt.figure(figsize=(12, 9))
-        axis = fig.add_subplot(1, 2, 1, projection="3d")
+        rows = 1+ math.ceil(len(data)/2)
+        series = [vc]
+        series.extend(data)
         # breakpoint()
-        axis.scatter(hc, sc, vc, facecolors=in_colors, marker=".")
-        axis.set_xlabel("Hue")
-        axis.set_ylabel("Saturation")
-        axis.set_zlabel("Value")
-        axis.view_init(elev=elev, azim=azim, roll=roll)
+        fig = plt.figure(figsize=(12, 9))
+        for row in range(rows):
+            # row=row+1
+            axis = fig.add_subplot(rows, 2, int((row+1)), projection="3d")
+            z = series[row]
+            # breakpoint()
+            axis.scatter(hc, sc, z, facecolors=in_colors, marker=".")
+            axis.set_xlabel("Hue")
+            axis.set_ylabel("Saturation")
+            axis.set_zlabel("Value")
+            axis.view_init(elev=elev, azim=azim, roll=roll)
 
-        axis = fig.add_subplot(1, 2,figsize=(12, 9))
-        axis = fig.add_subplot(1, 2, 1, projection="3d")
-        axis.scatter(hc, sc, vc, facecolors=corrected_rgb, marker=".")
-        axis.set_xlabel("Hue")
-        axis.set_ylabel("Saturation")
-        axis.set_zlabel("Value")
-        axis.view_init(elev=elev, azim=azim, roll=roll)
+            axis = fig.add_subplot(rows, 2, int(row+2), projection="3d")
+            axis.scatter(hc, sc, z, facecolors=corrected_rgb, marker=".")
+            axis.set_xlabel("Hue")
+            axis.set_ylabel("Saturation")
+            axis.set_zlabel("Value")
+            axis.view_init(elev=elev, azim=azim, roll=roll)
         plt.show()
-    return corrected_rgb_full,sc
+    return corrected_rgb_full,ret_sc
+
+def color_on_percentile(pcd,
+                        val_list,
+                        pctile,
+                        comp=lambda x,y:x>y ):
+    if len(pcd.points)!= len(val_list):
+        msg = f'length of val list does not match size of pcd'
+        log.error(f'length of val list does not match size of pcd')
+        raise ValueError(msg)
+
+    color_continuous_map(pcd,val_list)
+    val = np.percentile(val_list,pctile)
+    highc_idxs = np.where(comp(val_list,val))[0]
+    highc_pcd = pcd.select_by_index(highc_idxs,invert=False)
+    lowc_pcd = pcd.select_by_index(highc_idxs,invert=True)
+    return highc_idxs, highc_pcd,lowc_pcd
