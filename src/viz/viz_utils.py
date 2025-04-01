@@ -1,4 +1,5 @@
 from copy import deepcopy
+import subprocess
 import open3d as o3d
 import numpy as np
 import os
@@ -59,6 +60,8 @@ def draw(pcds, raw=True, side_by_side=False, **kwargs):
             trans+=bounds[0]
     #below config used for main dev
     # tree, Secrest27
+    tcoords = o3d.t.geometry.TriangleMesh.create_coordinate_frame()
+    tcoords.translate(pcds_to_draw[0].get_center())
     draw_geometries(
             pcds_to_draw,
             # mesh_show_wireframe=True,
@@ -70,8 +73,7 @@ def draw(pcds, raw=True, side_by_side=False, **kwargs):
         )
 
 def vdraw(pcds, 
-          render_option_path,
-          save_image=True,
+          save_file='',
           point_size=3,
           line_width = 15,
           display_time = 60):
@@ -88,11 +90,11 @@ def vdraw(pcds,
     vis.get_render_option().point_size = point_size
     vis.get_render_option().line_width = 15
     vis.get_render_option().light_on = False
+    vis.get_render_option().mesh_show_back_face = True
     vis.update_renderer()
     vis.run()
-    sleep(display_time)
-    vis.destroy_window()
-
+    if save_file!='':
+        vis.capture_screen_image(save_file)
 
 def color_continuous_map(pcd, cvar):
     density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
@@ -100,14 +102,14 @@ def color_continuous_map(pcd, cvar):
     pcd.colors = o3d.utility.Vector3dVector(density_colors)
     return pcd
 
-
-def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
+def rotating_compare_gif(transient_pcd_in, constant_pcd_in=None,
                                init_rot: np.ndarray = np.eye(3),
                                steps: int = 360,
                                on_frames: int = 45,
                                off_frames: int = 45,
                                point_size: float = 1.0,
-                               out_path = '/code/code/pyQSM/test/',
+                               out_path = 'data/results/gif/',
+                               sub_dir = '',
                                rot_center = [0,0,0],
                                save = False,
                                file_name = 'pcd_compare_animation',
@@ -130,38 +132,59 @@ def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
         # skel = copy(contracted)
         # skel.paint_uniform_color([0, 0, 1])
         # skel.rotate(init_rot, center=[0, 0, 0])
-
-        constant_pcd = deepcopy(constant_pcd_in)
-        # constant_pcd.paint_uniform_color([0, 0, 0])
-        constant_pcd.rotate(init_rot, center=[0, 0, 0])
-
         transient_pcd = deepcopy(transient_pcd_in)
         transient_pcd_ref = deepcopy(transient_pcd_in)
+        # constant_pcd.paint_uniform_color([0, 0, 0])
+        if constant_pcd_in is None:
+            constant_pcd = None
+        elif constant_pcd_in is not None:
+            constant_pcd = deepcopy(constant_pcd_in)
+            constant_pcd.rotate(init_rot, center=[0, 0, 0])
 
-        tran_pts = arr(transient_pcd.points)
-        const_pts = arr(constant_pcd.points)
-        sz_tran,sz_const = len(tran_pts),len(const_pts)
-        sz_diff= sz_tran-sz_const
-        if sz_diff>0:#tran is bigger than const
-            last_pt =  o3d.utility.Vector3dVector([const_pts[-1]]*sz_diff)
-            last_col =   o3d.utility.Vector3dVector([arr(constant_pcd.colors)[-1]]*sz_diff)
-            constant_pcd.points.extend(last_pt)
-            constant_pcd.colors.extend(last_col)
-            # pcd = o3d.geometry.PointCloud()
-            # new_pts = o3d.utility.Vector3dVector()
-        
+            if isinstance(transient_pcd,o3d.cpu.pybind.geometry.TriangleMesh):
+                tran_pts = arr(transient_pcd.vertices)
+                const_pts = arr(transient_pcd.vertices)
+                sz_tran,sz_const = len(tran_pts),len(const_pts)
+                sz_diff= sz_tran-sz_const
+                if sz_diff>0:#tran is bigger than const
+                    last_pt =  o3d.utility.Vector3dVector([const_pts[-1]]*sz_diff)
+                    if transient_pcd.has_vertex_colors(): last_col =   o3d.utility.Vector3dVector([arr(constant_pcd.vertex_colors)[-1]]*sz_diff)
+                    constant_pcd.vertices.extend(last_pt)
+                    if transient_pcd.has_vertex_colors():constant_pcd.vertex_colors.extend(last_col)
+            else:
+                tran_pts = arr(transient_pcd.points)
+                const_pts = arr(constant_pcd.points)
+                sz_tran,sz_const = len(tran_pts),len(const_pts)
+                sz_diff= sz_tran-sz_const
+                if sz_diff>0:#tran is bigger than const
+                    last_pt =  o3d.utility.Vector3dVector([const_pts[-1]]*sz_diff)
+                    last_col =   o3d.utility.Vector3dVector([arr(constant_pcd.colors)[-1]]*sz_diff)
+                    constant_pcd.points.extend(last_pt)
+                    constant_pcd.colors.extend(last_col)
+                    # pcd = o3d.geometry.PointCloud()
+                    # new_pts = o3d.utility.Vector3dVector()
+            
         vis = o3d.visualization.Visualizer()
         vis.create_window(width=1920, height=1080)
         vis.add_geometry(transient_pcd)
-        vis.add_geometry(constant_pcd)
+        if constant_pcd is not None: vis.add_geometry(constant_pcd)
 
         ctl = vis.get_view_control()
         ctl.set_zoom(0.6)
-
+        # rot_mat = R.from_euler('y', np.deg2rad(540 / steps)).as_matrix()
+        # mesh.rotate(rot_mat,mesh.get_center())
+        # vis.update_geometry(transient_pcd)
+        # vis.update_geometry(constant_pcd)
+        # vis.poll_events()
+        # vis.update_renderer()
         # Set smaller point size. Default is 5.0
-        vis.get_render_option().point_size = point_size
-        vis.get_render_option().line_width = 15
-        vis.get_render_option().light_on = False
+        if isinstance(transient_pcd,o3d.cpu.pybind.geometry.TriangleMesh):
+            vis.get_render_option().mesh_show_back_face = True
+            # vis.get_render_option().mesh_show_wireframe = True
+        else:
+            vis.get_render_option().point_size = point_size
+            vis.get_render_option().line_width = 15
+            vis.get_render_option().light_on = False
         vis.update_renderer()
 
         # Calculate rotation matrix for every step. Must only be calculated once as rotations are added up in the point cloud
@@ -172,22 +195,41 @@ def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
         pcd_idx = 0
         stage_duration = on_frames
         stage_durations = [on_frames,off_frames]
+        try:
+            os.mkdir(f'{output_folder}/{sub_dir}')
+        except Exception as e:
+            log.warning(f'Error creating gif directory: {e}')
+            return
+        output_folder = f'{output_folder}/{sub_dir}/'
         for i in range(steps):
-            transient_pcd_ref.rotate(Rot_mat, center=rot_center)
+
             # skel.rotate(Rot_mat, center=rot_center)
-            constant_pcd.rotate(Rot_mat, center=rot_center)
-
-            if pcd_idx == 0:
-                transient_pcd.points = transient_pcd_ref.points
-                transient_pcd.colors = transient_pcd_ref.colors
-                transient_pcd.normals = transient_pcd_ref.normals
-            if pcd_idx == 1:
-                # pcd.paint_uniform_color([0, 0, 0])
-                transient_pcd.points = constant_pcd.points
-                transient_pcd.colors = constant_pcd.colors
-
+            if constant_pcd is not None: 
+                constant_pcd.rotate(Rot_mat, center=rot_center)
+                transient_pcd_ref.rotate(Rot_mat, center=rot_center)
+                if pcd_idx == 0:
+                    if isinstance(transient_pcd,o3d.cpu.pybind.geometry.TriangleMesh):
+                        transient_pcd.vertices= transient_pcd_ref.vertices
+                        transient_pcd.triangles= transient_pcd_ref.triangles
+                        transient_pcd.triangle_normals= transient_pcd_ref.triangle_normals
+                    else:
+                        transient_pcd.points = transient_pcd_ref.points
+                        transient_pcd.colors = transient_pcd_ref.colors
+                        transient_pcd.normals = transient_pcd_ref.normals
+                if pcd_idx == 1:
+                    if isinstance(transient_pcd,o3d.cpu.pybind.geometry.TriangleMesh):
+                        transient_pcd.vertices = constant_pcd.vertices
+                        transient_pcd.triangles = constant_pcd.triangles
+                        transient_pcd.triangle_normals= constant_pcd.triangle_normals
+                    else:
+                        # pcd.paint_uniform_color([0, 0, 0])
+                        transient_pcd.points = constant_pcd.points
+                        transient_pcd.colors = constant_pcd.colors
+                
+                vis.update_geometry(constant_pcd)
+            else:
+                transient_pcd.rotate(Rot_mat, center=rot_center)
             vis.update_geometry(transient_pcd)
-            vis.update_geometry(constant_pcd)
             vis.poll_events()
             vis.update_renderer()
 
@@ -219,6 +261,11 @@ def rotating_compare_gif(transient_pcd_in, constant_pcd_in,
             imageio.mimsave(os.path.join(os.path.dirname(image_path_list[0]), 
                                          '{}.gif'.format(file_name)), 
                                          images, format='GIF')
+            try: 
+               for filename in image_path_list:
+                    subprocess.call(['rm', f'{filename}'])
+            except Exception as e:
+                log.warning(f'Delete failed: {e}')
             
 # def draw_w_traj(pcd_or_data_path, 
 #                render_option_path= '',
