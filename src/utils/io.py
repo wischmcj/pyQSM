@@ -5,29 +5,30 @@ import pickle
 import open3d as o3d
 import numpy as np
 from set_config import log, config
+from numpy import array as arr
 
 use_super_user = config['io']['super_user']
 data_root = config['io']['data_root']
 
-def save_line_set(line_set, base_file = 'skel_stem20_topology'):
+def save_line_set(line_set, base_file = 'skel_stem20_topology',dir=data_root):
     base_file.replace('.pkl','')
-    save(f'{base_file}_lines.pkl', line_set)
-    save(f'{base_file}_points.pkl', line_set)
+    save(f'{base_file}_lines.pkl', arr(line_set.points),dir)
+    save(f'{base_file}_points.pkl', arr(line_set.lines),dir)
     
-def load_line_set(base_file = 'skel_stem20_topology'):
+def load_line_set(base_file = 'skel_stem20_topology',dir=data_root):
     base_file.replace('.pkl','')
-    lines = load(f'{base_file}_lines.pkl')
-    points = load(f'{base_file}_points.pkl')
+    lines = load(f'{base_file}_lines.pkl',dir)
+    points = load(f'{base_file}_points.pkl',dir)
     line_set = o3d.geometry.LineSet()
     line_set.points = o3d.utility.Vector3dVector(points)
     line_set.lines = o3d.utility.Vector2iVector(lines)
     return line_set
 
 def be_root():
-    if os.geteuid() == 0:
-        return 1
-    else:
-        subprocess.call(['sudo', 'python3'] + sys.argv)  # modified
+    # if os.geteuid() == 0:
+    return 1
+    # else:
+        # subprocess.call(['sudo', 'python3'] + sys.argv)  # modified
 
 def update(file, to_write, dir = data_root):
     # be_root()
