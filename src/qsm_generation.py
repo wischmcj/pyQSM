@@ -17,7 +17,7 @@ from open3d.io import read_point_cloud, write_point_cloud
 from geometry.skeletonize import extract_skeleton, extract_topology
 from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from utils.lib_integration import find_neighbors_in_ball,get_neighbors_in_tree
+from utils.lib_integration import find_neighbors_in_ball
 from viz.viz_utils import color_continuous_map
 from utils.math_utils import (
     get_angles,
@@ -29,7 +29,6 @@ from utils.math_utils import (
 )
 
 from set_config import config
-from geometry.mesh_processing import define_conn_comps, get_surface_clusters, map_density
 from geometry.point_cloud_processing import ( 
     cluster_plus,
     crop_by_percentile,
@@ -76,6 +75,7 @@ def get_stem_pcd(pcd=None, source_file=None
     pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
     pcd = pcd.select_by_index(pcd_cropped_idxs)
     pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn))
+    pcd.orient_normals_consistent_tangent_plane(100)
     stem_cloud = filter_by_norm(pcd, angle_cutoff)
     if voxel_size:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
