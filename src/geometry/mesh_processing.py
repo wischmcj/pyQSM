@@ -3,10 +3,93 @@ import numpy as np
 import copy
 import matplotlib.pyplot as plt
 
-def define_conn_comps(mesh, max_num_comps):
+from numpy import array as arr
+
+def edges_to_lineset(mesh,edges, color):
+    points = []
+    lines = []
+    verts = arr(mesh.vertices)
+    i=0
+    for u,v in edges:
+        new_u_id, new_v_id = i, i+1
+        u_pt = verts[u]
+        v_pt = verts[v]
+        points.extend([u_pt,v_pt])
+        lines.append([new_u_id, new_v_id])
+        i=i+2
+    # points = [vert]
+    line_set = o3d.geometry.LineSet(
+    points=o3d.utility.Vector3dVector(points),
+    lines=o3d.utility.Vector2iVector(lines),
+    )
+    colors = arr([color for _ in range(len(edges))])
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    return line_set
+
+def check_properties(mesh, draw_result=False):
+    print(f"Checking mesh properties")
+    print(f"Computing normals")
+    mesh.compute_vertex_normals()
+
+    print(f"Evaluating edges and vertices")
+    edge_manifold = mesh.is_edge_manifold(allow_boundary_edges=True)
+    edge_manifold_boundary = mesh.is_edge_manifold(allow_boundary_edges=False)
+    vertex_manifold = mesh.is_vertex_manifold()
+    self_intersecting = mesh.is_self_intersecting()
+    watertight = mesh.is_watertight()
+    orientable = mesh.is_orientable()
+
+    print(f"  edge_manifold:          {edge_manifold}")
+    print(f"  edge_manifold_boundary: {edge_manifold_boundary}")
+    print(f"  vertex_manifold:        {vertex_manifold}")
+    print(f"  self_intersecting:      {self_intersecting}")
+    print(f"  watertight:             {watertight}")
+    print(f"  orientable:             {orientable}")
+
+    import open3d.examples as o3dex
+    geoms = [mesh]
+    if not edge_manifold:
+        edges = mesh.get_non_manifold_edges(allow_boundary_edges=True)
+        geoms.append(edges_to_lineset(mesh , edges, (1, 0, 0)))
+        num_non_manifold = len(edges)
+        print(f"{num_non_manifold=}")
+    if not edge_manifold_boundary:
+        edges = mesh.get_non_manifold_edges(allow_boundary_edges=False)
+        geoms.append(edges_to_lineset(mesh, edges, (0, 1, 0)))
+        num_non_manifold_boundary = len(edges)
+        print(f"{num_non_manifold_boundary=}")
+    if not vertex_manifold:
+        verts = np.asarray(mesh.get_non_manifold_vertices())
+        pcl = o3d.geometry.PointCloud(
+            points=o3d.utility.Vector3dVector(np.asarray(mesh.vertices)[verts]))
+        pcl.paint_uniform_color((0, 0, 1))
+        geoms.append(pcl)
+        verts_non_manifold = len(verts)
+        print(f"{verts_non_manifold=}")
+    if self_intersecting:
+        intersecting_triangles = np.asarray(
+            mesh.get_self_intersecting_triangles())
+        intersecting_triangles = intersecting_triangles[0:1]
+        intersecting_triangles = np.unique(intersecting_triangles)
+        print("  # visualize self-intersecting triangles")
+        triangles = np.asarray(mesh.triangles)[intersecting_triangles]
+        edges = [
+            np.vstack((triangles[:, i], triangles[:, j]))
+            for i, j in [(0, 1), (1, 2), (2, 0)]
+        ]
+        edges = np.hstack(edges).T
+        edges = o3d.utility.Vector2iVector(edges)
+        geoms.append(edges_to_lineset(mesh, edges, (1, 0, 1)))
+        self_intersecting_edges = len(edges)
+        print(f"{self_intersecting_edges=}")
+    if draw_result:
+        o3d.visualization.draw_geometries(geoms, mesh_show_back_face=True)
+        for geom in geoms:
+            o3d.visualization.draw_geometries([geom], mesh_show_back_face=True)
+    return geoms
+
+def subdivide_mesh(mesh, max_num_comps):
     """
-    Sourced from open3d recipes. Identifies portions
-    of a mesh that form a continuous surface.
 
     Args:
         mesh: o3d.geometry.TriangleMesh
@@ -41,6 +124,7 @@ def cluster_and_remove_triangles(mesh ):
     triangles_to_remove = cluster_n_triangles[triangle_clusters] < 200
     mesh_0.remove_triangles_by_mask(triangles_to_remove)
     o3d.visualization.draw_geometries([mesh_0])
+    return mesh
 
 def get_surface_clusters(mesh,
                        top_n_clusters=10,
@@ -51,27 +135,33 @@ def get_surface_clusters(mesh,
             clusters them by proximity and filters for
             component groups matching the specified criteria.
     """
-    mesh = define_conn_comps(mesh,max_num_comps=10)
+    # mesh = define_conn_comps(mesh,max_num_comps=10)
     # cluster index per triangle, 
     #   number of triangles per cluster, 
     #   surface area per cluster
     (triangle_clusters, cluster_n_triangles, cluster_area ) =  (mesh.cluster_connected_triangles())
+    print(f'{cluster_n_triangles=}')
+    print(f'{cluster_area}')
     triangle_clusters = np.asarray(triangle_clusters)
     cluster_n_triangles = np.asarray(cluster_n_triangles)
     cluster_area = np.asarray(cluster_area)
     mesh_0 = copy.deepcopy(mesh)
+    out_mesh = copy.deepcopy(mesh)
     if top_n_clusters:
         largest_inds = np.argpartition(cluster_n_triangles, -top_n_clusters)[-top_n_clusters:]
         largest_ns = cluster_n_triangles[largest_inds]
         triangles_to_remove = cluster_n_triangles[triangle_clusters] < min(largest_ns)
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
+        out_mesh.remove_triangles_by_mask(~triangles_to_remove)
     if max_cluster_area:
         triangles_to_remove = cluster_area[triangle_clusters] < max_cluster_area
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
+        out_mesh.remove_triangles_by_mask(~triangles_to_remove)
     if min_cluster_area:
         cluster_area[triangle_clusters] > min_cluster_area
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
-    return mesh_0
+        out_mesh.remove_triangles_by_mask(~triangles_to_remove)
+    return mesh_0,out_mesh, triangle_clusters
 
 def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=False):
     print('creating mesh from pcd')
