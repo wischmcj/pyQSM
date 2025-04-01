@@ -32,7 +32,7 @@ from utils.math_utils import (
 )
 
 from set_config import config, log
-from geometry.mesh_processing import define_conn_comps, get_surface_clusters, map_density
+from geometry.mesh_processing import subdivide_mesh, get_surface_clusters, map_density
 from geometry.point_cloud_processing import ( filter_by_norm,
     clean_cloud,
     crop, get_shape,
@@ -70,7 +70,7 @@ def recover_original_details(cluster_pcds,
             vicinity of the search cluster then performs a KNN search 
             to find neighobrs of points in the cluster
     """
-    # file_bounds = dict(load('skio_bounds.pkl'))
+    file_bounds = dict(load('skio_bounds.pkl'))
     # defining files in which initial details are stored
     files = []
     if file_num_base:
@@ -93,31 +93,32 @@ def recover_original_details(cluster_pcds,
         # bnd_box.scale(scale,center = bnd_box.center)
         vicinity_pts = []
         v_colors = []
-        skel_ids = []
         cnt=0
+        files_to_check = []
+        any_gtr = lambda x,y: any([a>b for a,b in zip(x,y)])
+        for file, (file_min,file_max) in file_bounds:
+            l_overlap = any_gtr(cluster_min,file_min) or any_gtr(file_max,cluster_min)
+            r_overlap = any_gtr(cluster_max,file_min) or any_gtr(file_max,cluster_max) 
+            has_pts_gr_zero = file_max[2]>0.1
+            if (l_overlap or r_overlap) and has_pts_gr_zero:
+                files_to_check.append(file)
+            else:
+                log.warning(f'Excluding file: {file}')
+
         # Limiting the search field to points in the general
         #   vicinity of the non-detailed pcd\
-        for file in files:
+        for file in files_to_check:
             # bounds = file_bounds.get(file,[cluster_min,cluster_max])
-            # file_min,file_max = bounds[0], bounds[1]
             print(f'checking file {file}')
-            # l_overlap = all([a>b for a,b in zip(cluster_min,file_min)]) and all([a<b for a,b in zip(cluster_min,file_max)])
-            # r_overlap = all([a>b for a,b in zip(cluster_max,file_min)]) and all([a<b for a,b in zip(cluster_max,file_max)])
-            l_overlap=True
-            r_overlap=True
-            pcd = read_point_cloud(file)
-            # draw([cluster_pcd,bnd_box,pcd])
-            if l_overlap or r_overlap: 
-                # pcd = read_point_cloud(file)
-                # x_overlap = (any([a<b for a,b in zip(minb,min_bnd)]) and 1==1)
-                # y_overlap = (bounds[1]>max_bnd[1] or section_max_bnd[1]<min_bnd[1])
+            if (l_overlap or r_overlap) and len(pts_gr_zero)>0: 
+                pcd = read_point_cloud(file)
                 pts = arr(pcd.points)
                 if len(pts)>0: # and (x_overlap or y_overlap):
                     cols = arr(pcd.colors)
                     all_pts_vect = o3d.utility.Vector3dVector(pts)
                     vicinity_pt_ids = bnd_box.get_point_indices_within_bounding_box(all_pts_vect) 
                     v_pt_values = pts[vicinity_pt_ids]
-                    pts_gr_zero = np.where(v_pt_values[:,2]>0)[0]
+                    pts_gr_zero = np.where(v_pt_values[:,2]>0.1)[0]
                     vicinity_pt_ids = arr(vicinity_pt_ids)[pts_gr_zero]
                     if len(vicinity_pt_ids)>0:
                         v_pt_values = pts[vicinity_pt_ids]
@@ -126,7 +127,7 @@ def recover_original_details(cluster_pcds,
                         vicinity_pts.extend(v_pt_values)
                         v_colors.extend(colors)
                     else:
-                        print(f'No points in vicinity from fole {file}')
+                        print(f'No points in vicinity from {file=}')
                 else:
                     print(f'No points found in {file}')
             else:
@@ -186,7 +187,7 @@ def recover_original_details(cluster_pcds,
                         
                         vicinity_pts = []
                         v_colors = []
-        # save('skio_bounds.pkl', file_bounds)
+
         if len(vicinity_pts)>0:
             try:
                 # detailed_pcd = o3d.geometry.PointCloud()
@@ -263,8 +264,9 @@ def recover_original_details(cluster_pcds,
 
     # return detailed_pcd
 
-def get_neighbors_kdtree(src_pcd,pcd, dist=0.05, k=750, return_pcd = True):
-    query_pts = arr(pcd.points)
+def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, dist=0.05, k=750, return_pcd = True):
+    
+    if query_pcd: query_pts = arr(query_pcd.points)
     src_pts = arr(src_pcd.points)
     whole_tree = sps.KDTree(src_pts)
     print('Finding neighbors in vicinity') 
