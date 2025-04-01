@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import open3d as o3d
 import numpy as np
 from numpy import array as arr
@@ -15,6 +16,54 @@ from set_config import log, config
 
 from viz.viz_utils import color_continuous_map, draw
 
+def join_pcds(pcds):
+    pts = [arr(pcd.points) for pcd in pcds]
+    colors = [arr(pcd.colors) for pcd in pcds]
+    return create_one_or_many_pcds(pts, colors, single_pcd=True)
+
+def create_one_or_many_pcds( pts,
+                        colors = None,
+                        labels = None,
+                        single_pcd = False):    
+    log.info('creating pcds from points')
+    pcds = []
+    tree_pts= []
+    tree_color=[]
+    if not isinstance(pts[0],list) and not isinstance(pts[0],np.ndarray):
+        pts = [pts]
+    if not labels:
+        labels = np.asarray([idx for idx,_ in enumerate(pts)])
+    if (not colors):
+        labels = arr(labels)
+        max_label = labels.max()
+        try:
+            label_colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+        except Exception as e:
+            log.info('err')
+
+    # for pcd, color in zip(tree_pcds, colors): pcd.paint_uniform_color(color[:3])
+    for pts, color in zip(pts, colors or label_colors): 
+        if not colors: 
+            # if true, then colors were generated from labels
+            color = [color[:3]]*len(pts)
+        if single_pcd:
+            log.info(f'adding {len(pts)} points to final set')
+            tree_pts.extend(pts)
+            tree_color.extend(color)
+        else:
+            cols = [color[:3]]*len(pts)
+            log.info(f'creating pcd with {len(pts)} points')
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(pts)
+            pcd.colors = o3d.utility.Vector3dVector(color)
+            pcds.append(pcd)
+    if single_pcd:
+        log.info(f'combining {len(tree_pts)} points into final pcd')
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(tree_pts)
+        pcd.colors = o3d.utility.Vector3dVector([x for x in tree_color])
+        pcds.append(pcd)
+    return pcds
 
 def normalize_to_origin(pcd):
     print(f'original: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
