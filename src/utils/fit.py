@@ -82,6 +82,7 @@ def evaluate_orientation(pcd):
     pcd.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=20)
     )
+    pcd.orient_normals_consistent_tangent_plane(100)
     pcd.normalize_normals()
     norms = np.array(pcd.normals)
     axis_guess = orientation_from_norms(norms, samples=100, max_iter=1000)
@@ -159,6 +160,7 @@ def kmeans(points, min_clusters):
     best_score = 0.4
     best = None
     for num in clusters_to_try:
+        log.info(f"trying {num} clusters")
         if num > 0:
             codes, book = spc.vq.kmeans2(pts_2d, num)
             cluster_sizes = np.bincount(book)

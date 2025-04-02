@@ -17,7 +17,7 @@ from open3d.io import read_point_cloud, write_point_cloud
 from geometry.skeletonize import extract_skeleton, extract_topology
 from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from utils.lib_integration import find_neighbors_in_ball,get_neighbors_in_tree
+from utils.lib_integration import find_neighbors_in_ball
 from viz.viz_utils import color_continuous_map
 from utils.math_utils import (
     get_angles,
@@ -29,7 +29,6 @@ from utils.math_utils import (
 )
 
 from set_config import config
-from geometry.mesh_processing import define_conn_comps, get_surface_clusters, map_density
 from geometry.point_cloud_processing import ( 
     cluster_plus,
     crop_by_percentile,
@@ -41,7 +40,7 @@ from geometry.point_cloud_processing import (
     get_ball_mesh
 )
 from viz.viz_utils import iter_draw, draw
-
+from geometry.point_cloud_processing import join_pcds
 
 log = logging.getLogger('calc')
 
@@ -75,9 +74,8 @@ def get_stem_pcd(pcd=None, source_file=None
     pcd_pts = arr(pcd.points)
     pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
     pcd = pcd.select_by_index(pcd_cropped_idxs)
-    pcd.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn)
-    )
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn))
+    pcd.orient_normals_consistent_tangent_plane(100)
     stem_cloud = filter_by_norm(pcd, angle_cutoff)
     if voxel_size:
         stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
@@ -276,7 +274,8 @@ def sphere_step(
 
 
 def find_low_order_branches(start = 'initial_clean', 
-                             file = '27_pt02.pcd',
+                            #  file = '27_pt02.pcd',
+                            file = 'inputs/skeletor_clean.pcd',
                              extract_skeleton = False):
     # ***********************
     # IDEAS FOR CLEANING RESULTS
@@ -423,14 +422,32 @@ def color_and_draw(pcd , labels):
     # global_x = min(extents[:,0,0])
 
 if __name__ == "__main__":
+    # breakpoint()
     import pickle 
     # extents, contains_region, pcds = find_extents()
     # with open(f'part_file_extent_dict.pkl','wb') as f: pickle.dump(extents,f)
     # with open(f'part_file_extent_dict.pkl','rb') as f: 
     #     extents = pickle.load(f)
     # breakpoint()
-    import scipy.spatial as sps
-    import itertools
+    files = [
+        'data/skeletor/inputs/skeletor_full_0.pcd',
+        'data/skeletor/inputs/skeletor_full_1.pcd',
+        'data/skeletor/inputs/skeletor_full_2.pcd',
+        'data/skeletor/inputs/skeletor_full_3.pcd',
+        'data/skeletor/inputs/skeletor_full_4.pcd',
+        'data/skeletor/inputs/skeletor_full_5.pcd',
+        'data/skeletor/inputs/skeletor_full_6.pcd',
+        'data/skeletor/inputs/skeletor_full_7.pcd',
+        'data/skeletor/inputs/skeletor_full_final.pcd']
+    pcds = []
+    for file in files:
+        pcds.append(read_point_cloud(file))
+    pcd = join_pcds(pcds)
+    del pcds
+    clean_pcd = clean_cloud(pcd)
+    write_point_cloud('skeletor_clean.pcd',clean_pcd)
+    breakpoint()
+    draw(clean_pcd)
 
     # dividing part files into
     # pcd = read_point_cloud('data/results/general/skeletor_super_clean.pcd')
