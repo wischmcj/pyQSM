@@ -3,6 +3,8 @@ pic*
 sho*
 *.pkl
 *test/tmp/*
+data/*
+newvenv/*
 
 #Dev
 snippets.py
