@@ -16,6 +16,6 @@
 #     - list of tuples, (id_of_branch, indexes_of_points in skeletor_translated.pcd)
 #     - branch ids sourced from skel_w_order_complete
 
-# skel_w_order_complete
+r
 #     - list[tuple[int, tuple[tuple,int]]], [(id_of_branch(seed), [(pt,num_clusters_in_branch_at_time_added)]]
 
