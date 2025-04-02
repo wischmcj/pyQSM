@@ -3,6 +3,9 @@ pic*
 sho*
 *.pkl
 *test/tmp/*
+data/skio/*
+data/skeletor/*
+newvenv*
 
 #Dev
 snippets.py
