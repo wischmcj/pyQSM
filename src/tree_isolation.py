@@ -61,7 +61,8 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                             max_distance=.3,
                             cycles= 150,
                             save_every = 10,
-                            draw_every = 10):
+                            draw_every = 10,
+                            order_cutoff = None):
     """
         Takes a list of tuples defining clusters (e.g.[(label,cluster_pcd)...])
         and a source pcd
@@ -70,6 +71,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
 
 
     # create dict to track point labels
+    num_nbr_clusters=[]
     high_c_pt_assns = defaultdict(lambda:-1) 
     curr_pts = [[]]*len(clusters_and_idxs)
     curr_nbrs = [[]]*len(clusters_and_idxs)
@@ -77,6 +79,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
     idc_to_label =  defaultdict() 
     label_to_idc =  defaultdict() 
     for idc, (label, cluster_pt_list) in enumerate(cluster_pts):
+        num_nbr_clusters.append([])
         curr_pts[idc] = cluster_pt_list
         # label pts already in clusters
         for pt in cluster_pt_list: 
@@ -86,13 +89,13 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
         idc_to_label[idc] = label
         label_to_idc[label] = idc
 
-    try: 
-        src_tree = load(f'{file_label}_kd_search_tree.pkl',dir ='')
-    except Exception as e:
-        log.info('creating KD search tree')
-        src_pts = arr(src_pcd.points)
-        src_tree = sps.KDTree(src_pts)
-        with open(f'{file_label}_kd_search_tree.pkl','wb') as f: pickle.dump(src_tree,f)
+    # try: 
+    #     src_tree = load(f'{file_label}_kd_search_tree.pkl',dir ='')
+    # except Exception as e:
+    #     log.info('creating KD search tree')
+    src_pts = arr(src_pcd.points)
+    src_tree = sps.KDTree(src_pts)
+        # with open(f'{file_label}_kd_search_tree.pkl','wb') as f: pickle.dump(src_tree,f)
     
     src_pts = src_tree.data
 
@@ -125,7 +128,7 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
         save_iters=save_iters-1
         draw_iters=draw_iters-1
         log.info(f'querying {cycle_num}')
-        for label, cluster in clusters_and_idxs:
+        for idc, (label, cluster) in enumerate(clusters_and_idxs):
             idx = label_to_idc[label]
             if idx not in complete:               
                 if len(curr_pts[idx])>0:
@@ -135,7 +138,20 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                                                 distance_upper_bound= max_distance)
                     nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
                     nbr_pts = [nbr_pt for nbr_pt in src_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
-                    
+                    num_clusters=0
+                    if cycle_num>0 and order_cutoff:
+                        nbr_pcd = src_pcd.select_by_index(nbrs)
+                        if 1==0: #idx == 10:
+                            res = cluster_plus(nbr_pcd, eps=.15, min_points=20,return_pcds=True,from_points=False, draw_result=False)
+                            num_clusters = len([x for x in res])
+                            print(f' {cycle_num=}, {num_clusters=}, ')
+                            draw(res[0])
+                        else:
+                            res = cluster_plus(nbr_pcd, eps=.15, min_points=20,return_pcds=False,from_points=False, draw_result=False)
+                            num_clusters = len([x for x in res])
+                            print(f' {cycle_num=}, {num_clusters=}, ')
+                            # breakpoint()
+                            num_nbr_clusters[idc].append(num_clusters)
                     # if check_overlap:
                     #     nbr_set = set(nbrs)
                     #     # overlap = chain.from_iterable([nbr_set.intersection(nbr_list) for nbr_list in all_nbrs])
@@ -161,7 +177,12 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                         if len(curr_pts[idx])<5:
                             complete.append(idx)
                             log.info(f'{idx} added to complete')
-
+                    if num_clusters>(order_cutoff or 0):
+                        complete.append(idx)
+                        curr_pts[idx] = []
+                        curr_nbrs[idx] = []
+                else:
+                    num_nbr_clusters[idc].append(0)
                 if len(curr_pts[idx])==0:
                     complete.append(idx)
                     log.info(f'{idx} added to complete')
@@ -174,6 +195,14 @@ def extend_seed_clusters(clusters_and_idxs:list[tuple],
                                                         draw_cycle=True,
                                                         save_cycle=True)
         breakpoint()
+        i,k = 0,35
+        ax = plt.subplot()
+        for idc, series in enumerate(num_nbr_clusters[i:k]): ax.plot(range(len(series)),series)
+        plt.show()
+        draw(tree_pcds[i:k])
+        # plt.axvline(x=avg_dist, color='r', linestyle='--')
+        # plt.axvline(x=avg_dist*2, color='r', linestyle='--')
+        plt.show()
         return tree_pcds
     except Exception as e:
         breakpoint()
@@ -312,7 +341,7 @@ def build_trees_nogrid(pcd=None, exclude_boundaries=[],
     extend_seed_clusters(labeled_cluster_pcds,search_pcd,file_base_name,cycles=10,save_every=2,**kwargs) # extending downward
 
 
-def pcds_from_extend_seed_file(file,pcd_index=-1):
+def pcds_from_extend_seed_file(file,pcd_idxs=[]):
     with open(file,'rb') as f:
         # dict s.t. {cluster_id: [list_of_pts]}
         cell_completed = dict(pickle.load(f))
@@ -324,9 +353,12 @@ def pcds_from_extend_seed_file(file,pcd_index=-1):
         pts =[x for x in cell_completed.values()]
         pts =[[x for x  in y] for y in pts]
     labels = [x for x in cell_completed.keys()]
-    if pcd_index >-1:
-        pts=[pts[pcd_index]]
-        labels=[labels[pcd_index]]
+    if pcd_idxs!=[]:
+        new_pts,new_labels = [],[]
+        for pcd_idx in pcd_idxs:
+            new_pts.append(pts[pcd_idx])
+            new_labels.append(labels[pcd_idx])
+        pts = new_pts
     cluster_pcds = create_one_or_many_pcds(pts)
 
     return cluster_pcds

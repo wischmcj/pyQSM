@@ -238,31 +238,56 @@ def isolate_color(in_colors,icolor='white',get_all=True, std='hsv'):
     
     breakpoint()
 
-def color_distribution(in_colors,cutoff=.01,elev=40, azim=110, roll=0, 
+def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, roll=0, 
                 space='none',min_s=.2,sat_correction=2,sc_func =lambda sc: sc + (1-sc)/2):
-    data = []
-    hsv = arr(rgb_to_hsv(in_colors))
-    hc,sc,vc = zip(*hsv)
-    sc = arr(sc)
-    vc = arr(vc)
-    # low_saturation_idxs = np.where(sc<min_s)[0]
-    # sc[sc<min_s] = sc[sc<min_s]*sat_correction
-    ret_sc = sc_func(sc)
-    # vc =   sc_func(vc)
-    # sc = sc*.6
-    corrected_rgb_full = arr(hsv_to_rgb([x for x in zip(hc,ret_sc,vc)]))
     
+    color_lists = [in_colors]
+    if oth_colors is not None:
+        color_lists.append(oth_colors)
+    hsv_fulls = []
+    hsvs = []
+    hsv_news = []
+    corrected_rgb_fulls = []
+    for idc,color_list in enumerate(color_lists):
+        hsv = arr(rgb_to_hsv(color_list))
+        hsv_fulls.append(hsv)
+        if idc ==0:
+            rands = np.random.sample(len(color_list))
+            color_list = arr(color_list)[rands<cutoff]
+            hsv = arr(hsv)[rands<cutoff]
+        data = []
+        hc,sc,vc = zip(*hsv)
+        sc = arr(sc)
+        vc = arr(vc)
+        # low_saturation_idxs = np.where(sc<min_s)[0]
+        # sc[sc<min_s] = sc[sc<min_s]*sat_correction
+        ret_sc = sc_func(sc)
+        # vc =   sc_func(vc)
+        # sc = sc*.6
+        corrected_rgb_full = arr(hsv_to_rgb([x for x in zip(hc,ret_sc,vc)]))
+        corrected_rgb_fulls.append(corrected_rgb_full)
+        hsv_news.append([x for x in zip(hc,ret_sc,vc)])
+
+        hsvs.append(hsv)
+    
+    for idr, row_hsv in enumerate(hsv_fulls):
+        nbins = 20 
+        colors_h  = np.linspace(0,1,nbins)
+        colors_hsv=zip(colors_h,[.5]*20,[.5]*20)
+        rgb = hsv_to_rgb([x for x in colors_hsv])
+        hc,sc,vc = zip(*row_hsv)
+        res = plt.hist(hc, bins=nbins,facecolor=rgb)
+        plt.show()
 #    15     lower_blue = np.array([110,50,50])
 #    16     upper_blue = np.array([130,255,255])
 #    17 
 #    18     # Threshold the HSV image to get only blue colors
 #    19     mask = cv2.inRange(hsv, lower_blue, upper_blue)
 
-    rands = np.random.sample(len(in_colors))
-    in_colors = arr(in_colors)[rands<cutoff]
-    for sids,series in enumerate(data):
-        data[sids] = arr(series)[rands<cutoff]
-    corrected_rgb =  arr(corrected_rgb_full)[rands<cutoff]
+    
+    # for sids,series in enumerate(data):
+    #     data[sids] = arr(series)[rands<cutoff]
+    # corrected_rgb =  arr(corrected_rgb_full)[rands<cutoff]
     # osc = arr(osc)[rands<cutoff]
     ## RGB
     if space=='rgb':
@@ -280,35 +305,31 @@ def color_distribution(in_colors,cutoff=.01,elev=40, azim=110, roll=0,
 
     # HSV 
     if space=='hsv':
-        hsv = arr(rgb_to_hsv(in_colors))
         # hsv = hsv[hsv[:,1]>min_s]
-        hc,sc,vc = zip(*hsv)
         import math
         # sc[sc<.5] = sc[sc<.5]*1.5
-        rows = 1+ math.ceil(len(data)/2)
-        series = [vc]
-        series.extend(data)
-        # breakpoint()
         fig = plt.figure(figsize=(12, 9))
-        for row in range(rows):
+        for idr, row_hsv in enumerate(hsvs):
+            hc,sc,vc = zip(*row_hsv)
+            # hcn,scn,vcn = zip(*hsv_news[idr])
             # row=row+1
-            axis = fig.add_subplot(rows, 2, int((row+1)), projection="3d")
-            z = series[row]
+            axis = fig.add_subplot(2, 1, idr+1, projection="3d")
             # breakpoint()
-            axis.scatter(hc, sc, z, facecolors=in_colors, marker=".")
+            axis.scatter(hc, sc, vc, facecolors=corrected_rgb_fulls[idr], marker=".")
             axis.set_xlabel("Hue")
             axis.set_ylabel("Saturation")
             axis.set_zlabel("Value")
             axis.view_init(elev=elev, azim=azim, roll=roll)
 
-            axis = fig.add_subplot(rows, 2, int(row+2), projection="3d")
-            axis.scatter(hc, sc, z, facecolors=corrected_rgb, marker=".")
-            axis.set_xlabel("Hue")
-            axis.set_ylabel("Saturation")
-            axis.set_zlabel("Value")
-            axis.view_init(elev=elev, azim=azim, roll=roll)
+            # axis = fig.add_subplot(2, 2, idr+2, projection="3d")
+            # axis.scatter(hcn, scn, vcn, facecolors=corrected_rgb_fulls[idr], marker=".")
+            # axis.set_xlabel("Hue")
+            # axis.set_ylabel("Saturation")
+            # axis.set_zlabel("Value")
+            # axis.view_init(elev=elev, azim=azim, roll=roll)
         plt.show()
-    return corrected_rgb_full,ret_sc
+    
+    return corrected_rgb_full,hsv_fulls
 
 def color_on_percentile(pcd,
                         val_list,

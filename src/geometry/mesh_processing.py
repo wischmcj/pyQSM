@@ -1,3 +1,5 @@
+
+from set_config import config
 import open3d as o3d
 import numpy as np
 import copy
@@ -152,7 +154,7 @@ def get_surface_clusters(mesh,
         largest_ns = cluster_n_triangles[largest_inds]
         triangles_to_remove = cluster_n_triangles[triangle_clusters] < min(largest_ns)
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
-        out_mesh.remove_triangles_by_mask(~triangles_to_remove)
+        # out_mesh.remove_triangles_by_mask(~triangles_to_remove)
     if max_cluster_area:
         triangles_to_remove = cluster_area[triangle_clusters] < max_cluster_area
         mesh_0.remove_triangles_by_mask(triangles_to_remove)
@@ -163,11 +165,16 @@ def get_surface_clusters(mesh,
         out_mesh.remove_triangles_by_mask(~triangles_to_remove)
     return mesh_0,out_mesh, triangle_clusters
 
-def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=False):
+def map_density(pcd,depth=10, outlier_quantile = .01, remove_outliers=False
+                 ,normals_radius   = config['stem']["normals_radius"]
+                ,normals_nn       = config['stem']["normals_nn"]  
+                ,normals_smoothing_nn       = config['stem']["normals_smoothing_nn"]     ):
     print('creating mesh from pcd')
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn))
+    pcd.orient_normals_consistent_tangent_plane(normals_smoothing_nn)
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=depth)
     densities = np.asarray(densities)
-    if remove_outliers:
+    if remove_outliers: 
         vertices_to_remove = densities < np.quantile(densities, outlier_quantile)
         mesh.remove_vertices_by_mask(vertices_to_remove)
         densities = densities[~vertices_to_remove]

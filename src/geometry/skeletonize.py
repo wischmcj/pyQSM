@@ -195,7 +195,8 @@ def set_amplification(step_wise_contraction_amplification,
                 termination_ratio = 0.007
             elif num_pcd_points < 1e5:
                 contraction_amplification = 5
-                termination_ratio = 0.005
+                # termination_ratio = 0.005
+                termination_ratio = 0.003
             elif num_pcd_points < 0.5 * 1e6:
                 contraction_amplification = 5
                 termination_ratio = 0.004
@@ -334,7 +335,6 @@ def extract_skeleton(pcd,
         if debug:
             contracted = pts_to_cloud(pts_current)
             draw([contracted])
-            # breakpoint()
 
         volume_ratio = np.mean(M_list[-1]) / np.mean(M_list[0])
         log.info(f"Completed iteration {iteration}")

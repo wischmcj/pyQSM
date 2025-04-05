@@ -72,7 +72,12 @@ def normalize_to_origin(pcd):
     print(f'translated: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
     return pcd
 
-def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
+def clean_cloud(pcd,
+                voxels=config['initial_clean']['voxel_size'],
+                neighbors=config['initial_clean']['neighbors'],
+                ratio=config['initial_clean']['ratio'],
+                iters = config['initial_clean']['iters']
+                ):
     """Reduces the number of points in the point cloud via
     voxel downsampling. Reducing noise via statistical outlier removal.
     """
@@ -145,13 +150,19 @@ def cluster_plus(pcd,
                     draw_result = True,
                     color_clusters = True,
                     from_points=True,
-                    return_pcds=True):
+                    return_pcds=True,
+                    ransac=False):
     if from_points:
         pts=pcd
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(np.asarray(pts))
-    labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points,print_progress=True))
-    color_continuous_map(pcd, labels)
+        breakpoint()
+        pcd.points = o3d.utility.Vector3dVector(arr(pts))
+    
+    if ransac:
+        plane_model, inliers = pcd.segment_plane(distance_threshold=eps, ransac_n=10, num_iterations=1000)
+    else:
+        labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points,print_progress=True))
+
     if color_clusters:
         color_continuous_map(pcd, labels)
     if draw_result: 

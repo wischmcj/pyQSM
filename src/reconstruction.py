@@ -264,13 +264,14 @@ def recover_original_details(cluster_pcds,
 
     # return detailed_pcd
 
-def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, dist=0.05, k=750, return_pcd = True):
+def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None, dist=0.05, k=750, return_pcd = True):
     
     if query_pcd: query_pts = arr(query_pcd.points)
     src_pts = arr(src_pcd.points)
-    whole_tree = sps.KDTree(src_pts)
+    if not kd_tree:
+        kd_tree = sps.KDTree(src_pts)
     print('Finding neighbors in vicinity') 
-    dists,nbrs = whole_tree.query(query_pts, k=k, distance_upper_bound= dist) 
+    dists,nbrs = kd_tree.query(query_pts, k=k, distance_upper_bound= dist) 
     print('concatenating neighbors') 
 
     if return_pcd:
@@ -285,7 +286,7 @@ def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, dist=0.05, k=75
         pcd = o3d.geometry.PointCloud() 
         pcd.points = o3d.utility.Vector3dVector(pts)   
         pcd.colors = o3d.utility.Vector3dVector(colors)    
-        return pcd, nbrs
+        return pcd, nbrs, chained_nbrs
     else:
         return dists,nbrs
     

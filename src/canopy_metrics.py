@@ -12,7 +12,7 @@ from numpy import asarray as arr
 import matplotlib.pyplot as plt
 from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
-from geometry.surf_reconstruction import get_mesh
+from geometry.surf_recon import get_mesh
 from set_config import config, log
 from reconstruction import get_neighbors_kdtree
 from utils.math_utils import (
@@ -295,9 +295,7 @@ def get_shift(pcd, seed,
     test = remove_color_pts(test,invert = True)
     ratio = len(arr(test.points))/len(arr(orig.points))
     log.info(f'final ratio {ratio}')
-    skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base,
-                                    contraction_factor=contraction,
-                                    attraction_factor=attraction)
+    skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
     # contracted, total_point_shift, shift_by_step = skel_res
     # breakpoint()
     try:

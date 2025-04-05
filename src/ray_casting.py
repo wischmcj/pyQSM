@@ -54,15 +54,70 @@ from geometry.mesh_processing import get_surface_clusters
 from reconstruction import recover_original_details
 
 from viz.viz_utils import color_continuous_map
+import pyvista as pv
+
 
 pinhole_config = { 'fov_deg':60,'center':[-3,-.25,-3],
                     'eye':[10, 10, 20],'up':[0, 0, 1],
                     'width_px':640,'height_px':480,}
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
-# values when y,z are flipped
-#  { 'fov_deg':60,'center':[-3,-.25,-3],
-#                     'eye':[10, 10, 20],'up':[0, 0, 1],
-#                     'width_px':640,'height_px':480,}
+# working
+# pinhole_config = { 'fov_deg': 90, 'center': tmesh.get_center(), 'eye': [-2,-2,15], 'up': [0, -1, 1], 'width_px':1280, 'height_px':960,}
+origin = [0,0,0]
+
+def project_pcd(point_cloud = None, pts = None,alpha=.1):
+    # num_points = 100
+    # rng = np.random.default_rng(seed=0)  # Seed rng for reproducibility
+    # point_cloud = rng.random((num_points, 3))
+    if point_cloud:
+        pts = arr(point_cloud.points)
+    # if not isinstance(np.array,pts):
+    points = arr(pts)
+    # Define a plane
+    origin = [0, 0, 0]
+    normal = [0, 0, 1]
+    plane = pv.Plane(center=origin, direction=normal)
+
+
+    def project_points_to_plane(points, plane_origin, plane_normal):
+        """Project points to a plane."""
+        vec = points - plane_origin
+        dist = np.dot(vec, plane_normal)
+        return points - np.outer(dist, plane_normal)
+
+
+    projected_points = project_points_to_plane(points, origin, normal)
+
+    # Create a polydata object with projected points
+    polydata = pv.PolyData(projected_points)
+
+    # Mesh using delaunay_2d and pyvista
+    mesh = polydata.delaunay_2d(alpha=alpha)
+    plane_vis = pv.Plane(
+        center=origin,
+        direction=normal,
+        i_size=.5,
+        j_size=.5,
+        i_resolution=10,
+        j_resolution=10,
+    )
+
+    # plot it
+    pl = pv.Plotter()
+    pl.add_mesh(mesh, show_edges=True, color='white', opacity=0.5, label='Tessellated mesh')
+    pl.add_mesh(    pv.PolyData(points),    color='red',    render_points_as_spheres=True,    point_size=1,    label='Points to project',)
+    pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
+    pl.add_legend()
+    pl.show()
+    
+    pl = pv.Plotter()
+    pl.add_mesh(mesh.extract_geometry())
+    pl.show()
+    # breakpoint()
+    geo = mesh.extract_geometry()
+    breakpoint()
+    print(geo.get_surface_area())
+    return mesh
 
 
 def sparse_cast_w_intersections(mesh):
@@ -180,22 +235,27 @@ def cast_rays(tmesh,
                 surf_2d:bool = False,
                 img:bool = False,
                 pinhole_config = pinhole_config):
-    
-    pinhole_config = { 'fov_deg': 90, 'center': tmesh.get_center(), 'eye': [-2,-2,15], 'up': [0, -1, 1], 'width_px':1280, 'height_px':960,}
+    # [-3,-.25,-3]
+    breakpoint()
+    log.info('starting cast rays')
+    center = tmesh.get_center().numpy()
+    eye = [center[0],center[1],center[2]+10]
+    pinhole_config = { 'fov_deg': 90,  'center': tmesh.get_center(),   'eye': list(eye),    'up': [0, -1, 1],    'width_px':640*2, 'height_px':475*2,}
     pinhole_config['up'] = [0, 1, -1]
+    log.info('creating pinhole')
     # tmesh.rotate(rot_90_x,center = tmesh.get_center())
     scene = rcs()  
     scene.add_triangles(tmesh)
     rays = rcs.create_rays_pinhole(**pinhole_config)
+    log.info('casting rays')
     ans = scene.cast_rays(rays)
     intersecting_rays = ans['t_hit'].isfinite()
-    hits = rays[intersecting_rays]
-    plt.imshow(ans['t_hit'].numpy())
-    plt.show()
+    breakpoint()
     if img:
         plt.imshow(ans['t_hit'].numpy())
         plt.show()
     if surf_2d:
+        log.info('getting surface area')
         hit_triangle_ids = ans['primitive_ids'][intersecting_rays].numpy()
         lmesh = tmesh.to_legacy()
         hit_tris = arr(lmesh.triangles)[ans['primitive_ids'][intersecting_rays].numpy()]
@@ -203,22 +263,25 @@ def cast_rays(tmesh,
         hit_vert_ids = np.unique(hit_tris)
         hit_mesh =lmesh.select_by_index(hit_vert_ids)
         sa_3d = hit_mesh.get_surface_area()
+        # o3d.visualization.draw_geometries([hit_mesh], mesh_show_back_face=True)
+        # o3d.io.write_triangle_mesh('data/skeletor/results/hit_mesh_33.pcd',hit_mesh)
 
         mesh_2d = deepcopy(hit_mesh)
         hit_verticies = arr(mesh_2d.vertices)
         hvs_2d = [(x,y,0) for x,y,z in hit_verticies]
         mesh_2d.vertices = o3d.utility.Vector3dVector(hvs_2d)
         sa_2d = mesh_2d.get_surface_area()
-        draw(hit_mesh)
+        o3d.visualization.draw_geometries([mesh_2d], mesh_show_back_face=True)
+        breakpoint()
 
-    tcoords = o3d.t.geometry.TriangleMesh.create_coordinate_frame()
-    tcoords.translate([5,0,0])
-    tmesh.rotate(rot_90_x,center = tmesh.get_center())
-    draw([tcoords.to_legacy(),tmesh.to_legacy()])
+    # tcoords = o3d.t.geometry.TriangleMesh.create_coordinate_frame()
+    # tcoords.translate([5,0,0])
+    # tmesh.rotate(rot_90_x,center = tmesh.get_center())
+    # draw([tcoords.to_legacy(),tmesh.to_legacy()])
 
-    pcd = raycast_to_pcd(tmesh,pinhole_config)
-    draw([tcoords.to_legacy(),pcd])
-    breakpoint()
+    # pcd = raycast_to_pcd(tmesh,pinhole_config)
+    # draw([tcoords.to_legacy(),pcd])
+    # breakpoint()
     return hit_mesh
 
 def rgbd(pcd):
