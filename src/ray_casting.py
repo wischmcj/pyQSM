@@ -54,8 +54,8 @@ from geometry.mesh_processing import get_surface_clusters
 from reconstruction import recover_original_details
 
 from viz.viz_utils import color_continuous_map
-import pyvista as pv
 
+import pyvista as pv
 
 pinhole_config = { 'fov_deg':60,'center':[-3,-.25,-3],
                     'eye':[10, 10, 20],'up':[0, 0, 1],
@@ -65,7 +65,7 @@ rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 # pinhole_config = { 'fov_deg': 90, 'center': tmesh.get_center(), 'eye': [-2,-2,15], 'up': [0, -1, 1], 'width_px':1280, 'height_px':960,}
 origin = [0,0,0]
 
-def project_pcd(point_cloud = None, pts = None,alpha=.1):
+def project_pcd(point_cloud = None, pts = None,alpha=.1,plot=False,seed='default'):
     # num_points = 100
     # rng = np.random.default_rng(seed=0)  # Seed rng for reproducibility
     # point_cloud = rng.random((num_points, 3))
@@ -76,7 +76,7 @@ def project_pcd(point_cloud = None, pts = None,alpha=.1):
     # Define a plane
     origin = [0, 0, 0]
     normal = [0, 0, 1]
-    plane = pv.Plane(center=origin, direction=normal)
+    # plane = pv.Plane(center=origin, direction=normal)
 
 
     def project_points_to_plane(points, plane_origin, plane_normal):
@@ -85,11 +85,14 @@ def project_pcd(point_cloud = None, pts = None,alpha=.1):
         dist = np.dot(vec, plane_normal)
         return points - np.outer(dist, plane_normal)
 
+    log.info(f'Projecting points')
 
     projected_points = project_points_to_plane(points, origin, normal)
 
     # Create a polydata object with projected points
     polydata = pv.PolyData(projected_points)
+
+    log.info(f'Getting hull')
 
     # Mesh using delaunay_2d and pyvista
     mesh = polydata.delaunay_2d(alpha=alpha)
@@ -101,22 +104,20 @@ def project_pcd(point_cloud = None, pts = None,alpha=.1):
         i_resolution=10,
         j_resolution=10,
     )
-
-    # plot it
-    pl = pv.Plotter()
-    pl.add_mesh(mesh, show_edges=True, color='white', opacity=0.5, label='Tessellated mesh')
-    pl.add_mesh(    pv.PolyData(points),    color='red',    render_points_as_spheres=True,    point_size=1,    label='Points to project',)
-    pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
-    pl.add_legend()
-    pl.show()
-    
-    pl = pv.Plotter()
-    pl.add_mesh(mesh.extract_geometry())
-    pl.show()
-    # breakpoint()
-    geo = mesh.extract_geometry()
-    breakpoint()
-    print(geo.get_surface_area())
+    # if plot:
+    #     # plot it
+    #     log.info(f'Plotting')
+    #     pl = pv.Plotter()
+    #     pl.add_mesh(mesh, show_edges=True, color='white', opacity=0.5, label='Tessellated mesh')
+    #     pl.add_mesh(    pv.PolyData(points),    color='red',    render_points_as_spheres=True,    point_size=2,    label='Points to project',)
+    #     pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
+    #     pl.add_legend()
+    #     pl.show()
+        
+    #     pl = pv.Plotter()
+    #     pl.add_mesh(mesh.extract_geometry())
+    #     pl.show()
+    mesh.save(f'data/skio/projection/2d_proj_{seed}_alphapt1.ply')
     return mesh
 
 

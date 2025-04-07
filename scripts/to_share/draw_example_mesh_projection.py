@@ -4,6 +4,17 @@ from open3d.io import read_point_cloud
 from geometry.surf_recon import meshfix
 from ray_casting import cast_rays
 
+
+def generate_comparison(pcds, meshes):
+    pcd_list = [read_point_cloud(pcd) for pcd in pcds]
+    mesh_list = [o3d.io.read_triangle_mesh(mesh) for mesh in meshes]
+    o3d.visualization.draw_geometries(pcds)
+    o3d.visualization.draw_geometries(meshes, mesh_show_back_face=True)
+    
+    mesh_volumes = [mesh.to_legacy().get_volume() for mesh in mesh_list]
+    mesh_sas = [mesh.to_legacy().get_surface_area() for mesh in mesh_list]
+    raise NotImplementedError
+
 if __name__ == "__main__":
     inputs = 'data/skeletor/inputs'
     src_pcd = read_point_cloud(f'{inputs}/skeletor_clean.pcd')
@@ -30,10 +41,11 @@ if __name__ == "__main__":
     
     # o3d.visualization.draw_geometries([fixed_mesh.to_legacy()], mesh_show_back_face=False,mesh_show_wireframe=True)
     
+   
     o3d.visualization.draw_geometries([rc_pcd])
     o3d.visualization.draw_geometries([rc_mesh], mesh_show_back_face=True)
     o3d.visualization.draw_geometries([rc_2d_mesh], mesh_show_back_face=True)
-
+    final_iso = read_point_cloud('final_branch_cc_iso_pt9_top100_mdpt_k50')
     fixed_mesh_volume = fixed_mesh.to_legacy().get_volume()
     fixed_mesh_sa = fixed_mesh.to_legacy().get_surface_area()
     exposed_surface_area = rc_mesh.get_surface_area()

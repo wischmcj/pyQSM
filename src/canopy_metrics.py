@@ -47,7 +47,9 @@ from viz.color import (
 
 from geometry.mesh_processing import get_surface_clusters
 from reconstruction import recover_original_details
-from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays
+from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays,project_pcd
+
+import pyvista as pv
 
 color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,
                'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,
@@ -70,20 +72,40 @@ def create_alpha_shapes(file_content, save_gif=False, out_path = 'data/results/g
 
     log.info('Orienting, extracting hues')
     center_and_rotate(lowc) 
-    hue_pcds,no_hue_pcds =segment_hues(lowc,seed,hues=['white','blues'],draw_gif=True, save_gif=save_gif)
+    hue_pcds,no_hue_pcds =segment_hues(lowc,seed,draw_gif=False, save_gif=save_gif)
     no_hue_pcds = [x for x in no_hue_pcds if x is not None]
     target = no_hue_pcds[len(no_hue_pcds)-1]
     # draw(target)
     log.info('creating alpha shapes')
 
-    get_mesh(pcd,lowc,target)
-    
-  
+    metrics = {}
+    # get_mesh(pcd,lowc,target)
+    try:
+        mesh = project_pcd(pcd.uniform_down_sample(10),.1,plot=False,seed=f'{seed}_full_pcd')
+        metrics['full_mesh'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
+    except Exception as e:
+        print(f'error creating full mesh for {seed}: {e}')
+    try:
+        mesh = project_pcd(lowc,.1,plot=False,seed=f'{seed}_lowc')
+        metrics['lowc'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
+    except Exception as e:
+        print(f'error creating full mesh for {seed}: {e}')
+    try:
+        mesh = project_pcd(highc,.1,plot=False,seed=f'{seed}_highc')
+        metrics['highc'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
+    except Exception as e:
+        print(f'error creating full mesh for {seed}: {e}')
+    try:
+        mesh = project_pcd(target,.1,plot=False,seed=f'{seed}_stripped')
+        metrics['stripped'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
+    except Exception as e:
+        print(f'error creating full mesh for {seed}: {e}')
 
-    log.info('attempting alpha shape by pivoting ball')
+    log.info(f'finished seed {seed}')
+    log.info(f'{seed=}, {metrics=}')
     # o3d.visualization.draw_geometries([test], mesh_show_back_face=True)
     ######Ordered small to large leads to more,smaller triangles and increased coverage
-    breakpoint()
+    return metrics 
     # mesh_out = mesh_in.filter_smooth_simple(number_of_iterations=1)
   
 def propogate_shift(pcd,clean_pcd,shift):
@@ -112,7 +134,7 @@ def propogate_shift(pcd,clean_pcd,shift):
 def draw_shift(pcd,
                 seed,
                 shift,
-                down_sample=False,draw_results=True, save_gif=False, out_path = None,
+                down_sample=False,draw_results=False, save_gif=False, out_path = None,
                 on_frames=25, off_frames=25, addnl_frame_duration=.01, point_size=5):
     out_path = out_path or f'data/results/gif/'
     clean_pcd = pcd
@@ -143,44 +165,125 @@ def draw_shift(pcd,
     # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
     # draw(highc_detail
 
+def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, out_path = 'data/results/gif/'):
+    if file_content:
+        seed, pcd, clean_pcd, shift_one = file_content
+    down = pcd.uniform_down_sample(10)
+
+    if shift_one is not None :
+        if clean_pcd is None:
+            clean_pcd = get_downsample(pcd=clean_pcd, normalize=False)
+        c_mag = np.array([np.linalg.norm(x) for x in shift_one])
+        highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70)
+        draw(lowc)
+
+    make_mesh=True
+    metrics = {}
+    if make_mesh:
+        print(f'Creating projection for {seed}')
+        mesh = project_pcd(down,.1,plot=True)
+        geo = mesh.extract_geometry()
+        metrics[seed] ={'pcd_max': pcd.get_max_bound(),
+                    'pcd_min': pcd.get_min_bound(),
+                    'mesh': mesh,
+                    'mesh_area': mesh.area
+                    }
+        print(metrics)
+    return metrics
+
 def loop_over_files(func,requested_seeds=[],skip_seeds = []):
-    dir = 'data/results/skio/skels2/'
+    root = 'data/skio/results/skio/'
+    dir = f'{root}skels2/'
     seed_pat = re.compile('.*seed([0-9]{1,3}).*')
-    detail_files = glob('*detail*',root_dir='data/results/skio/')
+    detail_files = glob('*detail*',root_dir=root)
     shift_two_files = glob('*shift*',root_dir=dir)
-    shift_one_files = glob('*shift*',root_dir='data/results/skio/')
-    
-    seed_to_detail = {re.match(seed_pat,file).groups(1)[0]:file for file in detail_files}
+    shift_one_files = glob('*shift*',root_dir=root)
+    files_with_seeds = [(file,re.match(seed_pat,file)) for file in detail_files if re.match(seed_pat,file) is not None]
+    seed_to_detail = {match.groups(1)[0]:file for file, match in files_with_seeds}
     # for seed,file in seed_to_detail.items(): get_shift(read_pcd(file),seed)
     seed_to_shift_one = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_one_files}
     seed_to_shift_two = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_two_files}
     seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift_one.get(seed),seed_to_shift_two.get(seed)))  for seed in seed_to_detail.keys() ]
     seed_to_content = {seed:(detail,shift_one,shift_two) for seed,(detail,shift_one,shift_two) in seed_to_files}
-
+    
+    results = []
     for file_info in seed_to_content.items():
         seed, _ = file_info
         log.info(f'processing seed {seed}')
         if ((requested_seeds==[] or int(seed) in requested_seeds)
             and int(seed) not in skip_seeds):
-            file_content = file_info_to_pcds(file_info)
+            try:
+                file_content = file_info_to_pcds(file_info)
+                metrics = func(file_content)
+                results.append((seed,metrics))
+            except Exception as e:
+                print(f'error in {seed}: {e}')
+            # seed, (pcd_file, shift_file_one,shift_file_two) = file_info
+            # pcd = read_pcd(f'{root}/{pcd_file}')
+            # log.info('downsampling/coloring pcd')
+            # clean_pcd = get_downsample(pcd=pcd,normalize=False)
+            # results.append(pcd.uniform_down_sample(15))
             # try:
-            func(file_content)
+            # results.append(mesh)
             # except Exception as e:
                 # breakpoint()
                 # log.info(f'error with {seed},{e}')
+    # test = [file_info_to_pcds(file_info) for file_info in seed_to_content.items()]
+    log.info(results)
+    breakpoint()
+    id_to_seed = {0:189, 1:151, 2:133, 3:191, 4:137, 5:134, 6:109, 7:136, 8:135, 9:111, 10:138, 11:112, 12:116, 13:107, 14:193, 15:114, 16:190, 17:108, 18:132, 19:115,}
+    res_by_seed = [(id_to_seed[idx],x) for idx,x in enumerate(results)]
 
-def file_info_to_pcds(file_info,normalize = False ):
+    for res in result: 
+
+        for key,val in res.items():
+            res[key]['mesh_bounds'] = res['mesh'].bounds
+
+    from itertools import product
+    cols = [x for x in results[0].keys()]
+    # sub_cols = results[0]['full_mesh'].keys()
+    sub_cols = ['pcd_max', 'pcd_min', 'mesh_bounds', 'mesh_area']
+    all_cols = product(cols, sub_cols)
+    all_cols = list([x for x in all_cols])
+    col_names = [f'{col}_{sub_col}' for col, sub_col in all_cols]
+    fin_cols = ['Tree ID'] + col_names
+    
+    col_names = [f"metrics['{col}']['{sub_col}']" for col, sub_col in all_cols]
+    
+    
+
+    
+    from prettytable import PrettyTable
+    myTable = PrettyTable(fin_cols)
+    myTable.custom_format
+    
+    for seed,metrics in res_by_seed:   myTable.add_row([seed,tuple(metrics['full_mesh']['pcd_max']), tuple(metrics['full_mesh']['pcd_min']), tuple(metrics['full_mesh']['mesh'].bounds), metrics['full_mesh']['mesh_area'], tuple(metrics['lowc']['pcd_max']), tuple(metrics['lowc']['pcd_min']), tuple(metrics['lowc']['mesh'].bounds), metrics['lowc']['mesh_area'], tuple(metrics['highc']['pcd_max']), tuple(metrics['highc']['pcd_min']), tuple(metrics['highc']['mesh'].bounds), metrics['highc']['mesh_area'], tuple(metrics['stripped']['pcd_max']), tuple(metrics['stripped']['pcd_min']), tuple(metrics['stripped']['mesh'].bounds), metrics['stripped']['mesh_area']])
+    print('dont finish yet')
+    return results
+
+def file_info_to_pcds(file_info,
+                        normalize = False,
+                        get_shifts = True,
+                        get_clean_pcd =True):
     seed, (pcd_file, shift_file_one,shift_file_two) = file_info
     log.info('')
     log.info(f' {shift_file_one=},{shift_file_two=},{pcd_file=}')
     log.info('loading shifts')
-    shift_one = load(shift_file_one)
-    # shift_two_total = load(shift_file_two,dir)
-    # shift_two = shift_two_total[0]
+    shift_one = None
+    if get_shifts:
+        try:
+            shift_one = load(shift_file_one)
+        except Exception as e:
+            shift_one = None
+            print(f'Error getting shift for seed {seed}: {e}')
+        # shift_two_total = load(shift_file_two,dir)
+        # shift_two = shift_two_total[0]
     log.info('loading pcd')
-    pcd = read_pcd(f'data/results/skio/{pcd_file}')
+    pcd = read_pcd(f'data/skio/results/skio/{pcd_file}')
     log.info('downsampling/coloring pcd')
-    clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
+    clean_pcd = None
+    if get_clean_pcd:   
+        clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
     return seed, pcd, clean_pcd, shift_one
 
 def get_epiphyes(file_info,dir):
@@ -271,13 +374,6 @@ def draw_two_shifts(file_info,dir):
 
     log.info('loading shift')                
     get_shift(lowc,seed,iters=15,debug=False)    
-
-def get_canopy_coverage_area(pcd):
-    down_sample = pcd.uniform_down_sample(20)
-    clean_pcd = clean_cloud(down_sample,iters = 1)
-    draw(clean_pcd)
-    upcd = o3d.geometry.sample_points_uniformly(clean_pcd,100000)
-    mesh = pivot_ball_mesh(clean_pcd,[1.2,1.5,1.7,2,2.2,2.5,2.7,3])
 
 def get_shift(pcd, seed,
               contraction,
@@ -477,12 +573,22 @@ if __name__ =="__main__":
     # draw(test)
     # draw(highs)
     # draw(lows)
-
+    
+    in_ids = [1,2,3,4,5,6,7,8,9]
+    in_seed_ids = [107,108,109,111,112,113,114,115,116,133,151]
     # breakpoint()
     # loop_over_files(project2d)
     # loop_over_files(project_to_rgbd)
-    loop_over_files(create_alpha_shapes, skip_seeds = [189,151,113,
-                                                       133,191,137,134,135])
+    #************ Do we need 151?
+    #  133 is three trees, 151 is the same
+    #   115 is part of a tree, seed is a vine
+    # 107 and
+    res = loop_over_files(create_alpha_shapes)
+                        #   requested_seeds=['33', 107,108,109,111,112,113,114,115,133,116]) 
+    breakpoint()
+    lowc  = o3d.io.read_point_cloud('data/skio/inputs/new_low_cloud_all_16-18pct.pcd')
+    draw([lowc]+res)
+    # loop_over_files(create_alpha_shapes, skip_seeds = [189,151,113, 33,191,137,134,135])
     ###Goods
     #113, 136**
     ##Needs Work

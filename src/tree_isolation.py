@@ -20,7 +20,7 @@ from set_config import config, log
 from utils.math_utils import (
     generate_grid
 )
-from geometry.point_cloud_processing import ( 
+from geometry.point_cloud_processing import crop_by_percentile ( 
     clean_cloud,
     create_one_or_many_pcds,
     crop_by_percentile,
@@ -340,7 +340,6 @@ def build_trees_nogrid(pcd=None, exclude_boundaries=[],
     # breakpoint()
     extend_seed_clusters(labeled_cluster_pcds,search_pcd,file_base_name,cycles=10,save_every=2,**kwargs) # extending downward
 
-
 def pcds_from_extend_seed_file(file,pcd_idxs=[]):
     with open(file,'rb') as f:
         # dict s.t. {cluster_id: [list_of_pts]}
@@ -365,7 +364,6 @@ def pcds_from_extend_seed_file(file,pcd_idxs=[]):
         
 def read_point_shift():
     shift=load('')
-
 
 def inspect_others():
     
@@ -448,6 +446,57 @@ def run_extend():
     #                         file_label='other_clusters',cycles=250,save_every=20,draw_every=160, max_distance=.1)
 
 if __name__ =="__main__":
+    # in_ids = [1,2,3,4,5,6,7,8]
+    # rf_ext_pcds = pcds_from_extend_seed_file('data/skio/exts/new_seeds_w_order_in_progress.pkl',[in_ids])
+
+    # # in_seed_ids = [107,108,109,111,112,113,114,115,116,133,151]
+    # oth_ext_pcds = pcds_from_extend_seed_file('data/skio/exts/other_clusters_w_order_in_process.pkl',[12])
+    # pcd107 = pcds_from_extend_seed_file('data/skio/exts/rf_cluster_107_rebuild_in_process.pkl')
+    # draw(pcd107)
+
+    test  = read_pcd('data/skio/results/skio/full_ext_seed135_rf11_orig_detail.pcd')
+    pcd = test.uniform_down_sample(15)
+    from ray_casting import project_pcd
+    breakpoint()
+    mesh = project_pcd(pcd,.1,True)
+    # # in_ids = [12]
+    # # in_seed_ids = [33]
+    # ## 12/33 and 5/113 share a pcd but are two trees
+
+    lowc  = read_pcd('data/skio/inputs/new_low_cloud_all_16-18pct.pcd')
+
+
+    final_113 = o3d.io.read_point_cloud('data/skio/results/skio/final_ext_seed113_rf5_orig_detail.pcd')
+    # final_113 = final_113.uniform_down_sample(10)
+    # final_33 = oth_ext_pcds.uniform_down_sample(10)
+    # from reconstruction import get_neighbors_kdtree
+    # nbrs_in_113, _, analouge_idxs = get_neighbors_kdtree(oth_ext_pcds[0],final_113,k=200, dist=.1)
+    # # draw(nbrs_in_113)
+    # not113 = oth_ext_pcds[0].select_by_index(analouge_idxs, invert=True)
+    # draw(not113)
+    # breakpoint()
+
+    test = read__point_cloud('data/skio/results/skio/final_ext_not113_seed33_oc5_orig_detail.pcd')
+    
+    # collective  = read_pcd('data/skio/inputs/partitioning_search_area_collective.pcd')
+  
+    # draw(rf_ext_pcds+oth_ext_pcds)
+    # breakpoint()
+    
+    new_113 = read_pcd('data/skio/results/skio/full_ext_seed113_rf5_orig_detail.pcd')
+    # hue_pcds,no_hue_pcds =segment_hues(new_113,113,draw_gif=True, save_gif=False)
+    # stripped = clean_cloud(hue_pcds[5])
+    # seed ,_ = crop_by_percentile(stripped,0,4)
+    # # draw(seed)
+    # clusters = [(1,seed)]
+    # tree_pcds = extend_seed_clusters(clusters,stripped, '113_split', k=50, max_distance=.1, cycles= 500, save_every = 200, draw_every = 200)
+    # branch_nbrs, _, analouge_idxs = get_neighbors_kdtree(new_113,tree_pcds[0],k=800, dist=2)
+    # non_113 = new_113.select_by_index(analouge_idxs,invert=True)
+    # test = non_113.uniform_down_sample(10)
+    # res = cluster_plus(test, eps=.5, min_points=1000,return_pcds=True,from_points=False, draw_result=True)
+    breakpoint()
+
+
     # axes = o3d.geometry.create_mesh_coordinate_frame()
     # exclude_regions = {
     #         'building1' : [ (77,350,0),(100, 374,5.7)], 
@@ -513,7 +562,6 @@ if __name__ =="__main__":
                     (trunk_clusters[seed] ,
                       seed_to_root_map[seed], seed_to_root_id[seed]) for seed in rf_seeds}
 
-    rf_ext_pcds = pcds_from_extend_seed_file('new_seeds_w_order_in_progress.pkl')
     unmatched_rf_ext_idx = [idx for idx,pcd in enumerate(rf_ext_pcds) if idx not in [0 ,1 ,1 ,2,3,4 ,6,7 ,8 ,9 ,10,11,12,13,14,15,16,18] ]
     unmatched_rf_ext_pcds = [pcd for idx,pcd in enumerate(rf_ext_pcds) if idx not in [0 ,1 ,1 ,2,3,4 ,6,7 ,8 ,9 ,10,11,12,13,14,15,16,18] ]
 
