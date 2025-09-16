@@ -197,32 +197,84 @@ def read_file_sections(file,
             # line  = ' '.join(line.split(' ')[:3]) + '\n'
             if lineno%(batch/5)==0:
                 print(f'on iter {lineno}')
-            line = line.replace('\n','').split(' ')
-            # lines.append(line)
-            try:
-                pt = tuple(map(float,line[:3]))
-            #     worked = False
-                #\ if (pt[0]>x_min and
-                #     pt[0]<x_max and
-                #     pt[1]>y_min and
-                #     pt[1]<y_max      
-                #     ):
-                    # try:
-                pcd_pts.append(pt)
-                color = tuple(map(float,line[6:9]))
-                pcd_cols.append(color)
-
-                other = tuple(map(float,line[3:6]))
-                other_vals.append(other)
-                    # except:
-                        # print('err ')
-            except Exception as e:
-                print(f'err {e}')
-    
+            if lineno>0:
+                line = line.replace('\n','').split(' ')
+                lines.append(line)
             if lineno%batch ==0:
                 if lineno>0:
-                    other_vals= np.asarray(other_vals)
-                    pcd_cols= np.asarray(pcd_cols)
+                    import math
+                    lines = arr(lines)
+                    pcd_cols = lines[:,4:7].astype(int)
+                    pcd_pts = lines[:,0:3].astype(float)
+                    inten = lines[:,3].astype(int)
+
+                    inten_new_max = np.percentile(inten,100)
+                    inten_limited =  np.clip(inten, None,inten_new_max)
+                    inten_min = np.min(inten_limited)
+                    inten_posi =  inten_limited - inten_min if inten_min<0 else inten_limited + inten_min
+                    norm_inten = inten_posi/np.median(inten_posi)
+
+
+                    norm_pcd_cols = pcd_cols/255
+                    new_pcd_cols = (norm_pcd_cols.T*norm_inten).T
+                    # new_pcd_cols = new_pcd_cols
+                    # pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+                    # o3d.visualization.draw(pcd)
+
+
+                    pcd = o3d.geometry.PointCloud()
+                    pcd.points = o3d.utility.Vector3dVector(pcd_pts)
+                    pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+                    pcd = pcd.uniform_down_sample(2)
+                    # o3d.visualization.draw(pcd)
+                    # new_pcd_cols = new_pcd_cols*
+                    # breakpoint()
+                    # for idv,vals in enumerate([other_vals[:,0],other_vals[:,1],other_vals[:,2],
+                    #                pcd_cols[:,0],pcd_cols[:,1],pcd_cols[:,2] ]):
+                    #     oth_desc= stats.describe(np.asarray(vals))
+                    #     print(f'{idv}: {oth_desc}')
+
+
+                    # high_inten_ids = np.where(inten > np.percentile(inten,70))
+                    # test = pcd.select_by_index(high_inten_ids)
+                    # draw(test)
+                    # pcd_cols = arr([tuple((x/255 for x in rgb)) for rgb in pcd_cols])
+                    # try:
+                    #     o3d.visualization.draw(pcd)
+                    # except Exception as e:
+                    #     print(f'error in draw {e}' )
+                    # breakpoint()
+                    
+                    write_point_cloud(f'/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/trim/skeletor_full_{file_num}.pcd',pcd)
+                    print(f'Wrote file {file_num} on iter {lineno}')
+                    # save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
+                    # save(f'data/skeletor/inputs/skeletor_full_color_{file_num}.pkl',pcd_cols)
+                    lines = []
+                    del pcd
+                    pcd_pts =  []
+                    pcd_cols = []
+                    other_vals = []
+                    file_num+=1
+    
+
+        lines = arr(lines)
+        pcd_cols = lines[:,4:7].astype(int)
+        pcd_pts = lines[:,0:3].astype(float)
+        inten = lines[:,3].astype(int)
+
+        inten_new_max = np.percentile(inten,100)
+        inten_limited =  np.clip(inten, None,inten_new_max)
+        inten_min = np.min(inten_limited)
+        inten_posi =  inten_limited - inten_min if inten_min<0 else inten_limited + inten_min
+        norm_inten = inten_posi/np.median(inten_posi)
+
+
+        norm_pcd_cols = pcd_cols/255
+        new_pcd_cols = (norm_pcd_cols.T*norm_inten).T
+        # new_pcd_cols = new_pcd_cols
+        # pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+        # o3d.visualization.draw(pcd)
+
 
                     for idv,vals in enumerate([other_vals[:,0],other_vals[:,1],other_vals[:,2],
                                    pcd_cols[:,0],pcd_cols[:,1],pcd_cols[:,2] ]):
@@ -284,12 +336,11 @@ def read_file_sections(file,
     
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pcd_pts)
-        pcd.colors =  o3d.utility.Vector3dVector(pcd_cols)
-        o3d.visualization.draw(pcd)
-        # pcd = pcd.voxel_down_sample(.05)
-        write_point_cloud(f'data/skeletor/inputs/skeletor_full_final.pcd',pcd)
+        pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+        pcd = pcd.uniform_down_sample(2)
+        write_point_cloud(f'/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/trim/skeletor_full_final.pcd',pcd)
         print(f'Wrote file {file_num} on iter {lineno}')
-        save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
+        # save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
         breakpoint()
 
     
@@ -391,6 +442,7 @@ if __name__ == '__main__':
 
     # file = '/home/penguaman/code/Research/lidar/SKIO-RaffaiEtAl.pts'
     file = '/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/skeletor.pts'
+    file = '/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/SkeletorTrim.xyz'
     read_file_sections(file, 0)
     # read_pcd()
     # read_file_sections(0)
