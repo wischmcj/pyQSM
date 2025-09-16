@@ -26,7 +26,7 @@
 ##### Software Settings 
 [io]
 data_root = 'data/skeletor/'
-super_user = false
+data_root = 'data/skio/results/skio/'super_user = false
 
 
 ##### Algorithm Settings
@@ -40,6 +40,7 @@ iters = 3
 [stem]
 normals_radius = 0.1
 normals_nn = 30
+normals_smoothing_nn = 50
 angle_cutoff = 10
 stem_voxel_size = ''
 post_id_stat_down = false
