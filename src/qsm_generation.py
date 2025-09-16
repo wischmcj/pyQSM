@@ -15,7 +15,7 @@ from matplotlib import patches
 from open3d.io import read_point_cloud, write_point_cloud
 
 from geometry.skeletonize import extract_skeleton, extract_topology
-from tree_isolation5 import extend_seed_clusters
+from tree_isolation import extend_seed_clusters
 from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.io import save, load, save_line_set
@@ -45,11 +45,11 @@ from geometry.point_cloud_processing import (
 )
 from viz.viz_utils import iter_draw, draw
 from geometry.point_cloud_processing import join_pcds
-from reconstruction import get_neighbors_kdtree
-from tree_isolation5 import pcds_from_extend_seed_file
+from geometry.reconstruction import get_neighbors_kdtree
+from tree_isolation import pcds_from_extend_seed_file
 import pickle 
 from geometry.mesh_processing import map_density
-from geometry.surf_recon import plot_dist_dist,get_mesh
+from utils.plotting import plot_dist_dist
 
 log = logging.getLogger('calc')
 
@@ -100,16 +100,13 @@ def get_stem_pcd(pcd=None, source_file=None
     if post_id_stat_down:
         _, ind = test.remove_statistical_outlier(nb_neighbors= nb_neighbors, std_ratio=std_ratio)
         test = test.select_by_index(ind)
-    write_point_cloud(f'{inputs}/skeletor_stem_ds2_ac10.pcd',stem_cloud)
-    write_point_cloud(f'{inputs}/skeletor_trunk_ds2_ac10_epspt35_mp80.pcd',clusters1)
-    write_point_cloud(f'{inputs}/skeletor_stem_ds2_ac10.pcd',stem_cloud)
     # recluster and remove all branch starts. Then fill in w detail from pcd
-    write_point_cloud(f'{inputs}/skeletor_dtrunk.pcd',dt4)
     # clustering result to isolate trunk
     # works well at eps .35,.45 and min pts 80-110
-    clusters = cluster_plus(stem_cloud,eps=.05*7, min_points=80,return_pcds=True,from_points=False)
-    for i in range(1,10): 
-        cluster_plus(test,eps=.05*7, min_points=90,return_pcds=True,from_points=False)
+    # clusters = cluster_plus(stem_cloud,eps=.05*7, min_points=80,return_pcds=True,from_points=False)
+    # for i in range(1,10): 
+    #     cluster_plus(test,eps=.05*7, min_points=90,return_pcds=True,from_points=False)
+    # write_point_cloud(f'{inputs}/skeletor_dtrunk.pcd',dt4)
 
     #  pcd.detect_planar_patches(
     # normal_variance_threshold_deg=60,
@@ -131,6 +128,7 @@ def get_stem_pcd(pcd=None, source_file=None
         np.asarray(pcd.colors)[idx[1:], :] = [0, 1, 0]
         o3d.visualization.draw([stem_cloud])
         o3d.visualization.draw([pcd,sp])
+        breakpoint()
     except Exception as e:
         breakpoint()
         print('')
@@ -492,51 +490,6 @@ def find_low_order_branches(start = 'initial_clean',
 
     if start == 'knn' or started:
         source_pcd = pcd 
-        # total_found = load('skeletor_trunk_total_found.pkl')
-        # clusters_and_pts = load('skeletor_final_branch_seeds.pkl')
-        # seed_clusters = create_one_or_many_pcds(pts = [x[1] for x in clusters_and_pts], labels = [x[0] for x in clusters_and_pts])
-        # clusters_and_idxs = [(idc,cluster) for idc, cluster in enumerate(seed_clusters)]
-        # # seed_clusters = seed_clusters[3:]
-        # # breakpoint()
-        
-        
-        
-        # all_seeds = join_pcds(seed_clusters)[0]
-        # analouge_pcds, _, seed_analouges = get_neighbors_kdtree(source_pcd, all_seeds, dist=.01)
-        # analouge_pcds.paint_uniform_color([1,0,1])
-        # seeds2, seeds2_nbrs, seeds2_chained_nbrs = get_neighbors_kdtree(source_pcd, all_seeds, dist=.3)
-        # # draw(seeds2)
-        # # draw([seeds2,analouge_pcds])
-        # clean_seeds2, clean_seeds2_idxs = seeds2.remove_statistical_outlier(nb_neighbors= nb_neighbors, std_ratio=std_ratio)
-        # seed_clusters2 = cluster_plus(clean_seeds2, eps=.13, min_points=25,return_pcds=True,from_points=False)
-        
-        # seed_clusters2 = seed_clusters2[2:]
-        
-        
-        # raw_seeds = join_pcds(seed_clusters2[:3])[0]
-        # seeds3, seeds3_nbrs, seeds3_chained_nbrs = get_neighbors_kdtree(source_pcd, raw_seeds, dist=.1)
-        # non_seed = np.setdiff1d(seeds3_chained_nbrs, seed_analouges)
-        # branch_seeds3 = source_pcd.select_by_index(non_seed)
-        # seed_clusters3 = cluster_plus(branch_seeds3, eps=.15, min_points=20,return_pcds=True,from_points=False)
-        # draw(seed_clusters3)
-        # draw([seeds3,analouge_pcds])
-        # idxs = [1,2,4,5,6,7,8]
-        # breakpoint()
-        # for i in idxs: seed_clusters2.append(seed_clusters3[i])
-        # final_seed_clusters = seed_clusters2
-        # draw(final_seed_clusters)
-        # seed_clusters4 = cluster_plus(seed_clusters3[3], eps=.1, min_points=10,return_pcds=True,from_points=False)
-        # final_seed_clusters.append(seed_clusters4[1])
-        # final_seed_clusters.append(seed_clusters4[2])
-        
-        # non_seed = np.setdiff1d(seeds2_chained_nbrs, seed_analouges)
-        # new_nbrs3 = [x for x in seeds3_chained_nbrs if x in non_seed] # = np.setdiff1d(seeds3_chained_nbrs, seeds2_chained_nbrs,seed_analouges)
-        # branch_seeds3 = source_pcd.select_by_index(non_seed)
-        # draw(branch_seeds3)
-        # draw([branch_seeds3,analouge_pcds])
-        # breakpoint()
-        # new_nbrs3 = np.setdiff1d(seeds2_chained_nbrs, seeds2_chained_nbrs)
-        # branch_seeds3 = source_pcd.select_by_index(new_nbrs3)
 
         total_found = load('skeletor_trunk_total_found.pkl')
         clusters_and_pts = load('skeletor_final_branch_seeds.pkl')
@@ -602,17 +555,51 @@ def filter_line_set(ls,idxs):
     line_set.lines = o3d.utility.Vector2iVector(lines)
     return line_set
 
+
+def exclude_dense_areas(pcd, radius=.05):
+    import rustworkx as rx
+    radius=.1
+    degrees,cnts,line_set= get_pairs(query_pts=arr(pcd.points),radius=radius, return_line_set=True)
+    draw(line_set)
+    # making graph, finding connected components
+    lines =  arr(line_set.lines)
+    pts = arr(line_set.points)
+    g = rx.PyGraph()
+    _=g.add_nodes_from([pt for idp,pt in enumerate(arr(line_set.points))])
+    _=g.add_edges_from_no_data([tuple(pair) for pair in arr(line_set.lines)])
+    conn_comps = arr([x for x in sorted(rx.connected_components(g), key=len, reverse=True)])
+    print(len(conn_comps))
+    print([len(x) for x in conn_comps])
+    print( len(np.where(arr([len(x) for x in conn_comps])>1)[0]))
+    # nodes = [arr(g.nodes())[list(conn_comp)] for conn_comp in conn_comps]
+    # components to subgraphs
+    large_comps= [x for x in conn_comps[0:500] if len(x)>150 and len(x)<200]
+    large_comps= [x for x in conn_comps[0:500] if len(x)<100]
+    subgraphs = list(chain.from_iterable([g.subgraph(list(conn_comp)) for conn_comp in large_comps]))
+    # subgraphs to line sets
+    pts = list([subgraph.nodes() for subgraph in subgraphs])
+    lines = list([subgraph.edge_list() for subgraph in subgraphs])
+    line_sets = [o3d.geometry.LineSet() for _ in range(len(subgraphs))]
+    for idp,sub_line_set in enumerate(line_sets): sub_line_set.points = o3d.utility.Vector3dVector(pts[idp])
+    for idp,sub_line_set in enumerate(line_sets): sub_line_set.lines = o3d.utility.Vector2iVector(lines[idp])
+    draw(line_sets)
+    
+
+    branches, _, analouge_idxs = get_neighbors_kdtree(trim, query_pts=new_pts,k=200, dist=.01)
+    draw(branches)
+
+
 if __name__ == "__main__":
 
-    from geometry.surf_recon import meshfix
     root_dir = '/media/penguaman/code/code/ActualCode/pyQSM/'
     inputs = 'data/skeletor/inputs'
     from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
-    from geometry.surf_recon import meshfix
+    meshfix
 
     trim = read_point_cloud(f'{inputs}/trim/skeletor_full_ds2.pcd')
     pcd = trim.uniform_down_sample(15)
-    # pcd = read_point_cloud('final_branch_cc_iso_pt9_top100_mdpt_k50.pcd')
+    # pcd = read_point_cloud('finpcdal_branch_cc_iso_pt9_top100_mdpt_k50.pcd')
+    from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
     mesh = project_pcd(pcd)
     
     # breakpoint()
@@ -705,17 +692,16 @@ if __name__ == "__main__":
     dtrunk= read_point_cloud(f'{inputs}/skeletor_dtrunk.pcd')
     joined = read_point_cloud('branches_pt3_30pct.pcd')
     
-    import networkx as nx
+    import rustworkx as rx
     conn_comps_list = []
     final_list = []
     for radius in [.06,.07,.08,.09]:
         degrees,cnts,line_set= get_pairs(query_pts=arr(joined.points),radius=radius, return_line_set=True)
         # draw(line_set)
-        g = nx.Graph()
-        # g.add_nodes_from([idp for idp,_ in enumerate(arr(line_set.points))])
-        g.add_edges_from(list(arr(line_set.lines)))
-        # conn_comps = arr([x for x in nx.connected_components(g)])
-        conn_comps = list([x for x in sorted(nx.connected_components(g), key=len, reverse=True)])
+        g = rx.PyGraph()
+        g.add_nodes_from([idp for idp,_ in enumerate(arr(line_set.points))])
+        g.add_edges_from_no_data([tuple(pair) for pair in arr(line_set.lines)])
+        conn_comps = arr([x for x in sorted(rx.connected_components(g), key=len, reverse=True)])
         print(len(conn_comps))
         print([len(x) for x in conn_comps])
 
