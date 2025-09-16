@@ -1,5 +1,7 @@
+from matplotlib import pyplot as plt
 import open3d as o3d
 import numpy as np
+from numpy import array as arr
 
 from utils.math_utils import (
     get_angles,
@@ -14,8 +16,68 @@ from set_config import log, config
 
 from viz.viz_utils import color_continuous_map, draw
 
+def join_pcds(pcds):
+    pts = [arr(pcd.points) for pcd in pcds]
+    colors = [arr(pcd.colors) for pcd in pcds]
+    return create_one_or_many_pcds(pts, colors, single_pcd=True)
 
-def clean_cloud(pcd, voxels=None, neighbors=20, ratio=2.0, iters=3):
+def create_one_or_many_pcds( pts,
+                        colors = None,
+                        labels = None,
+                        single_pcd = False):    
+    log.info('creating pcds from points')
+    pcds = []
+    tree_pts= []
+    tree_color=[]
+    if not isinstance(pts[0],list) and not isinstance(pts[0],np.ndarray):
+        pts = [pts]
+    if not labels:
+        labels = np.asarray([idx for idx,_ in enumerate(pts)])
+    if (not colors):
+        labels = arr(labels)
+        max_label = labels.max()
+        try:
+            label_colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+        except Exception as e:
+            log.info('err')
+
+    # for pcd, color in zip(tree_pcds, colors): pcd.paint_uniform_color(color[:3])
+    for pts, color in zip(pts, colors or label_colors): 
+        if not colors: 
+            # if true, then colors were generated from labels
+            color = [color[:3]]*len(pts)
+        if single_pcd:
+            log.info(f'adding {len(pts)} points to final set')
+            tree_pts.extend(pts)
+            tree_color.extend(color)
+        else:
+            cols = [color[:3]]*len(pts)
+            log.info(f'creating pcd with {len(pts)} points')
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(pts)
+            pcd.colors = o3d.utility.Vector3dVector(color)
+            pcds.append(pcd)
+    if single_pcd:
+        log.info(f'combining {len(tree_pts)} points into final pcd')
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(tree_pts)
+        pcd.colors = o3d.utility.Vector3dVector([x for x in tree_color])
+        pcds.append(pcd)
+    return pcds
+
+def normalize_to_origin(pcd):
+    print(f'original: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
+    center =pcd.get_min_bound()+((pcd.get_max_bound() -pcd.get_min_bound())/2)
+    pcd.translate(-center)
+    print(f'translated: {pcd.get_max_bound()=}, {pcd.get_min_bound()=}')
+    return pcd
+
+def clean_cloud(pcd,
+                voxels=config['initial_clean']['voxel_size'],
+                neighbors=config['initial_clean']['neighbors'],
+                ratio=config['initial_clean']['ratio'],
+                iters = config['initial_clean']['iters']
+                ):
     """Reduces the number of points in the point cloud via
     voxel downsampling. Reducing noise via statistical outlier removal.
     """
@@ -85,23 +147,39 @@ def crop_and_highlight(pcd,lower,upper,axis):
 def cluster_plus(pcd,
                     eps=config['trunk']['cluster_eps'],
                     min_points=config['trunk']['cluster_nn'],
-                    draw_result = False,
+                    draw_result = True,
                     color_clusters = True,
-                    top=None,
                     from_points=True,
-                    return_pcds = True):
-    labels = np.array(pcd.cluster_dbscan(eps=.11, min_points=5,print_progress=True))
-    color_continuous_map(pcd, labels)
-    unique_vals, counts = np.unique(labels, return_counts=True)
-    if draw_result: draw(pcd)
-    num_clusters = len(unique_vals)
-    if not top: top = num_clusters
-    print(f"point cloud has {num_clusters} clusters")
-    unique_vals, counts = np.unique(labels, return_counts=True)
-    largest = unique_vals[np.argmax(counts)]
-    max_cluster_idxs = np.where(labels == largest)[0]
-    max_cluster = pcd.select_by_index(max_cluster_idxs)
-    return max_cluster, max_cluster_idxs
+                    return_pcds=True,
+                    ransac=False):
+    if from_points:
+        pts=pcd
+        pcd = o3d.geometry.PointCloud()
+        breakpoint()
+        pcd.points = o3d.utility.Vector3dVector(arr(pts))
+    
+    if ransac:
+        plane_model, inliers = pcd.segment_plane(distance_threshold=eps, ransac_n=10, num_iterations=1000)
+    else:
+        labels = np.array(pcd.cluster_dbscan(eps=eps, min_points=min_points,print_progress=True))
+
+    if color_clusters:
+        color_continuous_map(pcd, labels)
+    if draw_result: 
+        draw(pcd)
+
+    unique_lbs, counts = np.unique(labels, return_counts=True)
+    print(f"point cloud has {counts} clusters")
+    # num_clusters = len(unique_vals)
+    # if not top: 
+    #     top = num_clusters
+    label_to_cluster = {ulabel: np.where(labels == ulabel)[0] for ulabel in unique_lbs}
+    if return_pcds:
+        ret = [pcd.select_by_index(idx_list) for idx_list in label_to_cluster.values()]
+    else:
+        ret = label_to_cluster
+        
+    return ret
 
 def cluster_and_get_largest(pcd,
                                 eps=config['trunk']['cluster_eps'],
@@ -204,22 +282,40 @@ def get_shape(pts, shape="sphere", as_pts=True, rotate="axis", **kwargs):
 
     return shape
 
-def query_via_bnd_box(sub_pcd, pcd):
+def query_via_bnd_box(pcd,
+                        source_pcd,
+                        scale = 1.1,
+                        translation=(0,0,1),
+                        draw:bool = True  ):
+    """Looks for neighbors by scaling/translating a
+        bounded box containing the pcd
+
+    Args:
+        sub_pcd (_type_): _description_
+        pcd (_type_): _description_
+    """
     from copy import deepcopy
-    pcd_pts = arr(pcd.points)
+    # get and shift bounded box around opcd
     obb = pcd.get_oriented_bounding_box()
-    # obb = sub_pcdpcd.get_minimal_oriented_bounding_box()
+    # obb = pcd.get_minimal_oriented_bounding_box()
     obb.color = (1, 0, 0)
-    up_shifted_obb = deepcopy(obb).translate((0,0,1),relative = True)
-    up_shifted_obb.scale(.8,center = obb.center)
-    draw([sub_pcd,obb,up_shifted_obb])
-    new_pt_ids = up_shifted_obb.get_point_indices_within_bounding_box( 
-                                o3d.utility.Vector3dVector(pcd_pts) )
-    old_pt_ids = obb.get_point_indices_within_bounding_box( 
-                                o3d.utility.Vector3dVector(pcd_pts) )
-    next_slice =pcd.select_by_index(new_pt_ids)
-    draw([next_slice,sub_pcd,obb,up_shifted_obb])
+    shifted_obb = deepcopy(obb).translate(translation,relative = True)
+    shifted_obb.scale(scale,center = obb.center)
+    if draw: draw([obb,shifted_obb])
+
+    # identify points in src_pcd that at are in the shifted obbb
+    # that are not in pcd 
+    src_pcd_pts = arr(source_pcd.points())
+    shifted_nbrs_idxs = shifted_obb.get_point_indices_within_bounding_box( 
+                                o3d.utility.Vector3dVector(src_pcd_pts) )
+    input_nbrs_idxs = obb.get_point_indices_within_bounding_box( 
+                                o3d.utility.Vector3dVector(src_pcd_pts) )
+    new_nbr_idxs= np.setdiff1d(shifted_nbrs_idxs, input_nbrs_idxs)
+
+    # return set of neighbors not in pcd
+    nbrs_pcd = pcd.select_by_index(shifted_nbrs_idxs)
+    # nn_pts = src_pcd_pts[new_nbr_idxs]
+    nbrs_pcd = pcd.select_by_index(new_nbr_idxs)
     
-    new_neighbors = np.setdiff1d(new_pt_ids, old_pt_ids)
-    nn_pts = pcd_pts[new_neighbors]
-    total_found = new_pt_ids
+    if draw: draw([pcd,nbrs_pcd,obb,shifted_obb])
+    return nbrs_pcd, new_nbr_idxs
