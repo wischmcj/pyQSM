@@ -1,14 +1,15 @@
   
     
     ## Finding point to rotate around
-    base_center = get_center(np.asarray(trunk.points),center_type = "bottom")
-    mn = trunk.get_min_bound()
-    centroid = mn+((mx-mn)/2)
-    base = (base_center[0], base_center[1], mn[2])
-    sp = o3d.geometry.TriangleMesh.create_sphere(radius=1)
-    sp.paint_uniform_color([1,0,0])
-    sp.translate(base)
-
+    # base_center = get_center(np.asarray(trunk.points),center_type = "bottom")
+    # mn = trunk.get_min_bound()
+    # centroid = mn+((mx-mn)/2)
+    # base = (base_center[0], base_center[1], mn[2])
+    # sp = o3d.geometry.TriangleMesh.create_sphere(radius=1)
+    # sp.paint_uniform_color([1,0,0])
+    # sp.translate(base)
+    # pcd.translate(np.array([-x for x in base_center ]))
+    
     for pcd in [trunk,contracted,skeleton,topology]:
         pcd.translate(np.array([-x for x in base_center ]))
         pcd.rotate(rot_90_x)
