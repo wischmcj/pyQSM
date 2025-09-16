@@ -7,7 +7,21 @@ import matplotlib.pyplot as plt
 
 from numpy import array as arr
 
+
 def edges_to_lineset(mesh,edges, color):
+
+    """
+    Convert a set of mesh edges to an Open3D LineSet for visualization.
+
+    Parameters
+    ----------
+    mesh : open3d.geometry.TriangleMesh
+        The mesh whose edges are to be visualized.
+    edges : iterable of tuple of int
+        Each tuple contains two vertex indices representing an edge.
+    color : tuple of float
+        RGB color for the lines, each value in [0, 1].
+    """
     points = []
     lines = []
     verts = arr(mesh.vertices)
@@ -29,6 +43,20 @@ def edges_to_lineset(mesh,edges, color):
     return line_set
 
 def check_properties(mesh, draw_result=False):
+    """
+    Calculate and print various geometric and topological properties of a mesh.
+
+    Properties checked include:
+        - Edge manifoldness (with and without boundary edges)
+        - Vertex manifoldness
+        - Self-intersection
+        - Watertightness
+        - Orientability
+
+    Optionally visualizes the mesh and highlights non-manifold edges.
+
+    """
+    
     print(f"Checking mesh properties")
     print(f"Computing normals")
     mesh.compute_vertex_normals()
@@ -153,7 +181,7 @@ def get_surface_clusters(mesh,
         largest_inds = np.argpartition(cluster_n_triangles, -top_n_clusters)[-top_n_clusters:]
         largest_ns = cluster_n_triangles[largest_inds]
         triangles_to_remove = cluster_n_triangles[triangle_clusters] < min(largest_ns)
-        mesh_0.remove_triangles_by_mask(triangles_to_remove)
+        mesh_0.connected_(triangles_to_remove)
         # out_mesh.remove_triangles_by_mask(~triangles_to_remove)
     if max_cluster_area:
         triangles_to_remove = cluster_area[triangle_clusters] < max_cluster_area

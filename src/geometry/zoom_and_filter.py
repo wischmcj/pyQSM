@@ -4,9 +4,24 @@ import numpy as np
 import open3d as o3d
 from set_config import config, log
 
+
+
 def zoom_pcd(zoom_region,
             pcd, 
             reverse=False):
+    """
+    Extract points from a point cloud that fall within or outside a specified region.
+    
+    Args:
+        zoom_region (list): Region bounds in format [(x_min, y_min), (x_max, y_max)] 
+                           or [(x_min, y_min, z_min), (x_max, y_max, z_max)]
+        pcd (o3d.geometry.PointCloud): Input point cloud with points and colors
+        reverse (bool, optional): If True, return points outside the region instead 
+                                 of inside. Defaults to False.
+    
+    Returns:
+        o3d.geometry.PointCloud: New point cloud containing filtered points and colors
+    """
     pts = arr(pcd.points)
     colors = arr(pcd.colors)
     in_pts,in_colors = zoom(zoom_region, pts, colors,reverse)
@@ -19,7 +34,26 @@ def zoom(zoom_region, #=[(x_min,y_min), (x_max,y_max)],
         pts,
         colors = None,
         reverse=False):
-    "Returns points in pts that fall within the given region"
+    """
+    Filter points and colors based on a spatial region.
+    
+    Returns points in pts that fall within the given region. If the region is 2D,
+    automatically extends it to 3D using the min/max Z values from the points.
+    
+    Args:
+        zoom_region (list): Region bounds in format [(x_min, y_min), (x_max, y_max)]
+                           or [(x_min, y_min, z_min), (x_max, y_max, z_max)]
+        pts (numpy.ndarray or list): Array of 3D points with shape (N, 3)
+        colors (numpy.ndarray, optional): Array of colors corresponding to points.
+                                         Defaults to None.
+        reverse (bool, optional): If True, return points outside the region instead
+                                 of inside. Defaults to False.
+    
+    Returns:
+        tuple: (filtered_points, filtered_colors) where:
+            - filtered_points (numpy.ndarray): Points within/outside the region
+            - filtered_colors (numpy.ndarray or None): Corresponding colors, or None
+    """
     low_bnd = arr(zoom_region)[0,:]
     up_bnd =arr(zoom_region)[1,:]
     if isinstance(pts, list): pts = arr(pts)
@@ -43,6 +77,18 @@ def zoom(zoom_region, #=[(x_min,y_min), (x_max,y_max)],
 
 def filter_list_to_region(ids_and_pts,
                         zoom_region):
+    """
+    Filter a list of ID-point pairs to find which IDs have all points within a region.
+    
+    Args:
+        ids_and_pts (list): List of tuples (id, points) where:
+                           - id: identifier for the point set
+                           - points: numpy array of 3D points
+        zoom_region (list): Region bounds in format [(x_min, y_min), (x_max, y_max)]
+    
+    Returns:
+        list: List of IDs whose corresponding point sets are entirely within the region
+    """
     in_ids = []
     for id_w_pts in ids_and_pts:
         idc, pts = id_w_pts
@@ -54,7 +100,19 @@ def filter_list_to_region(ids_and_pts,
 def filter_to_region_pcds(clusters,
                         zoom_region):
     """
-        for each cluster in the list, remove points falling outside of the given region
+    Filter clusters to keep only those that are entirely within a specified region.
+    
+    For each cluster in the list, checks if all points fall within the given region
+    and returns only the clusters that satisfy this condition.
+    
+    Args:
+        clusters (list): List of tuples (id, cluster) where:
+                        - id: cluster identifier
+                        - cluster: point cloud object with .points attribute
+        zoom_region (list): Region bounds in format [(x_min, y_min), (x_max, y_max)]
+    
+    Returns:
+        list: List of (id, cluster) tuples for clusters entirely within the region
     """
     pts = [tuple((idc,np.asarray(cluster.points))) for idc, cluster in clusters]
     new_idcs = filter_list_to_region(pts,zoom_region)
@@ -65,6 +123,24 @@ def filter_to_region_pcds(clusters,
 def filter_pcd_list(pcds,
                     max_pctile=85,
                     min_pctile = 30):
+    """
+    Filter a list of point clouds based on cluster size percentiles.
+    
+    Removes point clouds that are too large or too small based on the number of
+    points they contain, keeping only those within the specified percentile range.
+    
+    Args:
+        pcds (numpy.ndarray): Array of point cloud objects, each with .points and .colors
+        max_pctile (int, optional): Maximum percentile cutoff for cluster size.
+                                   Clusters larger than this percentile are removed.
+                                   Defaults to 85.
+        min_pctile (int, optional): Minimum percentile cutoff for cluster size.
+                                   Clusters smaller than this percentile are removed.
+                                   Defaults to 30.
+    
+    Returns:
+        numpy.ndarray: Filtered array of point clouds within the size range
+    """
     pts = [arr(pcd.points) for pcd in pcds]
     colors = [arr(pcd.colors) for pcd in pcds]
 

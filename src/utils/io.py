@@ -4,21 +4,27 @@ import sys
 import pickle 
 import open3d as o3d
 import numpy as np
-from set_config import log, config
+from set_config import log
 from numpy import array as arr
+
+# from open3d.io import read_point_cloud
 
 use_super_user = config['io']['super_user']
 data_root = config['io']['data_root']
 
-def save_line_set(line_set, base_file = 'skel_stem20_topology',dir=data_root):
+# def read_pcd(file, root_dir = data_root):
+#     pcd = read_point_cloud
+#     return pcd
+
+def save_line_set(line_set, base_file = 'skel_stem20_topology',root_dir=data_root):
     base_file.replace('.pkl','')
-    save(f'{base_file}_lines.pkl', arr(line_set.points),dir)
-    save(f'{base_file}_points.pkl', arr(line_set.lines),dir)
+    save(f'{base_file}_lines.pkl', arr(line_set.lines),root_dir)
+    save(f'{base_file}_points.pkl', arr(line_set.points),root_dir)
     
-def load_line_set(base_file = 'skel_stem20_topology',dir=data_root):
+def load_line_set(base_file = 'skel_stem20_topology',root_dir=data_root):
     base_file.replace('.pkl','')
-    lines = load(f'{base_file}_lines.pkl',dir)
-    points = load(f'{base_file}_points.pkl',dir)
+    lines = load(f'{base_file}_lines.pkl',root_dir)
+    points = load(f'{base_file}_points.pkl',root_dir)
     line_set = o3d.geometry.LineSet()
     line_set.points = o3d.utility.Vector3dVector(points)
     line_set.lines = o3d.utility.Vector2iVector(lines)
@@ -30,24 +36,24 @@ def be_root():
     # else:
         # subprocess.call(['sudo', 'python3'] + sys.argv)  # modified
 
-def update(file, to_write, dir = data_root):
+def update(file, to_write, root_dir = data_root):
     # be_root()
-    curr = load(file,dir)
+    curr = load(file,root_dir)
     curr.extend(to_write)
-    save(file,curr,dir)
+    save(file,curr,root_dir)
 
-def save(file, to_write, dir = data_root):
+def save(file, to_write, root_dir = data_root):
     # be_root()
     if '.pkl' not in file: file=f'{file}.pkl'
-    fqp = f'{dir}{file}'
+    fqp = f'{root_dir}{file}'
 
     with open(fqp,'wb') as f:
         pickle.dump(to_write,f)
 
-def load(file, dir = data_root):
+def load(file, root_dir = data_root):
     # be_root()
     if '.pkl' not in file: file=f'{file}.pkl'
-    fqp = f'{dir}{file}'
+    fqp = f'{root_dir}{file}'
 
     with open(fqp,'rb') as f:
         ret = pickle.load(f)
