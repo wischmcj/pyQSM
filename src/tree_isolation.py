@@ -1,568 +1,774 @@
-
-import open3d as o3d
-import scipy.spatial as sps
-import numpy as np
-from numpy import asarray as arr
-import pickle
-import itertools
+# with open("/code/code/Research/lidar/Secrest_27-5.xyb", mode='rb') as file: # b is important -> binary
+#     fileContent = file.read()
 
 from collections import defaultdict
+import logging
+from itertools import chain
+from copy import deepcopy
 
+import scipy.spatial as sps
 import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
-
 import matplotlib.pyplot as plt
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
+from matplotlib import patches
+from open3d.io import read_point_cloud, write_point_cloud
 
-from geometry.zoom_and_filter import filter_to_region_pcds, zoom_pcd
-from set_config import config, log
+from geometry.skeletonize import extract_skeleton, extract_topology
+from tree_isolation import extend_seed_clusters
+from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from utils.io import save, load, save_line_set
+from utils.lib_integration import find_neighbors_in_ball
+from viz.color import color_on_percentile
+from viz.viz_utils import color_continuous_map
 from utils.math_utils import (
-    generate_grid
+    get_angles,
+    get_center,
+    get_radius,
+    rotation_matrix_from_arr,
+    unit_vector,
+    get_percentile,
 )
-from geometry.point_cloud_processing import crop_by_percentile ( 
-    clean_cloud,
-    create_one_or_many_pcds,
+
+from set_config import config
+from geometry.point_cloud_processing import ( 
+    cluster_plus,
     crop_by_percentile,
-    cluster_plus
+    filter_by_norm,
+    clean_cloud,
+    crop, get_shape,
+    create_one_or_many_pcds,
+    orientation_from_norms,
+    filter_by_norm,
+    get_ball_mesh
 )
-# from geometry.point_cloud_processing import ( 
-# )
-from utils.io import save,load
-from viz.viz_utils import draw
-from viz.color import *
+from viz.viz_utils import iter_draw, draw
+from geometry.point_cloud_processing import join_pcds
+from geometry.reconstruction import get_neighbors_kdtree
+from tree_isolation import pcds_from_extend_seed_file
+import pickle 
+from geometry.mesh_processing import map_density
+from utils.plotting import plot_dist_dist
 
-def labeled_pts_to_lists(labeled_pts,
-                            idc_to_label_map={},
-                            file='',
-                            draw_cycle=False,
-                            save_cycle=False
-                         ):
-    tree_pts = defaultdict(list)
-    for pt,idc in labeled_pts.items(): #tree_pts[idc_to_label_map.get(idc,idc)].append(pt)
-        label =idc_to_label_map.get(idc,idc)
-        tree_pts[label].append(pt)
-    tree_pcds = None
-    pt_lists = list([tuple((label,pt_list)) for label,pt_list in  tree_pts.items() ])
-    if draw_cycle:
-        labels = list([x for x in range(len(tree_pts))])
-        pts = list([[y for y in x] for x in tree_pts.values()])
-        tree_pcds = create_one_or_many_pcds(pts = pts, labels = labels)
-    if save_cycle:
-        log.info(f'Pickling {file}...')
-        save(file, pt_lists)
-    return pt_lists, tree_pcds
+log = logging.getLogger('calc')
 
+skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
+s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
+s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
 
-def extend_seed_clusters(clusters_and_idxs:list[tuple],
-                            src_pcd,
-                            file_label,
-                            k=200,
-                            max_distance=.3,
-                            cycles= 150,
-                            save_every = 10,
-                            draw_every = 10,
-                            order_cutoff = None):
+s27d = "data/input/s27_downsample_0.04.pcd"
+s32d = "data/input/s32_downsample_0.04.pcd"
+
+normals_radius   = config['stem']["normals_radius"]
+normals_nn       = config['stem']["normals_nn"]    
+nb_neighbors   = config['stem']["stem_neighbors"]
+std_ratio      = config['stem']["stem_ratio"]
+angle_cutoff      = config['stem']["angle_cutoff"]
+voxel_size     = config['stem']["stem_voxel_size"]
+post_id_stat_down = config['stem']["post_id_stat_down"]
+
+def get_stem_pcd(pcd=None, source_file=None
+                ,normals_radius   = config['stem']["normals_radius"]
+                ,normals_nn       = config['stem']["normals_nn"]    
+                ,nb_neighbors   = config['stem']["stem_neighbors"]
+                ,std_ratio      = config['stem']["stem_ratio"]
+                ,angle_cutoff      = config['stem']["angle_cutoff"]
+                ,voxel_size     = config['stem']["stem_voxel_size"]
+                ,post_id_stat_down = config['stem']["post_id_stat_down"]
+                ,):
     """
-        Takes a list of tuples defining clusters (e.g.[(label,cluster_pcd)...])
-        and a source pcd
+        filters the point cloud to only those 
+        points with normals implying an approximately
+        vertical orientation 
     """
-    cluster_pts = [(idc, arr(cluster.points)) for idc,cluster in clusters_and_idxs]
+    if source_file:
+    # log.info("IDing stem_cloud")
+        pcd = read_point_cloud(source_file)
+    log.info("Estimating and orienting normals")
+    # cropping out ground points
+    pcd_pts = arr(pcd.points)
+    pcd_cropped_idxs = crop(pcd_pts, minz=np.min(pcd_pts[:, 2]) + 0.5)
+    pcd = pcd.select_by_index(pcd_cropped_idxs)
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normals_radius, max_nn=normals_nn))
+    pcd.orient_normals_consistent_tangent_plane(100)
+    log.info("Filtering on normal angles")
+    stem_cloud = filter_by_norm(pcd, angle_cutoff)
+    log.info("cleaning result (if requested)")
+    if voxel_size:
+        stem_cloud = stem_cloud.voxel_down_sample(voxel_size=voxel_size)
+    if post_id_stat_down:
+        _, ind = test.remove_statistical_outlier(nb_neighbors= nb_neighbors, std_ratio=std_ratio)
+        test = test.select_by_index(ind)
+    # recluster and remove all branch starts. Then fill in w detail from pcd
+    # clustering result to isolate trunk
+    # works well at eps .35,.45 and min pts 80-110
+    # clusters = cluster_plus(stem_cloud,eps=.05*7, min_points=80,return_pcds=True,from_points=False)
+    # for i in range(1,10): 
+    #     cluster_plus(test,eps=.05*7, min_points=90,return_pcds=True,from_points=False)
+    # write_point_cloud(f'{inputs}/skeletor_dtrunk.pcd',dt4)
+
+    #  pcd.detect_planar_patches(
+    # normal_variance_threshold_deg=60,
+    # coplanarity_deg=75,
+    # outlier_ratio=0.75,
+    # min_plane_edge_length=0,
+    # min_num_points=0,
+    # search_param=o3d.geometry.KDTreeSearchParamKNN(knn=30))
 
 
-    # create dict to track point labels
-    num_nbr_clusters=[]
-    high_c_pt_assns = defaultdict(lambda:-1) 
-    curr_pts = [[]]*len(clusters_and_idxs)
-    curr_nbrs = [[]]*len(clusters_and_idxs)
-    all_nbrs = [[]]*len(clusters_and_idxs)
-    idc_to_label =  defaultdict() 
-    label_to_idc =  defaultdict() 
-    for idc, (label, cluster_pt_list) in enumerate(cluster_pts):
-        num_nbr_clusters.append([])
-        curr_pts[idc] = cluster_pt_list
-        # label pts already in clusters
-        for pt in cluster_pt_list: 
-            high_c_pt_assns[tuple(pt)] = idc
-            # BElow is how this is done if we also send order through
-            # high_c_pt_assns[tuple(pt)] = (idc,0)
-        idc_to_label[idc] = label
-        label_to_idc[label] = idc
-
-    # try: 
-    #     src_tree = load(f'{file_label}_kd_search_tree.pkl',dir ='')
-    # except Exception as e:
-    #     log.info('creating KD search tree')
-    src_pts = arr(src_pcd.points)
-    src_tree = sps.KDTree(src_pts)
-        # with open(f'{file_label}_kd_search_tree.pkl','wb') as f: pickle.dump(src_tree,f)
-    
-    src_pts = src_tree.data
-
-    file = f'{file_label}_in_process.pkl'
-    num_pts =  len(src_pts)
-    complete = []
-    max_orders = defaultdict(int)
-    save_iters = save_every
-    draw_iters = draw_every
-    end_early =False
-    check_overlap = True
-    # all_nbrs= []
-    for cycle_num in range(cycles):
-        log.info('start iter')
-        draw_cycle,save_cycle = draw_iters<=0, save_iters<=0 
-        if draw_cycle or save_cycle:
-            pt_lists, tree_pcds = labeled_pts_to_lists(high_c_pt_assns,
-                                                        idc_to_label,
-                                                        file,
-                                                        draw_cycle,
-                                                        save_cycle)
-            if save_cycle: save_iters = save_every
-            if draw_cycle: 
-                draw_iters = draw_every
-                draw(tree_pcds)
-            breakpoint()
-
-        if end_early:
-            break
-        save_iters=save_iters-1
-        draw_iters=draw_iters-1
-        log.info(f'querying {cycle_num}')
-        for idc, (label, cluster) in enumerate(clusters_and_idxs):
-            idx = label_to_idc[label]
-            if idx not in complete:               
-                if len(curr_pts[idx])>0:
-                    # get neighbors in the vicinity of the cluster
-                    dists,nbrs = src_tree.query(curr_pts[idx],
-                                                k=k,
-                                                distance_upper_bound= max_distance)
-                    nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x !=num_pts]
-                    nbr_pts = [nbr_pt for nbr_pt in src_tree.data[nbrs] if high_c_pt_assns[tuple(nbr_pt)]==-1]
-                    num_clusters=0
-                    if cycle_num>0 and order_cutoff:
-                        nbr_pcd = src_pcd.select_by_index(nbrs)
-                        if 1==0: #idx == 10:
-                            res = cluster_plus(nbr_pcd, eps=.15, min_points=20,return_pcds=True,from_points=False, draw_result=False)
-                            num_clusters = len([x for x in res])
-                            print(f' {cycle_num=}, {num_clusters=}, ')
-                            draw(res[0])
-                        else:
-                            res = cluster_plus(nbr_pcd, eps=.15, min_points=20,return_pcds=False,from_points=False, draw_result=False)
-                            num_clusters = len([x for x in res])
-                            print(f' {cycle_num=}, {num_clusters=}, ')
-                            # breakpoint()
-                            num_nbr_clusters[idc].append(num_clusters)
-                    # if check_overlap:
-                    #     nbr_set = set(nbrs)
-                    #     # overlap = chain.from_iterable([nbr_set.intersection(nbr_list) for nbr_list in all_nbrs])
-                    #     overlaps = [(idnl,nbr_set.intersection(nbr_list)) for idnl,nbr_list in enumerate(all_nbrs)]
-                    #     overlaps = [x for x in overlaps if len(x)>0]
-                    #     if len(overlaps)>0: 
-                    #         pt_lists, tree_pcds = labeled_pts_to_lists(high_c_pt_assns,idc_to_label,draw_cycle=True)
-                    #     for overlap in overlaps:
-                    #         overlap_pcd = src_pcd.select_by_index(overlap)
-                    #         overlap_pcd.paint_uniform_color([1,0,1])
-                    #         draw([overlap_pcd]+tree_pcds)
-                    #         breakpoint()
-                    #         log.info('breakpoint in overlap draw')
-                        # label_to_clusters = cluster_plus(nbr_pcd,eps=.3, min_points=5,return_pcds=False)
-                    # order = cycle_num
-                    if len(nbr_pts)>0:
-                        for nbr_pt in nbr_pts: 
-                            high_c_pt_assns[tuple(nbr_pt)] = idx
-                        # if max_orders[idx]< order: max_orders[idx] = order
-                        curr_pts[idx] = nbr_pts
-                        curr_nbrs[idx] = nbrs
-                        all_nbrs[idx].extend(nbrs)
-                        if len(curr_pts[idx])<5:
-                            complete.append(idx)
-                            log.info(f'{idx} added to complete')
-                    if num_clusters>(order_cutoff or 0):
-                        complete.append(idx)
-                        curr_pts[idx] = []
-                        curr_nbrs[idx] = []
-                else:
-                    num_nbr_clusters[idc].append(0)
-                if len(curr_pts[idx])==0:
-                    complete.append(idx)
-                    log.info(f'{idx} added to complete')
-    
-    log.info('finish!')
     try:
-        pt_lists, tree_pcds = labeled_pts_to_lists(high_c_pt_assns,
-                                                        idc_to_label,
-                                                        file,
-                                                        draw_cycle=True,
-                                                        save_cycle=True)
+        o3d.visualization.draw_geometries(stem_cloud, point_show_normals=True)
+        o3d.visualization.draw([stem_cloud])
         breakpoint()
-        i,k = 0,35
-        ax = plt.subplot()
-        for idc, series in enumerate(num_nbr_clusters[i:k]): ax.plot(range(len(series)),series)
-        plt.show()
-        draw(tree_pcds[i:k])
-        # plt.axvline(x=avg_dist, color='r', linestyle='--')
-        # plt.axvline(x=avg_dist*2, color='r', linestyle='--')
-        plt.show()
-        return tree_pcds
+        sp = o3d.geometry.TriangleMesh.create_sphere(radius=normals_radius)
+        sp.translate(pcd.points[50000])
+        pcd_tree = o3d.geometry.KDTreeFlann(stem_cloud)
+        [k, idx, _] = pcd_tree.search_radius_vector_3d(pcd.points[50000], normals_radius)
+        np.asarray(pcd.colors)[idx[1:], :] = [0, 1, 0]
+        o3d.visualization.draw([stem_cloud])
+        o3d.visualization.draw([pcd,sp])
+        breakpoint()
     except Exception as e:
         breakpoint()
-        log.info(f'error saving {e}')
-        return None
+        print('')
+    return stem_cloud
 
-def id_trunk_bases(pcd =None, 
-            exclude_boundaries = None,
-            low_percentiles = (16,18),
-            high_percentiles = (18,100),
-            file_name_base='',
-            save_files = False,
-            **kwargs
+def compare_normals_approaches(stat_down):
+    stat_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=20))
+    norms = arr(stat_down.normals)
+
+    def angle_func(*args): get_angles(*args, reference='XZ')
+    angles = np.apply_along_axis(angle_func, .1, norms)
+    angles = np.degrees(angles)
+    print("Mean:", np.mean(angles))
+    print("Median:", np.median(angles))
+    print("Standard Deviation:", np.std(angles))
+    color_continuous_map(stat_down,angles)
+    draw(stat_down)
+    stem_cloud =  filter_by_norm(stat_down,10)
+    draw(stem_cloud)
+
+
+def fit_cyl_to_cluster(main_pcd,
+                        curr_pts,
+                        last_radius,
+                        cluster_idxs,   
+                        cyls=[],
+                        cyl_details=[],debug=False):
+    cyl_mesh = None
+    fit_radius = 0
+    log.info(f"Attempting to fit a 2D circle to projection of points")
+    # try to fit a cylinder to previous neighbors via a 2D circle
+    #    only keep cyl_mesh if fit radius is reasonable
+    prev_neighbor_height = np.min(curr_pts[:, 2])
+    cyl_mesh, fit_pcd, inliers, fit_radius, axis = fit_shape_RANSAC(
+        pts=curr_pts,
+        shape="circle",
+        threshold=0.04,
+        lower_bound=prev_neighbor_height,
+        max_radius=last_radius * config['sphere']["radius_multiplier"],
+    )
+    if debug:
+        curr_cluster_pcd = main_pcd.select_by_index(cluster_idxs)
+        draw([cyl_mesh.sample_points_uniformly(), curr_cluster_pcd])
+        breakpoint()
+
+    good_fit_found = (
+        cyl_mesh is not None
+        and fit_radius < config['sphere']["bad_fit_radius_factor"] * last_radius
+    )
+
+    if good_fit_found:
+        log.info(f"good fit found, adding cyl to list")
+        cyls.append(cyl_mesh.sample_points_uniformly(500))
+        center = get_center(curr_pts)
+        cyl_details.append(
+            {
+                "center": center,
+                "axis": axis,
+                "height": prev_neighbor_height,
+                "radius": fit_radius,
+            }
+        )
+    return good_fit_found
+    
+
+def sphere_step(
+    curr_pts,
+    last_radius,
+    main_pcd,
+    cluster_idxs,
+    branch_order=0,
+    branch_num=0,
+    total_found=[],
+    run=0,
+    branches=[[]],
+    id_to_num=defaultdict(int),
+    cyls=[],
+    cyl_details=[],
+    spheres=[],
+    draw_every=10,
+    debug=False,
 ):
-    """Splits input cloud into a 'low' and 'high' component.
-        Identifies clusters in the low cloud that likely correspond to 
     """
-    log.info('getting low (slightly above ground) cross section')
-    low_lb,low_ub = low_percentiles[0],low_percentiles[1]
-    hi_lb,hi_ub = high_percentiles[0],high_percentiles[1]
-    lowc, lowc_ids_from_col = crop_by_percentile(pcd,low_lb,low_ub)
-    lowc = clean_cloud(lowc)
+    1. Takes in points from a neighbor cluster found in previous run
+         set found
+    2. Approximates a center and radius for a cylinder bounding those points
+        - stored this to a list representing the QSM
+    3. Approimates a circle to surround the neighbors of the choose_and_clustercluster points
+        -
 
-    log.info('getting "high" portion of cloud')
-    highc, highc_ids_from_col = crop_by_percentile(pcd,hi_lb,hi_ub)
-    draw(highc)
+    Returns:
+        _description_
+    """
+    if branches == [[]]:
+        branches[0].append(total_found)
+    main_pts = arr(main_pcd.points)
 
-    log.info('Removing buildings')
-    for region in exclude_boundaries:
-        test = zoom_pcd( region, test, reverse=True)
-        highc = zoom_pcd(region,  highc,reverse=True)
+    good_fit_found = fit_cyl_to_cluster(main_pcd, curr_pts, last_radius, cluster_idxs,cyls=cyls, cyl_details=cyl_details,debug=debug)
+    
+    log.info(f"getting new neighbors ")
+    # get all points within radius of the former neighbor
+    #    group's center point.
+    # Exclude any that have already been found
+    sphere, new_neighbors, center, radius = find_neighbors_in_ball(curr_pts, main_pts, total_found)
+    spheres.append(sphere)
+    # full_tree = sps.KDTree(main_pts)
+    # new_neighbors = get_neighbors_in_tree(curr_pts,full_tree, last_radius)
 
-    # with open('skio_labels_low_16-18_cluster_pt5-20.pkl','rb') as f: 
-    #         labels = pickle.load(f)
-    log.info('clustering')
-    try:
-        label_to_clusters = cluster_plus(lowc,eps=.3, min_points=20,return_pcds=False)
-    except Exception as e:
-        log.info(f'error {e} when clustering ')
-    if save_files:
-        with open(f'{file_name_base}_low_16-18_cluster_pt5-20.pkl','wb') as f: 
-            pickle.dump(label_to_clusters,f)
-        o3d.io.write_point_cloud(f'{file_name_base}_low_cloud_all_{low_lb}-{low_ub}pct.pcd',lowc)
-        o3d.io.write_point_cloud(f'{file_name_base}_collective_highc_{hi_lb}plus.pcd',highc)
-    return lowc, highc, label_to_clusters
+    clusters = ()
+    if len(new_neighbors) > 0:
+        log.info(f"Clustering neighbor points found in ball")
+        cluster_type = "kmeans" if not good_fit_found else "DBSCAN"
+        # Cluster new neighbors to finpd potential branches
+        labels, clusters = choose_and_cluster(arr(new_neighbors), main_pts, cluster_type, debug= debug)
 
-def build_trees_knn(pcd, exclude_boundaries=[],load_from_file=False,
-                        lowc=None, highc=None, label_to_clusters=None):
-                
-#### Reading in data and preping clusters
-    ## Identify and clean up cross section clusters 
-    if (lowc == None or
-        highc == None or
-        label_to_clusters  == None):     
-        lowc,highc, label_to_clusters = id_trunk_bases(pcd,  exclude_boundaries, load_from_file)
+    if clusters == [] or len(new_neighbors) < config['sphere']["min_contained_points"]:
+        return []
+    else:
+        if (len(labels) > 2
+            or debug):
+            try:
+                test = iter_draw(clusters, main_pcd)
+            except Exception as e:
+                log.info(f"error in iterdraw {e}")
+
+    for cluster_idxs in clusters:
+        # done here so all idxs are added to total_found
+        #  prior to doing any more fitting, finding
+        total_found.extend(cluster_idxs)
+
+    returned_idxs = []
+    returned_pts = []
+    for label, cluster_idxs in zip(labels, clusters):
+        cluster_branch = branch_order
+        if label != 0:
+            cluster_branch += 1
+            branches.append([])
+
+        branch_id = branch_num + cluster_branch
+        log.info(f"{branch_id=}, {cluster_branch=}")
+
+        cluster_dict = {cluster_idx: branch_id for cluster_idx in cluster_idxs}
+        id_to_num.update(cluster_dict)
+        branches[cluster_branch].extend(cluster_idxs)
+
+        # curr_plus_cluster = np.concatenate([curr_pts_idxs, cluster_idxs])
+        cluster_pcd_pts = arr(main_pcd.points)[cluster_idxs]
+        # center = get_center(sub_pcd_pts)
+        cluster_radius = get_radius(cluster_pcd_pts)
+        log.info(f"{cluster_radius=}")
+        if cluster_radius < config['sphere']["min_radius"]:
+            cluster_radius = config['sphere']["min_radius"]
+        if cluster_radius > config['sphere']["max_radius"]:
+            cluster_radius = config['sphere']["max_radius"]
+        if cluster_radius < last_radius / 2:
+            cluster_radius = last_radius / 2
+ 
+        if (len(cyls) % draw_every == 0 
+            or debug):
+            try:
+                test = main_pcd.select_by_index(new_neighbors)
+                draw([test])
+                for cyl_pts in cyls:
+                    cyl_pts.paint_uniform_color([0, 1, 0])
+                draw([test] + cyls)
+                sphere_pts = [sph.sample_points_uniformly(500) for sph in spheres]
+                for sphere_pt in sphere_pts:
+                    sphere_pt.paint_uniform_color([0, 0, 1])
+                draw([test] + sphere_pts)
+
+                not_found = main_pcd.select_by_index(returned_idxs)
+                test.paint_uniform_color([0, 1, 0])
+                not_found.paint_uniform_color([1, 0, 0])
+                draw([test, not_found])
+            except Exception as e:
+                log.info(f"error in checkpoint_draw {e}")
+
+        fit_remaining_branch = sphere_step(
+            cluster_pcd_pts,
+            cluster_radius,
+            main_pcd,
+            cluster_idxs,
+            cluster_branch,
+            branch_num,
+            total_found,
+            run + 1,
+            branches,
+            id_to_num,
+            cyls,
+            cyl_details,
+            spheres,
+            debug
+        )
+        if fit_remaining_branch == []:
+            log.info(f"returned ids {cluster_idxs}")
+            returned_idxs.extend(cluster_idxs)
+            returned_pts.extend(cluster_idxs)
+        branch_num += 1
+    log.info("reached end of function, returning")
+    return branches, id_to_num, cyls, cyl_details
+
+
+def find_low_order_branches(start = 'initial_clean', 
+                            #  file = '27_pt02.pcd',
+                            file = 'inputs/skeletor_clean.pcd',
+                             extract_skeleton = False,
+                             use_knn=True,
+                             debug = False):
+    # ***********************
+    # IDEAS FOR CLEANING RESULTS
+    # - Mutliple iterations of statistical outlier removal
+    #    start with latge std ratio, and low num neighbors(4?)
+    # - Larger Voxel size for Stem Filtering - more representitive normals
+    #      - also look into k_nearest_neighbor smoothing
+    # - Fit plane to ground, remove ground before finiding lowest
+    #       - ended up removing the bottom .5 meters
+    # - Using density calculations to inform radius for fit
+    #       - more dense areas -> smaller radius
+    # ***********************
+    started = False
+    pcd = None
+    stem_cloud = None
+    stat_down = None
+    pcd = read_point_cloud(file, print_progress=True)
+    if start == 'initial_clean':
+        started = True
+        # Reading in cloud and smooth
+        # breakpoint()
+        if len(np.array(pcd.points)) < 1:
+            log.info("No points found in point cloud")
+            pcd = read_point_cloud(file, print_progress=True)
+
+        # write_point_cloud(file,pcd)
+        log.info('read in cloud')
+        # stat_down=pcd
+        stat_down = clean_cloud(pcd,
+                                voxels=config['initial_clean']['voxel_size'],
+                                neighbors=config['initial_clean']['neighbors'],
+                                ratio=config['initial_clean']['ratio'],
+                                iters = config['initial_clean']['iters'])
+        if debug:
+            draw(stat_down)
+        breakpoint()
+    
+    if start == 'stem_id' or started:
+        if not started:
+            stat_down = read_point_cloud(file, print_progress=True)
+            started = True
+        # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
+        stem_cloud = get_stem_pcd(stat_down)
+        if debug:
+            draw(stem_cloud)
         breakpoint()
 
-    ## Define clusters based on labels 
-    label_idls= label_to_clusters.values()
-    clusters = [(idc,lowc.select_by_index(idls)) for idc, idls in enumerate(label_idls)]
+    if start == 'trunk_id' or started:
+        if not started:
+            stem_cloud = read_point_cloud(file, print_progress=True)
+            started = True
+        log.info("Identifying low percentile by height...")
+        low_cloud, low_idxs = crop_by_percentile(stem_cloud)
+        low_cloud_pts = arr(low_cloud.points)
+        # draw(low_cloud)
 
-    # clusters = filter_pcd_list(clusters)
-#### Reading data from previous runs to exclude from run
-    rerun_cluster_selection = True 
-    completed_cluster_idxs=[]
-    completed_cluster_pts=[]
-    # if rerun_cluster_selection:
-    #     completed_cluster_idxs , completed_cluster_pts = load_completed(5)
-    #     save('completed_cluster_idxs.pkl',completed_cluster_idxs)
-    #     # save('completed_cluster_pts.pkl',completed_cluster_pts)
-    # else:
-    #     completed_cluster_idxs = load('completed_cluster_idxs.pkl',dir='')
-
-    nk_clusters= [(idc, cluster) for idc, cluster in clusters if idc not in completed_cluster_idxs]
-    breakpoint()
-
-####  Dividing clouds into smaller 
-    # col_min = collective.get_min_bound()
-    # col_max = collective.get_max_bound()
-    col_min = arr([ 34.05799866, 286.28399658, -21.90399933])
-    col_max = arr([189.47099304, 458.29800415,  40.64099884])
-    safe_grid = generate_grid(col_min,col_max)
-    ## Using the grid above to divide the cluster pcd list 
-    ##  into easier to process parts 
-    cell_clusters = []
-    for idc, cell in enumerate(safe_grid):
-        ids_and_clusters = filter_to_region_pcds(nk_clusters, cell)
-        cell_clusters.append(ids_and_clusters)
-    
-####  KD tree with no prev. complete clusters 
-    # creating the kd tree that will act as the search space 
-    # when building the trees from seed clusters 
-    log.info('preparing KDtree')   
-    if rerun_cluster_selection:
-        # KD Tree reduction given completed clusters 
-        highc_pts = [tuple(x) for x in highc.points]
-        categorized_pts = [tuple(x) for x in itertools.chain.from_iterable(completed_cluster_pts)]
-        highc_pts = set(highc_pts)-set(categorized_pts)
-        highc_pts = arr([x for x in highc_pts])
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(np.asarray(highc_pts))
-        draw(pcd)
-        o3d.io.write_point_cloud('highc_incomplete.pcd',pcd)
-        del pcd
-        highc_tree = sps.KDTree(np.asarray(highc_pts))
+        trunk, trunk_idxs= cluster_plus(low_cloud, top=1)
+        trunk_pts = arr(trunk.points)
+        trunk_stem_idxs = low_idxs[trunk_idxs]
+        if debug:
+            draw(trunk)
         
-        with open(f'highc_KDTree.pkl','wb') as f: pickle.dump(highc_tree,f)
-    else:
-        with open('data/in_process/highc_KDTree.pkl','rb') as f:  highc_tree = pickle.load(f)
+        # next_slice_full, slice_idxs = get_low_cloud(stem_cloud, 
+        #                             config['trunk']['upper_pctile'], 
+        #                             config['trunk']['upper_pctile']+2)
+        
+        # slice_pcd, slice_idxs = cluster_plus(next_slice_full,top=1)
+        # draw(next_slice_trunk)
 
-####  Running KNN algo to build trees
+    if start == 'clustering' or started:
+        started=True
+        ## Finding the inititial set of new neighbors
+        # stem_cloud =read_point_cloud(f'{inputs}/skeletor_stem_ds2_ac10.pcd')
+        # trunk =read_point_cloud(f'{inputs}/skeletor_trunk_ds2_ac10_epspt35_mp80.pcd')
+        dtrunk =read_point_cloud(f'{inputs}/skeletor_dtrunk.pcd')
+        # stem_cloud_clusters = load('inputs/skeletor_stem_clust_ds2_ac10_epspt35_mp80.pkl')
+        # clusters = [x[1] for x in stem_cloud_clusters]
+        # cluster_pcds = create_one_or_many_pcds(pts = clusters, lables = [x[0] for x in test])
+        # breakpoint()
+        
+        from copy import deepcopy
+        # stem_cloud_pts = arr(stem_cloud.points)
+        # obb = dtrunk.get_minimal_oriented_bounding_box()
+        # obb.color = (1, 0, 0)
+        
+        # up_shifted_obb = deepcopy(obb).translate((0,0,1),relative = True)
+        # up_shifted_obb.scale(1.1,center = up_shifted_obb.center)
+        # draw([trunk,obb,up_shifted_obb])
+        # new_pt_ids = up_shifted_obb.get_point_indices_within_bounding_box( 
+        #                             o3d.utility.Vector3dVector(stem_cloud_pts) )
+        # old_pt_ids = obb.get_point_indices_within_bounding_box( 
+        #                             o3d.utility.Vector3dVector(stem_cloud_pts) )
 
-    # cell_to_run_id = 3
-    # grid_wo_overlap =  grid[cell_to_run_id]
-    for cell_to_run_id in ['all']:
-        extend_seed_clusters(clusters,highc, f'cell{cell_to_run_id}')
+        # next_slice =stem_cloud.select_by_index(new_pt_ids)
+        # draw([next_slice,trunk,obb,up_shifted_obb])
+        
+        # new_neighbors = np.setdiff1d(new_pt_ids, old_pt_ids)
+        # nn_pts = stem_cloud_pts[new_neighbors]
+        # total_found = new_pt_ids
+        # breakpoint()
 
-def build_trees_nogrid(pcd=None, exclude_boundaries=[],
-                        cluster_source=None, search_pcd=None, label_to_clusters=None,
-                        labeled_cluster_pcds=None, completed_cluster_idxs=[],file_base_name='seed_roots',
-                          **kwargs):
+        ### Might make sense to fill out the lower trunk
+        #### more with the below code 
+        # lowc, idxs = crop_by_percentile(trunk_proper,0,80)
+        # draw(lowc)
+        # dt6, nbrs, chained_nbrs = get_neighbors_kdtree(pcd, dt5, dist=.3)
+        # test = source_pcd.select_by_index(chained_nbrs)
+        # test.paint_uniform_color([1,0,1])
+        # draw([test,trunk_proper])
+        # breakpoint()
+    
+        source_pcd = pcd 
+        source_pcd_pts = arr(source_pcd.points)
+        trunk_proper, nbrs, chained_nbrs = get_neighbors_kdtree(source_pcd, dtrunk, dist=.3)
+        trunk_nbr_pcd, new_nbrs, new_chained_nbrs = get_neighbors_kdtree(source_pcd, trunk_proper, dist=.3)
+        seed_cluster_idxs = np.setdiff1d(new_chained_nbrs, chained_nbrs)
+        total_found = np.concatenate([chained_nbrs, new_chained_nbrs])
+
+        
+
+        new_nbr_pcd = source_pcd.select_by_index(seed_cluster_idxs)
+        branch_seeds_pcd, branch_seed_idxs = crop_by_percentile(new_nbr_pcd,50,100)
+        clean_branch_seeds_pcd, clean_branch_seed_idxs= branch_seeds_pcd.remove_statistical_outlier(nb_neighbors= nb_neighbors, std_ratio=std_ratio)
+        branch_seed_idxs_in_src = seed_cluster_idxs[branch_seed_idxs[clean_branch_seed_idxs]]
+        # testing that correct ids were pulled
+        if debug:
+            branch_seeds_pcd = source_pcd.select_by_index(branch_seed_idxs_in_src)
+            branch_seeds_pcd.paint_uniform_color([1,0,1])
+            draw([branch_seeds_pcd,trunk_proper])
+
+
+
+        branch_seed_pts = source_pcd_pts[branch_seed_idxs_in_src]
+        seed_clusters = cluster_plus(clean_branch_seeds_pcd, eps=.16, min_points=20,return_pcds=True,from_points=False)
+        seed_clusters = seed_clusters[1:] # seed_clusters[0] is uncategorized points
+        if debug:
+            draw(seed_clusters)
+
+        clusters_and_pts = [(idx,arr(cluster.points))for idc, cluster in enumerate(seed_clusters)]
+        save('skeletor_trunk_total_found.pkl',total_found)
+        save('skeletor_final_branch_seeds.pkl',clusters_and_pts)
+        # query_pts, query_pt_idxs = top_trunk_pts, top_trunk_pts_stem_idxs
+        # sphere, neighbors, center, radius = find_neighbors_in_ball(query_pts, stem_cloud_pts,
+        #                             branch_seed_pts                                query_pt_idxs,
+        #                                                             radius=1.8, draw_results=True)
+
+        # nn_pcd = stem_cloud.select_by_index(query_pt_idxs)
+        # nn_pts = source_pcd_pts[new_neighbors]
+        # sphere=get_shape(pts=None, shape='sphere', as_pts=True,   center=tuple(center), radius=radius)
+        # o3d.visualization.draw_geometries([nn_pcd,trunk,sphere])
+        # labels, clusters = choose_and_cluster(arr(new_neighbors), nn_pts, cluster_type, debug= debug)
+
+    if start == 'knn' or started:
+        source_pcd = pcd 
+
+        total_found = load('skeletor_trunk_total_found.pkl')
+        clusters_and_pts = load('skeletor_final_branch_seeds.pkl')
+        final_seed_clusters = create_one_or_many_pcds(pts = [x[1] for x in clusters_and_pts], labels = [x[0] for x in clusters_and_pts])
+        clusters_and_idxs = [(idc,cluster) for idc, cluster in enumerate(final_seed_clusters)]
+        not_yet_classfied = source_pcd.select_by_index(total_found, invert=True )
+        tree_pcds = extend_seed_clusters(clusters_and_idxs, not_yet_classfied, 'skeletor4', k=50, max_distance=.1, cycles= 200, save_every = 50, draw_every = 50)
                 
-#### Reading in data and preping clusters
-
-    ## Identify and clean up cross section clusters 
-    if labeled_cluster_pcds==None or (cluster_source == None or
-                                search_pcd == None or
-                                label_to_clusters  == None):     
-        cluster_source, search_pcd, label_to_clusters = id_trunk_bases(pcd,  exclude_boundaries, file_name_base=file_base_name, **kwargs)
-
-        label_idls= label_to_clusters.values()
-        labeled_cluster_pcds = [(idc,cluster_source.select_by_index(idls)) 
-                                    for idc, idls in enumerate(label_idls)
-                                        if idc not in completed_cluster_idxs]
-    # breakpoint()
-    extend_seed_clusters(labeled_cluster_pcds,search_pcd,file_base_name,cycles=10,save_every=2,**kwargs) # extending downward
-
-def pcds_from_extend_seed_file(file,pcd_idxs=[]):
-    with open(file,'rb') as f:
-        # dict s.t. {cluster_id: [list_of_pts]}
-        cell_completed = dict(pickle.load(f))
-    log.info('read in source file, creating pcds...')
-    if 'w_order' in file:
-        pts_and_orders =[x for x in cell_completed.values()]
-        pts =[[x[0] for x  in y] for y in pts_and_orders]
-    else:
-        pts =[x for x in cell_completed.values()]
-        pts =[[x for x  in y] for y in pts]
-    labels = [x for x in cell_completed.keys()]
-    if pcd_idxs!=[]:
-        new_pts,new_labels = [],[]
-        for pcd_idx in pcd_idxs:
-            new_pts.append(pts[pcd_idx])
-            new_labels.append(labels[pcd_idx])
-        pts = new_pts
-    cluster_pcds = create_one_or_many_pcds(pts)
-
-    return cluster_pcds
         
-def read_point_shift():
-    shift=load('')
-
-def inspect_others():
-    
-    # # reading in results from extend
-    # rf_ext_pcds = pcds_from_extend_seed_file('new_seeds_w_order_in_progress.pkl')
-    oth_ext_pcds = pcds_from_extend_seed_file('other_clusters_w_order_in_process.pkl')
-    # root_pcds = pcds_from_extend_seed_file('cluster_roots_w_order_in_process.pkl')
-    # Source seed cluster id to ext in 'other_clusters_w_order_in_process.pkl'
-    oth_seed_to_ext = {40: 0, 41: 1, 44: 2, 45: 3, 48: 4, 49: 5, 51: 6, 52: 7, 54: 8, 62: 9, 63: 10, 64: 11, 65: 12, 66: 13, 77: 14, 78: 15, 79: 16, 85: 17, 86: 18, 88: 19, 90: 20, 121: 21, 122: 22, 123: 23, 125: 24, 126: 25, 128: 26, 144: 27, 146: 28, 147: 29, 149: 30, 150: 31, 152: 32, 153: 33, 156: 34, 157: 35, 181: 36, 182: 37}
-
-    for pcd,seed_id_tup in zip(oth_ext_pcds,oth_seed_to_ext.items()):
-        log.info(f'{seed_id_tup}')
-        seed,idc = seed_id_tup
-        draw(pcd)
+        # clusters_and_idxs2 = [(idc,cluster) for idc, cluster in enumerate(seed_clusters2)]
+        # not_yet_classfied = source_pcd.select_by_index(total_found, invert=True )
+        # tree_pcds = extend_seed_clusters(clusters_and_idxs2, not_yet_classfied, 'skeletor', k=200, max_distance=.1, cycles= 150, save_every = 50, draw_every = 50)
+        
+        # clusters_and_idxs = [(idc,cluster) for idc, cluster in enumerate(seed_clusters)]
+        # tree_pcds2 = extend_seed_clusters(clusters_and_idxs, not_yet_classfied, 'skeletor2', k=200, max_distance=.1, cycles= 150, save_every = 50, draw_every = 50)
         breakpoint()
-            # draw(oth_ext_pcds[13])
-    breakpoint()
-    seeds = []
-    clusters = []
+    else:
+        fit_radius = 1.8# seed_clusters[0] is uncategorized points
+        started = True
+        log.info("Running sphere algo")        
+        res, id_to_num, cyls, cyl_details = sphere_step(
+            curr_pts = branch_seed_pts,
+            last_radius = fit_radius, # The radius of the last cyliner fit
+            main_pcd = source_pcd, # The parent point cloud being traversed
+            cluster_idxs = branch_seed_idxs_in_src, # The# res, id_to_num, cyls, cyl_details = sphere_step(    curr_pts = branch_seed_pts,    last_radius = fit_radius,     main_pcd = source_pcd,     cluster_idxs = branch_seed_idxs_in_src,     branch_order = 0,    branch_num = 0,    total_found = list(total_found),    debug = True) indexes of the points in the last cluster
+            branch_order = 0,
+            branch_num = 0,
+            total_found = list(total_found)
+            # debug = True
+        )
+        breakpoint()
+
+        # Coloring and drawing the results of 
+        #  sphere step
+        # iter_draw(res[0], algo_source_pcd)
+
+        # branch_index = defaultdict(list)
+        # for idx, branch_num in id_to_num.items():
+        #     branch_index[branch_num].append(idx)
+        # try:
+        #     iter_draw(list(branch_index.values()), algo_pcd_pts)
+        # except Exception as e:
+        #     log.info("error" + e)
+
+def color_and_draw(pcd , labels):
+    max_label = labels.max()
+    # visualize the labels
+    log.info(f"point cloud has {max_label + 1} clusters")
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    colors = o3d.utility.Vector3dVector(colors[:, :3])
+    pcd.colors = colors
+    draw([pcd])
+    return colors
+
+    # global_x = min(extents[:,0,0])
+
+def filter_line_set(ls,idxs):
+    points = arr(ls.points)[idxs]
+    lines = arr([(u,v) for u,v in arr(ls.lines) if u in points or v in points])
+    line_set = o3d.geometry.LineSet()
+    line_set.points = o3d.utility.Vector3dVector(points)
+    line_set.lines = o3d.utility.Vector2iVector(lines)
+    return line_set
+
+
+def exclude_dense_areas(pcd, radius=.05):
+    import rustworkx as rx
+    radius=.1
+    degrees,cnts,line_set= get_pairs(query_pts=arr(pcd.points),radius=radius, return_line_set=True)
+    draw(line_set)
+    # making graph, finding connected components
+    lines =  arr(line_set.lines)
+    pts = arr(line_set.points)
+    g = rx.PyGraph()
+    _=g.add_nodes_from([pt for idp,pt in enumerate(arr(line_set.points))])
+    _=g.add_edges_from_no_data([tuple(pair) for pair in arr(line_set.lines)])
+    conn_comps = arr([x for x in sorted(rx.connected_components(g), key=len, reverse=True)])
+    print(len(conn_comps))
+    print([len(x) for x in conn_comps])
+    print( len(np.where(arr([len(x) for x in conn_comps])>1)[0]))
+    # nodes = [arr(g.nodes())[list(conn_comp)] for conn_comp in conn_comps]
+    # components to subgraphs
+    large_comps= [x for x in conn_comps[0:500] if len(x)>150 and len(x)<200]
+    large_comps= [x for x in conn_comps[0:500] if len(x)<100]
+    subgraphs = list(chain.from_iterable([g.subgraph(list(conn_comp)) for conn_comp in large_comps]))
+    # subgraphs to line sets
+    pts = list([subgraph.nodes() for subgraph in subgraphs])
+    lines = list([subgraph.edge_list() for subgraph in subgraphs])
+    line_sets = [o3d.geometry.LineSet() for _ in range(len(subgraphs))]
+    for idp,sub_line_set in enumerate(line_sets): sub_line_set.points = o3d.utility.Vector3dVector(pts[idp])
+    for idp,sub_line_set in enumerate(line_sets): sub_line_set.lines = o3d.utility.Vector2iVector(lines[idp])
+    draw(line_sets)
     
-def run_extend():
-    # exclude_regions = {
-    #         'building1' : [ (77,350,0),(100, 374,5.7)], 
-    #         'building2' : [(0, 350), (70, 374)],
-    #         'far_front_yard':[ (0,400),(400, 500)],
-    #         'far_rside_brush':[ (140,0),(190, 500)],
-    #         'lside_brush':[ (0,0),(77, 50 all_ids = rf_seeds + final_int_ids0)],
-    #         'far_back_brush': [ (0,0),(200, 325)]
-    # }
-    [ (77,350,0),(100, 374,5.7)]
-    rf_seeds = [151,107,108,109,110,111,112,113,114,115,116,132,133,134,135,136,137,138,148,180,189,190,191,193,194] 
-    final_int_ids = [40, 41, 44, 45, 48, 49, 51, 52, 54, 62, 63, 64, 65, 66, 77, 78, 79, 85, 86, 88, 90, 121, 122, 123, 125, 126, 128, 144, 146, 147, 149, 150, 152, 153, 156, 157, 181, 182]
-    all_ids = rf_seeds + final_int_ids
-    all_ids.sort()
 
-    seed_to_exts = {152: 0 # untested 51 root
-                    ,107: 1# ext 1 is two trees
-                    ,108: 1#   and so correlates to seeds 107 and 108
-                    ,109: 2
-                    ,111: 3
-                    ,112: 4                    
-                    #(113: 5)
-                    ,114: 6
-                    ,115: 7 # this is a good seed but the ext only goes up the trunk a couple feet
-                    ,116: 8 # this is a good ext, but the seed is spanish moss
-                    ,133: 9  # This is a group of 3 trees
-                    ,134: 10 
-                    ,135: 11
-                    ,136: 12 # This seed only goes halfway around the trunk
-                    ,137: 13
-                    ,138: 14 # seed is vine, cluster contains a branch of some tree
-                    ,190: 15
-                    ,191: 16 # ***needs to be rerun, is cutoff by the edge of the selected area
-                    #(193, 17), # is a mismatch
-                    ,194: 18  # ***needs to be rerun, is cutoff by the edge of the selected area
-    } 
-    exts_to_seed = {v:k for k,v in seed_to_exts.items()}
-    unmatched_clusters = [151,110,113,180,189,193,132,148]
-    unmatched_exts = [17] # 17 is the bottom of some spanish moss
+    branches, _, analouge_idxs = get_neighbors_kdtree(trim, query_pts=new_pts,k=200, dist=.01)
+    draw(branches)
 
-    #to_pass_back through
-    pass_again = [107,108]
 
-    # # #       and the clusters fed into extend seed clusters
-    lowc  = read_pcd('new_low_cloud_all_16-18pct.pcd')
-    # highc = read_pcd('new_collective_highc_18plus.pcd')
-    label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl',dir='')
-    empty_pcd= o3d.geometry.PointCloud() 
-    # # # label_to_clusters = load('new_lowc_lbl_to_clusters_pt3_20.pkl')
-    trunk_clusters = [lowc.select_by_index(x) for x in label_to_clusters.values()]
-    c_trunk_clusters = create_one_or_many_pcds([arr(lc.points) for lc in trunk_clusters],labels=[k for k,v in label_to_clusters.items()])
+if __name__ == "__main__":
 
+    root_dir = '/media/penguaman/code/code/ActualCode/pyQSM/'
+    inputs = 'data/skeletor/inputs'
+    from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
+    meshfix
+
+    trim = read_point_cloud(f'{inputs}/trim/skeletor_full_ds2.pcd')
+    pcd = trim.uniform_down_sample(15)
+    # pcd = read_point_cloud('finpcdal_branch_cc_iso_pt9_top100_mdpt_k50.pcd')
+    from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
+    mesh = project_pcd(pcd)
     
-    # rf_colored = arr(c_trunk_clusters)[rf_seeds]  
-    # other_colored = arr(c_trunk_clusters)[~arr(refined_clusters)]
+    # breakpoint()
+    # file = 'data/skeletor/skel_clean_ext_full.pkl'   
+    # pcds= pcds_from_extend_seed_file(file)   
     
-    other_clusters = [(idc,cluster) if idc in final_int_ids else (idc,empty_pcd) for idc,cluster in enumerate(c_trunk_clusters) ]
-    # extend_seed_clusters(clusters_and_idxs = other_clusters,
-    #                         src_pcd=highc,
-    #                         file_label='other_clusters',cycles=250,save_every=20,draw_every=160, max_distance=.1)
+    # file = 'data/skeletor/skel_clean_ext_cutoff10.pkl'   
+    # branch_pcds= pcds_from_extend_seed_file(file)
+    # draw(pcds)
+    # draw(branch_pcds)
+    # to_project = branch_pcds
+    # ds_branches = [pcd.uniform_down_sample(15).translate([0,0,0]) for pcd in branch_pcds]
+    # pts = arr([x for x in chain.from_iterable([arr(pcd.points) for pcd in to_project])])
 
-if __name__ =="__main__":
-    # in_ids = [1,2,3,4,5,6,7,8]
-    # rf_ext_pcds = pcds_from_extend_seed_file('data/skio/exts/new_seeds_w_order_in_progress.pkl',[in_ids])
-
-    # # in_seed_ids = [107,108,109,111,112,113,114,115,116,133,151]
-    # oth_ext_pcds = pcds_from_extend_seed_file('data/skio/exts/other_clusters_w_order_in_process.pkl',[12])
-    # pcd107 = pcds_from_extend_seed_file('data/skio/exts/rf_cluster_107_rebuild_in_process.pkl')
-    # draw(pcd107)
-
-    test  = read_pcd('data/skio/results/skio/full_ext_seed135_rf11_orig_detail.pcd')
-    pcd = test.uniform_down_sample(15)
-    from ray_casting import project_pcd
-    breakpoint()
-    mesh = project_pcd(pcd,.1,True)
-    # # in_ids = [12]
-    # # in_seed_ids = [33]
-    # ## 12/33 and 5/113 share a pcd but are two trees
-
-    lowc  = read_pcd('data/skio/inputs/new_low_cloud_all_16-18pct.pcd')
-
-
-    final_113 = o3d.io.read_point_cloud('data/skio/results/skio/final_ext_seed113_rf5_orig_detail.pcd')
-    # final_113 = final_113.uniform_down_sample(10)
-    # final_33 = oth_ext_pcds.uniform_down_sample(10)
-    # from reconstruction import get_neighbors_kdtree
-    # nbrs_in_113, _, analouge_idxs = get_neighbors_kdtree(oth_ext_pcds[0],final_113,k=200, dist=.1)
-    # # draw(nbrs_in_113)
-    # not113 = oth_ext_pcds[0].select_by_index(analouge_idxs, invert=True)
-    # draw(not113)
     # breakpoint()
 
-    test = read__point_cloud('data/skio/results/skio/final_ext_not113_seed33_oc5_orig_detail.pcd')
-    
-    # collective  = read_pcd('data/skio/inputs/partitioning_search_area_collective.pcd')
-  
-    # draw(rf_ext_pcds+oth_ext_pcds)
     # breakpoint()
+    from viz.color import color_distribution
+    from utils.lib_integration import get_pairs
+    # source_pcd = read_point_cloud(f'{inputs}/skeletor_clean.pcd')
+    trim = read_point_cloud(f'{inputs}/trim/skeletor_full_ds2.pcd')
+    # source_pcd = read_point_cloud(f'{inputs}/skeletor_clean_ds2.pcd') 
+    # file = 'data/skeletor/skel_clean_ext_full.pkl'   
+    # pcds= pcds_from_extend_seed_file(file)
+    # # branches = []
+    # # leaves = []
+    # # low_idx_lists= []
+    # # # degree_lists = [] 
+    # for idp, pcd in enumerate(pcds):
+
+        
+    #     # plot_dist_dist(pcd)
+    #     # distances = pcd.compute_nearest_neighbor_distance()
+    #     pts = arr(pcd.points)
+    #     detailed_branch, _, analouge_idxs = get_neighbors_kdtree(trim, query_pts=pts,k=200, dist=.1)
+    #     print(f'Orig Size {len(pts)}')
+    #     print(f'Detailed Size {len(detailed_branch.points)}')
+    #     if idp<2:
+    #         draw(detailed_branch)
+    #     write_point_cloud(f'data/skeletor/branch_and_leaves/detailed_branch{idp}.pcd',pcd)
+        # # local_density = []  
+        # degrees,cnts,line_set= get_pairs(query_pts=arr(pcd.points),radius=.3)
+        # # breakpoint()
+        # # density_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(arr(pcd.points)))
+        # # color_continuous_map(density_pcd,arr(degrees))
+        # # draw(density_pcd)
+        # lowd_idxs = np.where(degrees<np.percentile(degrees,30))[0]
+        # branch = pcd.select_by_index(lowd_idxs)
+        # # leafs = pcd.select_by_index(lowd_idxs,invert=True)
+        # branches.append(branch)
+        # # leaves.append(leafs)
+        # low_idx_lists.append(lowd_idxs)
+        # # draw(branch)
+        # # draw(leafs)
+        # print(f'finished {idp}')
+        # draw(branch)
+        # draw(leaves)
+
+        # breakpoint()
+        # # avg_dist = np.mean(distances)
+        # colored_jleaves, _, analouge_idxs = get_neighbors_kdtree(trim, jleaves, dist=.01)
+        # colored_leaves, _, analouge_idxs = get_neighbors_kdtree(colored_pcd, leaves, dist=.01)
+        # colored_branch, _, analouge_idxs = get_neighbors_kdtree(colored_pcd, branch, dist=.01)
+        # # colored_branch = colored_pcd.select_by_index(lowd_idxs,)
+        
+        # draw(colored_leaves)
+        # draw(colored_branch)
+        # # breakpoint()
+        # leaf_colors = arr(colored_leaves.colors)
+        # all_colors = arr(colored_branch.colors)
+        # try:
+        #     _, hsv_fulls = color_distribution(leaf_colors,all_colors,cutoff=.1,space='',sc_func =lambda sc: sc)
+        # except Exception as e:
+        #     breakpoint()
+        #     print('err')
+        # breakpoint()
+        # # orig_detail = source_pcd.select_by_index(analouge_idxs)
+        # # draw(orig_detail)
+        # ds_pcd = pcd.uniform_down_sample(3)
+        # draw(ds_pcd)
+        # res = get_mesh(pcd,ds_pcd,pcd)
+        # breakpoint()
+    # jleaves = join_pcds(leaves)[0]
+    # jbranches= join_pcds(branches)[0]
+    # clusters = cluster_plus(jbranches,eps=.2, min_points=50,return_pcds=True,from_points=False)
+    # test = read_point_cloud('branches_first5_pt3_25pct.pcd')
+    # breakpoint()
+    # write_point_cloud('leaves_first5_pt3_25pct.pcd',jleaves)
+    breakpoint()
+    dtrunk= read_point_cloud(f'{inputs}/skeletor_dtrunk.pcd')
+    joined = read_point_cloud('branches_pt3_30pct.pcd')
     
-    new_113 = read_pcd('data/skio/results/skio/full_ext_seed113_rf5_orig_detail.pcd')
-    # hue_pcds,no_hue_pcds =segment_hues(new_113,113,draw_gif=True, save_gif=False)
-    # stripped = clean_cloud(hue_pcds[5])
-    # seed ,_ = crop_by_percentile(stripped,0,4)
-    # # draw(seed)
-    # clusters = [(1,seed)]
-    # tree_pcds = extend_seed_clusters(clusters,stripped, '113_split', k=50, max_distance=.1, cycles= 500, save_every = 200, draw_every = 200)
-    # branch_nbrs, _, analouge_idxs = get_neighbors_kdtree(new_113,tree_pcds[0],k=800, dist=2)
-    # non_113 = new_113.select_by_index(analouge_idxs,invert=True)
-    # test = non_113.uniform_down_sample(10)
-    # res = cluster_plus(test, eps=.5, min_points=1000,return_pcds=True,from_points=False, draw_result=True)
-    breakpoint()
+    import rustworkx as rx
+    conn_comps_list = []
+    final_list = []
+    for radius in [.06,.07,.08,.09]:
+        degrees,cnts,line_set= get_pairs(query_pts=arr(joined.points),radius=radius, return_line_set=True)
+        # draw(line_set)
+        g = rx.PyGraph()
+        g.add_nodes_from([idp for idp,_ in enumerate(arr(line_set.points))])
+        g.add_edges_from_no_data([tuple(pair) for pair in arr(line_set.lines)])
+        conn_comps = arr([x for x in sorted(rx.connected_components(g), key=len, reverse=True)])
+        print(len(conn_comps))
+        print([len(x) for x in conn_comps])
 
+        large_comp_pt_ids = list(chain.from_iterable([x for x in conn_comps[0:500] if len(x)>100]))
+        candidate_comps = list(chain.from_iterable([x for x in conn_comps[0:100]]))
+        new_pts = arr(line_set.points)
+        new_lines = g.edges(candidate_comps)
+        new_line_set = o3d.geometry.LineSet()
+        new_line_set.points = o3d.utility.Vector3dVector(new_pts)
+        new_line_set.lines = o3d.utility.Vector2iVector(new_lines)
+        draw(new_line_set)
+        branches, _, analouge_idxs = get_neighbors_kdtree(trim, query_pts=new_pts,k=200, dist=.01)
+        draw(branches)
+        # from viz.color import segment_hues
+        # hue_pcds,no_hue_pcds =segment_hues(branches,'test',draw_gif=False, save_gif=False)
+        # res = plt.hist(arr(hsv_fulls[0])[:,0],nbins,facecolor=rgb)
 
-    # axes = o3d.geometry.create_mesh_coordinate_frame()
-    # exclude_regions = {
-    #         'building1' : [ (77,350,0),(100, 374,5.7)], 
-    #         'building2' : [(0, 350), (70, 374)],
-    #         'far_front_yard':[ (0,400),(400, 500)],
-    #         'far_rside_brush':[ (140,0),(190, 500)],
-    #         'lside_brush':[ (0,0),(77, 50 all_ids = rf_seeds + final_int_ids0)],
-    #         'far_back_brush': [ (0,0),(200, 325)]
-    # }
-    rf_seeds = [151,107,108,109,110,111,112,113,114,115,116,132,133,134,135,136,137,138,148,180,189,190,191,193,194] 
-    final_int_ids = [40, 41, 44, 45, 48, 49, 51, 52, 54, 62, 63, 64, 65, 66, 77, 78, 79, 85, 86, 88, 90, 121, 122, 123, 125, 126, 128, 144, 146, 147, 149, 150, 152, 153, 156, 157, 181, 182]
-    all_ids = rf_seeds + final_int_ids
-    all_ids.sort()
-
-    seed_to_exts = { 
-                    #### 17 and 19 are inconcequentially small,
-                    ####  seed 110 is super small
-                    ##  148,180  doesnt match to any rf
-                    152: 0  # untested 51 root
-                    ,151: 9  # untested 51 root
-                    ,107: 1  # ext 1 is two trees
-                    ,108: 1  #   and so correlates to seeds 107 and 108
-                    ,109: 2
-                    ,111: 3
-                    ,112: 4  
-                    ,113: 5 
-                    ,114: 6
-                    ,115: 7  # this is a good seed but the ext only goes up the trunk a couple feet
-                    ,116: 8  # this is a good ext, but the seed is spanish moss
-                    ,133: 9  # This is a group of 3 trees
-                    ,134: 10 
-                    ,135: 11
-                    ,136: 12 # This seed only goes halfway around the trunk
-                    ,137: 13
-                    ,138: 14 # seed is vine, cluster contains a branch of some tree
-                    ,190: 15
-                    ,191: 16 # ***needs to be rerun, is cutoff by the edge of the selected area
-                    #(193, 17), # is a mismatch
-                    ,194: 18  # ***needs to be rerun, is cutoff by the edge of the selected area
-    }
-    unmatched_seeds = [seed for seed in rf_seeds if not seed_to_exts.get(seed)]
-    #[151, 110, 113, 132, 148, 180, 189, 193]
-
-    matched_rf_ext = [x for x in seed_to_exts.values()]#[0 ,1 ,1 ,2,3,4 ,6,7 ,8 ,9 ,10,11,12,13,14,15,16,18]
-
-    collective =  read_pcd('data/input/collective.pcd')
-    root_pcds = pcds_from_extend_seed_file('cluster_roots_w_order_in_process.pkl')
-    breakpoint()
-    seed_to_root_map = {seed_id: root_pcd for seed_id,root_pcd in zip(all_ids,root_pcds)}
-    seed_to_root_id = {seed: idc for idc,seed in enumerate(all_ids)}
-    unmatched_roots = [seed_to_root_id[seed] for seed in seed_to_exts.keys()]
-
-
-    # # load all seed clusters 
-    lowc  = read_pcd('new_low_cloud_all_16-18pct.pcd')
-    label_to_clusters = load('new_skio_labels_low_16-18_cluster_pt5-20.pkl')
-    trunk_clusters = [lowc.select_by_index(x) for x in label_to_clusters.values()]
-    # # highc = read_pcd('new_collective_highc_18plus.pcd')
-    # empty_pcd= o3d.geometry.PointCloud() 
-    # # # # label_to_clusters = load('new_lowc_lbl_to_clusters_pt3_20.pkl')
-
-    all_seeds = {seed: 
-                    (trunk_clusters[seed] ,
-                      seed_to_root_map[seed], seed_to_root_id[seed]) for seed in rf_seeds}
-
-    unmatched_rf_ext_idx = [idx for idx,pcd in enumerate(rf_ext_pcds) if idx not in [0 ,1 ,1 ,2,3,4 ,6,7 ,8 ,9 ,10,11,12,13,14,15,16,18] ]
-    unmatched_rf_ext_pcds = [pcd for idx,pcd in enumerate(rf_ext_pcds) if idx not in [0 ,1 ,1 ,2,3,4 ,6,7 ,8 ,9 ,10,11,12,13,14,15,16,18] ]
+        branch_nbrs, _, analouge_idxs = get_neighbors_kdtree(branches,dtrunk,k=500, dist=2)
+        draw(branch_nbrs)
+        obb = dtrunk.get_minimal_oriented_bounding_box()
+        obb.color = (1, 0, 0)
+        obb.scale(1.2,center=obb.get_center())
+        obb.translate((0,0,-6),relative = True)
+        draw([obb,branches])
+        test = obb.get_point_indices_within_bounding_box( o3d.utility.Vector3dVector(arr(branches.points)) )
+        nbrs = branches.select_by_index(test)
+        draw(nbrs)
+        test = cluster_plus(arr(nbrs.points),eps=.1)
+        clusters_and_idxs = [(idc, t) for idc, t in enumerate(test)]
+        tree_pcds = extend_seed_clusters(clusters_and_idxs, branches, 'skeletor4', k=50, max_distance=.1, cycles= 200, save_every = 50, draw_every = 50)
+        draw(branch_nbrs)
+        
+        
+        conn_comps_list.append(conn_comps)
+        final_list.append(branches)
+        
+    # draw(new_line_set)
+    # draw(branches)
 
     breakpoint()
+
+   
+    # draw(pcd)
+    ds10_pcd =write_point_cloud(f'{inputs}/skeletor_clean_ds10.pcd')
+    draw(ds10_pcd)
+    print(f'down sampled_cloud: {ds10_pcd}')
+
+
+    skel_res = extract_skeleton(ds10_pcd,debug=True)
+    from canopy_metrics import draw_shift
+    lowc,highc,_ = draw_shift(ds10_pcd, 'ds10', skel_res[1], draw_results = False)
+    write_point_cloud(f'{inputs}/ds10_contracted.pcd',skel_res[0])
+    save('ds10_sbs.pkl',skel_res[2])
+    breakpoint()
+    topo_res=extract_topology(skel_res[0])
+    topology, topology_graph, skeleton, skeleton_points, skeleton_graph,rx_graph, mapping = topo_res
+
+    plot_dist_dist(pcd)
+    plot_dist_dist(ds10_pcd)
+
+    ## Find and color/draw neighborhood
+    sp = o3d.geometry.TriangleMesh.create_sphere(radius=normals_radius*5)
+    sp.translate(ds10_pcd.points[50000])
+    sp.paint_uniform_color([1,0,0])
+    pcd_tree = o3d.geometry.KDTreeFlann(ds10_pcd)
+    [k, idx, _] = pcd_tree.search_radius_vector_3d(ds10_pcd.points[90000], normals_radius*5)
+    np.asarray(ds10_pcd.colors)[idx[1:], :] = [0, 1, 0]
+    # draw(test)
+    o3d.visualization.draw([ds10_pcd])
+    o3d.visualization.draw([ds10_pcd,sp])
