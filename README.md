@@ -1,4 +1,4 @@
-# pyQSM: Python Quantitative Structural Modeling for TLS LiDAR Data
+# pyQSM: Python Utilities for TLS LiDAR Scans of Trees
 
 pyQSM is a Python library for processing Terrestrial Laser Scanning (TLS) LiDAR point clouds and extracting information regarding tree structural traits from trees found in said scans. The library provides comprehensive tools for tree isolation, structural trait estimation, and 3D surface-reconstruction from point cloud data.
 
