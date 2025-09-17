@@ -22,7 +22,7 @@ pyQSM focuses on two primary use cases:
 - **Clustering**: DBSCAN and K-means clustering for point cloud segmentation
 - **Geometric Fitting**: RANSAC-based cylinder and sphere fitting
 - **Tree Topology**: Graph-based representation of tree structure
-- **Surface Reconstruction**: Mesh generation and processing
+- **Surface geometry.reconstruction**: Mesh generation and processing
 
 ### 📊 Analysis & Visualization
 - **Canopy Metrics**: Comprehensive tree structure analysis
@@ -31,6 +31,37 @@ pyQSM focuses on two primary use cases:
 - **Ray Casting**: Advanced geometric analysis and projection methods
 - **UI Interface**: GUI components for interactive data exploration
 
+## Architecture
+
+```
+pyQSM/
+├── pyQSM/                                # Main source code
+│   ├── geometry/                       # Geometric processing modules
+│   │   ├── skeletonize.py              # Skeleton/Wireframe extraction algorithms
+│   │   ├── point_cloud_processing.py   # Point cloud utilities
+│   │   ├── zoom.py          # Bounded filtering utilities
+│   │   └── mesh_processing.py          # Triangle Mesh manipulation
+│   ├── math/                          # Utility functions
+│   │   ├── fit.py                      # RANSAC, DBSCAN, etc. clustering
+│   │   └── math_utils.py               # Basic math (i.e. finding center, percentiles)
+│   ├── utils/                          # Utility functions
+│   │   ├── io.py                       # Input/output operations
+│   │   ├── logging_utils.py            # Logging helper functions
+│   │   ├── plotting.py                 # Matplotlib scatter plots, histograms, etc.
+│   │   └── lib_integration.py          # External library integration
+│   ├── viz/                            # Visualization modules
+│   │   ├── viz_utils.py                # Open3D visualization utilities
+│   │   ├── color.py                    # Color analysis and mapping
+│   │   └── tables.py                   # for outputing tabular data
+│   ├── tree_isolation.py               # Tree isolation algorithms
+│   ├── qsm_generation.py               # QSM generation pipeline
+│   ├── canopy_metrics.py               # Tree analysis metrics
+│   ├── geometry.reconstruction.py               # 3D geometry.reconstruction tools
+│   └── ray_casting.py                  # Ray casting operations
+├── scripts/                            # Processing scripts and workflows
+├── data/                               # Data storage and examples
+└── requirements.txt                    # Dependencies
+```
 
 ## Installation
 
@@ -57,29 +88,6 @@ Key dependencies include:
 The library uses TOML configuration files for algorithm parameters:
 - `src/pyqsm_config.toml` - Main configuration file
 - Environment variables: `PY_QSM_CONFIG`, `PY_QSM_LOG_CONFIG`
-
-## Usage
-
-### Basic Workflow
-
-```python
-import open3d as o3d
-from src.qsm_generation import find_low_order_branches
-from src.tree_isolation import extend_seed_clusters
-from src.geometry.skeletonize import extract_skeleton
-
-# Load point cloud data
-pcd = o3d.io.read_point_cloud("tree_scan.pcd")
-
-# Process tree structure
-find_low_order_branches(file="tree_scan.pcd", extract_skeleton=True)
-
-# Extract skeleton
-skeleton = extract_skeleton(pcd)
-
-# Generate QSM
-# ... (detailed workflow in scripts/)
-```
 
 ### Configuration
 
@@ -110,60 +118,16 @@ The `scripts/` directory contains ready-to-use processing workflows:
 - `tree_iso_from_feature_branch.py` - Feature-based tree isolation
 - `visualize_o3d_ml.py` - Machine learning-based visualization
 
-## Key Modules
-
-### Tree Isolation (`tree_isolation.py`)
-- **Seed Clustering**: Extend seed clusters using k-NN search
-- **Trunk Base Identification**: Automated trunk base detection
-- **Building Removal**: Filter out man-made structures
-
-### QSM Generation (`qsm_generation.py`)
-- **Sphere Stepping**: Progressive tree structure discovery
-- **Cylinder Fitting**: RANSAC-based cylindrical approximation
-- **Branch Ordering**: Hierarchical tree structure analysis
-
-### Skeletonization (`geometry/skeletonize.py`)
-- **Robust Laplacian**: Point cloud skeleton extraction
-- **Topology Extraction**: Graph-based tree topology
-- **QSM Conversion**: Convert skeleton to quantitative model
-
-### Visualization (`viz/`)
-- **Interactive 3D Rendering**: Real-time point cloud visualization
-- **Color Mapping**: Advanced color analysis for foliage classification
-- **UI Components**: GUI elements for data exploration
-
-## Data Formats
-
-### Supported Input Formats
-- `.pcd` - Point Cloud Data format (primary)
-- `.ply` - Polygon File Format
-- `.pts` - Point cloud text format
-
-### Output Formats
-- `.pcd` - Processed point clouds
-- `.pkl` - Serialized Python objects (clusters, trees, etc.)
-- `.mesh` - 3D mesh formats
-- `.json` - Configuration and metadata
-
 ## Research Applications
 
 pyQSM is designed for:
-- **Forest Inventory**: Automated tree measurement and analysis
-- **Ecological Studies**: Canopy structure and biomass estimation
-- **Urban Planning**: Tree health monitoring in urban environments
-- **Agricultural Research**: Orchard and plantation analysis
+- **Tree Canopy Segmentation**: Automated identification of individual trees and epipytes there-in
+
+- **Environmental Simulation**: Triangle meshes can be used along side ray-casting to simulate different angles of sunlight, cloud cover and rain angle 
 
 ## License
 
 This project is licensed under the Mozilla Public License Version 2.0. See [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions are welcome! Please see our contributing guidelines for:
-- Code style and standards
-- Testing requirements
-- Documentation expectations
-- Pull request process
 
 ## Citation
 
