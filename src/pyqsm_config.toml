@@ -23,6 +23,13 @@
 # lower_pctile = 0.1
 # upper_pctile = 2
 
+##### Software Settings 
+[io]
+data_root = 'data/skeletor/'
+data_root = 'data/skio/results/skio/'super_user = false
+
+
+##### Algorithm Settings
 # For skeletor
 [initial_clean]
 voxel_size = 0.04
@@ -33,6 +40,7 @@ iters = 3
 [stem]
 normals_radius = 0.1
 normals_nn = 30
+normals_smoothing_nn = 50
 angle_cutoff = 10
 stem_voxel_size = ''
 post_id_stat_down = false
@@ -44,7 +52,7 @@ stem_iters = 3
 num_lowest = 2000
 trunk_neighbors = 10
 trunk_ratio = 0.25
-cluster_eps = 0.08
+cluster_eps = 0.8
 cluster_nn = 10
 # lower_pctile = 4
 # upper_pctile = 15
@@ -53,14 +61,14 @@ lower_pctile = 3
 upper_pctile = 10
 
 [skeletonize]
-moll= 1e-8
+moll= 1e-6
 n_neighbors = 20
 max_iter= 20
 semantic_weight = 10
 init_contraction = 3
-init_attraction = 0.6
-max_contraction = 2048
-max_attraction = 1024
+init_attraction = 1.1
+max_contraction = 2200
+max_attraction = 1100
 termination_ratio = 0.003
 step_wise_contraction_amplification = 'auto'
 graph_k_n = 15

@@ -82,6 +82,7 @@ def evaluate_orientation(pcd):
     pcd.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=20)
     )
+    pcd.orient_normals_consistent_tangent_plane(100)
     pcd.normalize_normals()
     norms = np.array(pcd.normals)
     axis_guess = orientation_from_norms(norms, samples=100, max_iter=1000)
@@ -112,36 +113,38 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
     draw([mesh_pts, pcd])
     return mesh, _, inliers, fit_radius, _
 
-def choose_and_cluster(new_neighbors, main_pts, cluster_type):
-    """
-    Determines the appropriate clustering algorithm to use
-    and returns the result of said algorithm
-    """
-    returned_clusters = []
-    try:
-        nn_points = main_pts[new_neighbors]
-    except Exception as e:
-        breakpoint()
-        print(f"error in choose_and_cluster {e}")
-    if cluster_type == "kmeans":
-        # in these cases we expect the previous branch
-        #     has split into several new branches. Kmeans is
-        #     better at characterizing this structure
-        print("clustering via kmeans")
-        labels, returned_clusters = kmeans(nn_points, 1)
-        # labels = [idx for idx,_ in enumerate(returned_clusters)]
-        # ax = plt.figure().add_subplot(projection='3d')
-        # for cluster in returned_clusters: ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
-        # plt.show()
-    if cluster_type != "kmeans" or len(returned_clusters) < 2:
-        print("clustering via DBSCAN")
-        labels, returned_clusters, noise = cluster_DBSCAN(
-            new_neighbors,
-            nn_points,
-            eps=config['dbscan']["epsilon"],
-            min_pts=config['dbscan']["min_neighbors"],
-        )
-    return labels, returned_clusters
+## I beleive that the below function needs some work
+##  and may eventually be removed entirely
+# def choose_and_cluster(new_neighbors, main_pts, cluster_type):
+#     """
+#     Determines the appropriate clustering algorithm to use
+#     and returns the result of said algorithm
+#     """
+#     returned_clusters = []
+#     try:
+#         nn_points = main_pts[new_neighbors]
+#     except Exception as e:
+#         breakpoint()
+#         print(f"error in choose_and_cluster {e}")
+#     if cluster_type == "kmeans":
+#         # in these cases we expect the previous branch
+#         #     has split into several new branches. Kmeans is
+#         #     better at characterizing this structure
+#         print("clustering via kmeans")
+#         labels, returned_clusters = kmeans(nn_points, 1)
+#         # labels = [idx for idx,_ in enumerate(returned_clusters)]
+#         # ax = plt.figure().add_subplot(projection='3d')
+#         # for cluster in returned_clusters: ax.scatter(nn_points[cluster][:,0], nn_points[cluster][:,1], nn_points[cluster][:,2], 'r')
+#         # plt.show()
+#     if cluster_type != "kmeans" or len(returned_clusters) < 2:
+#         print("clustering via DBSCAN")
+#         labels, returned_clusters, noise = cluster_DBSCAN(
+#             new_neighbors,
+#             nn_points,
+#             eps=config['dbscan']["epsilon"],
+#             min_pts=config['dbscan']["min_neighbors"],
+#         )
+#     return labels, returned_clusters
 
 def kmeans(points, min_clusters):
     """
@@ -159,6 +162,7 @@ def kmeans(points, min_clusters):
     best_score = 0.4
     best = None
     for num in clusters_to_try:
+        log.info(f"trying {num} clusters")
         if num > 0:
             codes, book = spc.vq.kmeans2(pts_2d, num)
             cluster_sizes = np.bincount(book)
@@ -233,6 +237,7 @@ def fit_shape_RANSAC(
     threshold=0.1,
     lower_bound=None,
     max_radius=None,
+    align_to_z=False,
     shape="circle",
     **kwargs,
 ):
@@ -259,10 +264,10 @@ def fit_shape_RANSAC(
     )
     log.info(f"fit_cyl = center: {center}, axis: {axis}, radius: {fit_radius}")
 
-    # if max_radius is not None:
-    #     if fit_radius> max_radius:
-    #         log.info(f'{shape} had radius {fit_radius} but max_radius is {max_radius}')
-    #         return None, None, None, None, None
+    if max_radius is not None:
+        if fit_radius> max_radius:
+            log.info(f'{shape} had radius {fit_radius} but max_radius is {max_radius}')
+            return None, None, None, None, None
 
     if len(center) == 0:
         log.info(f"no no fit {shape} found")
@@ -279,21 +284,22 @@ def fit_shape_RANSAC(
         breakpoint()
         return None, None, None, None, None
 
-    # if ((axis[0] == 0 and axis[1] == 0 and axis[2] == 1) or
-    #     (axis[0] == 0 and axis[1] == 0 and axis[2] == -1)):
-    #     log.info(f'No Rotation Needed')
-    #     cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
-    #                         center=tuple(test_center),
-    #                         radius=fit_radius*1.2,
-    #                         height=height)
-    # else:
-    #     log.info(f'Rotation Needed')
-    #     cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
-    #                         center=tuple(test_center),
-    #                         radius=fit_radius*1.2,
-    #                         height=height,
-    #                         axis=axis)
-    #
+    if align_to_z:
+        if ((axis[0] == 0 and axis[1] == 0 and axis[2] == 1) or
+            (axis[0] == 0 and axis[1] == 0 and axis[2] == -1)):
+            log.info(f'No Rotation Needed')
+            cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
+                                center=tuple(test_center),
+                                radius=fit_radius*1.2,
+                                height=height)
+        else:
+            log.info(f'Rotation Needed')
+            cyl_mesh = get_shape(pts, shape='cylinder', as_pts=False,
+                                center=tuple(test_center),
+                                radius=fit_radius*1.2,
+                                height=height,
+                                axis=axis)
+        
     shape_radius = fit_radius * 1.05
     cyl_mesh = get_shape(
         pts,

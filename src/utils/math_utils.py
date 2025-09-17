@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import array as arr
 
 rot_90_y = np.array([[0,1,0],[1,0,0],[0,0,-1]]) # rotates dead on
 rot_90_z = np.array([[0,-1,0],[1,0,0],[0,0,1]]) 
@@ -42,7 +43,6 @@ def poprow(my_array, pr):
     pop = my_array[i]
     new_array = np.vstack((my_array[:i], my_array[i + 1 :]))
     return new_array, pop
-
 
 
 def find_normal(a, norms, min_allowed_dot=None):
@@ -169,3 +169,31 @@ def get_radius(points, center_type="centroid"):
     xy_center = center[:2]
     r = np.average([np.sqrt(np.sum((xy_pt - xy_center) ** 2)) for xy_pt in xy_pts])
     return r
+
+def generate_grid(min_bnd,
+                  max_bnd,
+                    grid_xyz_cnt =  arr((2,3,1)),
+                    overlap_ratio = 1/7
+                  ):
+    """Divides the region defined by the provide range 
+        into a grid with a defined # of divisions of the x,y and z dimensions
+
+    Args:
+        min_bnd: the 'bottom-left' of the region (x,y,z)
+        max_bnd:  the 'top-right' of the region (x,y,z)
+        grid_xyz_cnt: the number of divisions desired in the x, y and z dimensions
+    """
+    col_lwh = max_bnd -min_bnd
+    grid_xyz_cnt = arr((2,3,1)) # x,y,z
+    grid_lines = [np.linspace(0,num,1) for num in grid_xyz_cnt]
+    grid_lwh = col_lwh/grid_xyz_cnt
+    ll_mults =  [np.linspace(0,num,num+1) for num in grid_xyz_cnt]
+    llv = [minb + dim*mult for dim, mult,minb in zip(grid_lwh,ll_mults,min_bnd)]
+
+    grid = arr([[[llv[0][0],llv[1][0]],[llv[0][1],llv[1][1]]],[[llv[0][1],llv[1][0]],[llv[0][2],llv[1][1]]],    
+                [[llv[0][0],llv[1][1]],[llv[0][1],llv[1][2]]],[[llv[0][1],llv[1][1]],[llv[0][2],llv[1][2]]],    
+                [[llv[0][0],llv[1][2]],[llv[0][1],llv[1][3]]],[[llv[0][1],llv[1][2]],[llv[0][2],llv[1][3]]]])
+    ## We want a bit of overlap since nearby clusters sometime contest for points 
+    overlap = grid_lwh*overlap_ratio    
+    safe_grid = [[[ll[0]-overlap[0],ll[1]-overlap[1]],[ur[0]+overlap[0], ur[1]+overlap[1]]] for ll, ur in grid]
+    return safe_grid
