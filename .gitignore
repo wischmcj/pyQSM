@@ -123,10 +123,10 @@ data/notes/*
 src/gui/*
 
 meshes/*
-src/test.py
 /data/in_process/*
 *data/results/*
-sho/*
+
+
 new_lowc_refined_clusters.pkl
 other_clusters_w_order_in_process.pkl
 rf_seed_ext_root_ids.pkl

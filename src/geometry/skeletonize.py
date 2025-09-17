@@ -240,16 +240,11 @@ def extract_skeleton(pcd,
     obb = pcd.get_oriented_bounding_box()
     allowed_range = (obb.get_min_bound(), obb.get_max_bound())
     
-    termination_ratio,_ = set_amplification(step_wise_contraction_amplification,
-                                                                len(np.asarray(pcd.points)),termination_ratio)
-    # termination_ratio,contraction_factor = set_amplification(step_wise_contraction_amplification,
-    #                                                             len(np.asarray(pcd.points)),termination_ratio)
-
     # termination_ratio,_ = set_amplification(step_wise_contraction_amplification,
     #                                                           len(np.asarray(pcd.points)),termination_ratio)
     # termination_ratio,contraction_factor = set_amplification(step_wise_contraction_amplification,
                                                                 # len(np.asarray(pcd.points)),termination_ratio)
-
+    
     max_iteration_steps = max_iter
 
     pts = np.asarray(pcd.points)
@@ -313,7 +308,6 @@ def extract_skeleton(pcd,
             try:
                 print('saving cmag')
                 # c_mag = np.array([np.linalg.norm(x) for x in pcd_point_shift])
-
                 save(f'{cmag_save_file}_shift.pkl',shift_by_step)
                 # curr_pts_pcd = pts_to_cloud(pts_current)
                 # o3d.write_point_cloud(f'{cmag_save_file}_contracted.pcd',curr_pts_pcd)
@@ -368,47 +362,6 @@ def extract_skeleton(pcd,
     contracted = pts_to_cloud(pts_current)
 
     return contracted, total_point_shift, shift_by_step
-
-def contraction_mag_processing(pcd, contracted_pcd, file ):
-    c_mag = load(file)
-    color_continuous_map(pcd,c_mag)
-    color_continuous_map(contracted_pcd,c_mag)
-    draw([curr_pts_pcd])
-    breakpoint()   
-    if iteration==0:
-        # Investigating points with high inital contraction
-        color_continuous_map(pcd,c_mag)
-        high_c_idxs = np.where(c_mag>np.percentile(c_mag,60))[0]
-        high_c_pcd = pcd.select_by_index(high_c_idxs)
-        low_c_pcd = pcd.select_by_index(high_c_idxs,invert=True)
-        draw([high_c_pcd])
-        draw([low_c_pcd])
-        clean_high_c_pcd = clean_cloud(high_c_pcd, iters=1)
-        clean_high_c_pcd, inds = high_c_pcd.remove_statistical_outlier( nb_neighbors=20, std_ratio=2)
-        draw([clean_high_c_pcd])
-        clean_high_c_pcd.paint_uniform_color([1,0,0])
-        # o3d.write_point_cloud('rf_cluster_high_c_pcd',high_c_pcd)
-        # save('rf_cluster0_c_mag.pkl',c_mag)
-        clean_low_c_pcd = clean_cloud(low_c_pcd, iters=1)
-        draw([clean_low_c_pcd])
-        breakpoint()   
-        # idxs_in_orig = high_c_idxs[inds]
-        # draw([pcd,clean_high_c_pcd])
-        # left =  pcd.select_by_index(high_c_idxs,invert=True)
-        # draw(left)    
-
-        # src_tree = sps.KDTree(arr(pcd.points))
-        # num_pts = len(arr(pcd.points))
-        # dists,nbrs = src_tree.query(arr(clean_high_c_pcd.points),k=50,distance_upper_bound= .3)
-        # dist_nbrs = [x for x in set(chain.from_iterable(nbrs)) if x !=268598] #num_pts]     
-        # nbr_pcd = pcd.select_by_index(dist_nbrs)
-        # draw(nbr_pcd)
-
-        # non_nbr_pcd = pcd.select_by_index(dist_nbrs, invert=True)
-        # draw(non_nbr_pcd)
-
-        # largest, largest_idxs = cluster_plus(nbr_pcd,.11,5,top=1)
-        # test = nbr_pcd.select_by_index(largest_idxs,invert = True)
 
 def skeleton_to_QSM(topology,topology_graph, total_point_shift, test = True):
     """
