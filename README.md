@@ -39,8 +39,9 @@ pyQSM/
 │   ├── geometry/                       # Geometric processing modules
 │   │   ├── skeletonize.py              # Skeleton/Wireframe extraction algorithms
 │   │   ├── point_cloud_processing.py   # Point cloud utilities
-│   │   ├── zoom.py          # Bounded filtering utilities
+│   │   ├── zoom_and_filter.py          # Bounded filtering utilities
 │   │   └── mesh_processing.py          # Triangle Mesh manipulation
+|   |   └── reconstruction.py               # 3D geometry.reconstruction tools
 │   ├── math/                          # Utility functions
 │   │   ├── fit.py                      # RANSAC, DBSCAN, etc. clustering
 │   │   └── math_utils.py               # Basic math (i.e. finding center, percentiles)
@@ -56,7 +57,6 @@ pyQSM/
 │   ├── tree_isolation.py               # Tree isolation algorithms
 │   ├── qsm_generation.py               # QSM generation pipeline
 │   ├── canopy_metrics.py               # Tree analysis metrics
-│   ├── geometry.reconstruction.py               # 3D geometry.reconstruction tools
 │   └── ray_casting.py                  # Ray casting operations
 ├── scripts/                            # Processing scripts and workflows
 ├── data/                               # Data storage and examples
