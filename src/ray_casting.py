@@ -17,7 +17,7 @@ from numpy import asarray as arr
 import matplotlib.pyplot as plt
 
 from set_config import config, log
-from reconstruction import get_neighbors_kdtree
+from geometry.reconstruction import get_neighbors_kdtree
 from utils.math_utils import (
     get_center,
     generate_grid
@@ -51,11 +51,13 @@ from matplotlib.colors import rgb_to_hsv
 from viz.color import remove_color_pts, get_green_surfaces
 
 from geometry.mesh_processing import get_surface_clusters
-from reconstruction import recover_original_details
+from geometry.reconstruction import recover_original_details
 
 from viz.viz_utils import color_continuous_map
 
 import pyvista as pv
+
+import open3d.core as o3c
 
 pinhole_config = { 'fov_deg':60,'center':[-3,-.25,-3],
                     'eye':[10, 10, 20],'up':[0, 0, 1],
@@ -65,7 +67,34 @@ rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 # pinhole_config = { 'fov_deg': 90, 'center': tmesh.get_center(), 'eye': [-2,-2,15], 'up': [0, -1, 1], 'width_px':1280, 'height_px':960,}
 origin = [0,0,0]
 
-def project_pcd(point_cloud = None, pts = None,alpha=.1,plot=False,seed='default'):
+def get_points_inside_mesh(radius,height,start,end,pcd,idxs):
+    center = (start+end)/2
+    mesh = o3d.t.geometry.TriangleMesh.create_cylinder(radius=radius,height=height)
+    mesh.translate(center)
+
+    mesh = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+    # pcd = o3d.t.geometry.PointCloud.from_legacy(pcd)
+    all_pts = arr(pcd.points)
+    query_pts = all_pts[idxs]
+    tpts =  o3c.Tensor(query_pts, o3c.float32)
+    # Create a scene and add the triangle mesh
+
+    scene = rcs()
+    _ = scene.add_triangles(mesh)
+    # scene.add_points(pcd)
+    # scene.compute_occupancy_grid()
+    occ = scene.compute_occupancy(tpts)
+    # breakpoint()
+    return occ
+
+
+def project_pcd(point_cloud = None, 
+                pts = None,
+                alpha=.1,
+                plot=True,
+                name='',
+                seed='default',
+                screen_shots = [[20,-60,30],[20,-60,60],[-20,-60,-10],[-20,60,30],[-20,60,60]]):
     # num_points = 100
     # rng = np.random.default_rng(seed=0)  # Seed rng for reproducibility
     # point_cloud = rng.random((num_points, 3))
@@ -92,32 +121,35 @@ def project_pcd(point_cloud = None, pts = None,alpha=.1,plot=False,seed='default
     # Create a polydata object with projected points
     polydata = pv.PolyData(projected_points)
 
-    log.info(f'Getting hull')
+    log.info(f'Getting 2D hull')
 
     # Mesh using delaunay_2d and pyvista
     mesh = polydata.delaunay_2d(alpha=alpha)
-    plane_vis = pv.Plane(
-        center=origin,
-        direction=normal,
-        i_size=.5,
-        j_size=.5,
-        i_resolution=10,
-        j_resolution=10,
-    )
-    # if plot:
-    #     # plot it
-    #     log.info(f'Plotting')
-    #     pl = pv.Plotter()
-    #     pl.add_mesh(mesh, show_edges=True, color='white', opacity=0.5, label='Tessellated mesh')
-    #     pl.add_mesh(    pv.PolyData(points),    color='red',    render_points_as_spheres=True,    point_size=2,    label='Points to project',)
-    #     pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
-    #     pl.add_legend()
-    #     pl.show()
-        
-    #     pl = pv.Plotter()
-    #     pl.add_mesh(mesh.extract_geometry())
-    #     pl.show()
-    mesh.save(f'data/skio/projection/2d_proj_{seed}_alphapt1.ply')
+    log.info(f'Plotting...')
+    # plane_vis = pv.Plane(center=origin,direction=normal,i_size=.5,j_size=.5,i_resolution=10,j_resolution=10,)
+    if plot:
+        for pos in screen_shots:
+            pl = pv.Plotter(off_screen=True)
+            pl.add_mesh(mesh)
+            pl.add_mesh( points,    color='red',    
+                        render_points_as_spheres=True,    
+                        point_size=2,    label='Points to project',)
+            # pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
+            pl.camera.position = (polydata.center[0]+pos[0],polydata.center[1]+pos[1],polydata.center[2]+pos[2])
+            pl.camera.focal_point = polydata.center
+            file = f'data/skio/projection/{seed}_{name}_{pos[0]}_{pos[1]}_{pos[2]}.png'
+            pl.show(screenshot =file)
+            log.info(f'saved {file}')
+
+        proj = mesh.extract_geometry()
+        # Screen Shotting Geometry
+        pl = pv.Plotter(off_screen=True)
+        pl.add_mesh(proj)
+        pl.camera.position = (proj.center[0]+15,proj.center[1],proj.center[2]+50)
+        pl.camera.focal_point = proj.center
+        pl.show(screenshot =f'data/skio/projection/{seed}_{name}_shape.png')
+        # pl.show()
+    # mesh.save(f'data/skio/projection/{{seed}_{name}_{pos[0]}_{pos[1]}_{pos[2]}.ply')
     return mesh
 
 
@@ -284,26 +316,6 @@ def cast_rays(tmesh,
     # draw([tcoords.to_legacy(),pcd])
     # breakpoint()
     return hit_mesh
-
-def rgbd(pcd):
-    # device = o3d.core.Device('CPU:0')
-    # # tum_data = o3d.data.SampleTUMRGBDImage()
-    # depth = o3d.t.io.read_image(tum_data.depth_path).to(device)
-    # color = o3d.t.io.read_image(tum_data.color_path).to(device)
-
-    intrinsic = o3d.core.Tensor([[535.4, 0, 320.1], [0, 539.2, 247.6],[0, 0, 1]])
-    # rgbd = o3d.t.geometry.RGBDImage(color, depth)
-
-    # pcd = o3d.t.geometry.PointCloud.create_from_rgbd_image(rgbd,
-    #                                                        intrinsic,
-    #                                                        depth_scale=5000.0,
-    #                                                        depth_max=10.0)
-    o3d.visualization.draw([pcd])
-    rgbd_reproj = pcd.project_to_rgbd_image(640, 480, intrinsic, depth_scale=5000.0, depth_max=10.0 )
-    fig, axs = plt.subplots(1, 2)
-    axs[0].imshow(np.asarray(rgbd_reproj.color.to_legacy()))
-    axs[1].imshow(np.asarray(rgbd_reproj.depth.to_legacy()))
-    plt.show()
 
 def raycast_to_pcd(mesh, pinhole_config):
     scene = rcs()  

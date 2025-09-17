@@ -276,6 +276,74 @@ def read_file_sections(file,
         # o3d.visualization.draw(pcd)
 
 
+                    inten_new_max = np.percentile(inten,100)
+                    inten_limited =  np.clip(inten, None,inten_new_max)
+                    inten_min = np.min(inten_limited)
+                    inten_posi =  inten_limited - inten_min if inten_min<0 else inten_limited + inten_min
+                    norm_inten = inten_posi/np.median(inten_posi)
+
+
+                    norm_pcd_cols = pcd_cols/255
+                    new_pcd_cols = (norm_pcd_cols.T*norm_inten).T
+                    # new_pcd_cols = new_pcd_cols
+                    # pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+                    # o3d.visualization.draw(pcd)
+
+
+                    pcd = o3d.geometry.PointCloud()
+                    pcd.points = o3d.utility.Vector3dVector(pcd_pts)
+                    pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+                    pcd = pcd.uniform_down_sample(2)
+                    # o3d.visualization.draw(pcd)
+                    # new_pcd_cols = new_pcd_cols*
+                    # breakpoint()
+                    # for idv,vals in enumerate([other_vals[:,0],other_vals[:,1],other_vals[:,2],
+                    #                pcd_cols[:,0],pcd_cols[:,1],pcd_cols[:,2] ]):
+                    #     oth_desc= stats.describe(np.asarray(vals))
+                    #     print(f'{idv}: {oth_desc}')
+
+
+                    # high_inten_ids = np.where(inten > np.percentile(inten,70))
+                    # test = pcd.select_by_index(high_inten_ids)
+                    # draw(test)
+                    # pcd_cols = arr([tuple((x/255 for x in rgb)) for rgb in pcd_cols])
+                    # try:
+                    #     o3d.visualization.draw(pcd)
+                    # except Exception as e:
+                    #     print(f'error in draw {e}' )
+                    # breakpoint()
+                    
+                    write_point_cloud(f'/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/trim/skeletor_full_{file_num}.pcd',pcd)
+                    print(f'Wrote file {file_num} on iter {lineno}')
+                    # save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
+                    # save(f'data/skeletor/inputs/skeletor_full_color_{file_num}.pkl',pcd_cols)
+                    lines = []
+                    del pcd
+                    pcd_pts =  []
+                    pcd_cols = []
+                    other_vals = []
+                    file_num+=1
+    
+
+        lines = arr(lines)
+        pcd_cols = lines[:,4:7].astype(int)
+        pcd_pts = lines[:,0:3].astype(float)
+        inten = lines[:,3].astype(int)
+
+        inten_new_max = np.percentile(inten,100)
+        inten_limited =  np.clip(inten, None,inten_new_max)
+        inten_min = np.min(inten_limited)
+        inten_posi =  inten_limited - inten_min if inten_min<0 else inten_limited + inten_min
+        norm_inten = inten_posi/np.median(inten_posi)
+
+
+        norm_pcd_cols = pcd_cols/255
+        new_pcd_cols = (norm_pcd_cols.T*norm_inten).T
+        # new_pcd_cols = new_pcd_cols
+        # pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
+        # o3d.visualization.draw(pcd)
+
+
                     for idv,vals in enumerate([other_vals[:,0],other_vals[:,1],other_vals[:,2],
                                    pcd_cols[:,0],pcd_cols[:,1],pcd_cols[:,2] ]):
                         oth_desc= stats.describe(np.asarray(vals))

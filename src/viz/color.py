@@ -132,7 +132,7 @@ def saturate_colors(pcd, cutoff=1,sc_func =lambda sc: sc + (1-sc)/3):
 
 def segment_hues(pcd, seed, hues=['white','blues','pink','red_yellow', 'greens'],
                     draw_gif=False, down_sample=False,
-                    draw_results=True, save_gif=False,
+                    draw_results=False, save_gif=False,
                     on_frames=25, off_frames=25, 
                     addnl_frame_duration=.01, point_size=5):
     log.info(f"Started 'segmenting_hues'")
@@ -149,32 +149,32 @@ def segment_hues(pcd, seed, hues=['white','blues','pink','red_yellow', 'greens']
     log.info(f'Segmenting')
     to_run = target
     greens_pcd= None
-    try:
-        for tup in enumerate(hues): 
-            idh, hue = tup
+    for tup in enumerate(hues): 
+        idh, hue = tup
+        try:
             hue_pcds[idh+1],no_hue_pcds[idh+1],hue_idxs[idh] = get_color_by_hue(to_run, color_conds[hue])
             if len(hue_idxs[idh])>0:
                 to_run = no_hue_pcds[idh+1]
             if hue =='greens': greens_pcd = hue_pcds[idh+1]
-    except Exception as e:
-        breakpoint()
-        # idh, hue=[x for x in   enumerate(hues)]
-        log.error(f'Error segmenting hues {e}')
-    hue_pcds = [x for x in hue_pcds if x is not None]
-    no_hue_pcds = [x for x in no_hue_pcds if x is not None]
-    if draw_gif:
-        try:
-            final = no_hue_pcds[len(no_hue_pcds)-1]
-            gif_kwargs = { 'sub_dir':f'{seed}_segment_hues_final' ,'on_frames': on_frames, 'off_frames': off_frames, 'addnl_frame_duration':addnl_frame_duration, 'point_size':point_size, 'save':save_gif, 'rot_center':final.get_center()}
-            target.colors = o3d.utility.Vector3dVector(orig_colors)
-            # rotating_compare_gif(target,final,**gif_kwargs)
-            # if greens_pcd is not None:
-            #     gif_kwargs['sub_dir']=f'{seed}_segment_hues_greens' 
-            #     rotating_compare_gif(greens_pcd,final,**gif_kwargs)
         except Exception as e:
             breakpoint()
             # idh, hue=[x for x in   enumerate(hues)]
             log.error(f'Error segmenting hues {e}')
+    hue_pcds = [x for x in hue_pcds if x is not None]
+    no_hue_pcds = [x for x in no_hue_pcds if x is not None]
+    # if draw_gif:
+    #     try:
+    #         final = no_hue_pcds[len(no_hue_pcds)-1]
+    #         gif_kwargs = { 'sub_dir':f'{seed}_segment_hues_final' ,'on_frames': on_frames, 'off_frames': off_frames, 'addnl_frame_duration':addnl_frame_duration, 'point_size':point_size, 'save':save_gif, 'rot_center':final.get_center()}
+    #         target.colors = o3d.utility.Vector3dVector(orig_colors)
+    #         # rotating_compare_gif(target,final,**gif_kwargs)
+    #         # if greens_pcd is not None:
+    #         #     gif_kwargs['sub_dir']=f'{seed}_segment_hues_greens' 
+    #         #     rotating_compare_gif(greens_pcd,final,**gif_kwargs)
+    #     except Exception as e:
+    #         breakpoint()
+    #         # idh, hue=[x for x in   enumerate(hues)]
+    #         log.error(f'Error segmenting hues {e}')
     # sizes = [len(arr(x.points)) for x in hue_pcds[1:]]
     # hue_by_idhs = {hue: idhs for hue,idhs in zip(hues,hue_idxs)}
     return hue_pcds,no_hue_pcds
@@ -270,14 +270,14 @@ def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, r
 
         hsvs.append(hsv)
     
-    for idr, row_hsv in enumerate(hsv_fulls):
-        nbins = 20 
-        colors_h  = np.linspace(0,1,nbins)
-        colors_hsv=zip(colors_h,[.5]*20,[.5]*20)
-        rgb = hsv_to_rgb([x for x in colors_hsv])
-        hc,sc,vc = zip(*row_hsv)
-        res = plt.hist(hc, bins=nbins,facecolor=rgb)
-        plt.show()
+    # for idr, row_hsv in enumerate(hsv_fulls):
+    #     nbins = 20 
+    #     colors_h  = np.linspace(0,1,nbins)
+    #     colors_hsv=zip(colors_h,[.5]*20,[.5]*20)
+    #     rgb = hsv_to_rgb([x for x in colors_hsv])
+    #     hc,sc,vc = zip(*row_hsv)
+    #     res = plt.hist(hc, bins=nbins,facecolor=rgb)
+    #     plt.show()
 #    15     lower_blue = np.array([110,50,50])
 #    16     upper_blue = np.array([130,255,255])
 #    17 

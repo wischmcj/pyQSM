@@ -4,7 +4,7 @@ import open3d as o3d
 import numpy as np
 import os
 import scipy.spatial as sps
-from open3d.visualization import draw_geometries
+from open3d.visualization import draw_geometries,draw_geometries_with_editing
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
@@ -41,7 +41,20 @@ def iter_draw(idxs_list, pcd):
     o3d.visualization.draw_geometries(pcds)
     return pcd
 
-def draw(pcds, raw=True, side_by_side=False, **kwargs):
+def _draw_w_edit_mode(pcds, **kwargs):
+    print("Demo for manual geometry cropping")
+    print(
+        "1) Press 'Y' twice to align geometry with negative direction of y-axis"
+    )
+    print("2) Press 'K' to lock screen and to switch to selection mode")
+    print("3) Drag for rectangle selection,")
+    print("   or use ctrl + left click for polygon selection")
+    print("4) Press 'C' to get a selected geometry")
+    print("5) Press 'S' to save the selected geometry")
+    print("6) Press 'F' to switch to freeview mode")
+    o3d.visualization.draw_geometries_with_editing(pcds, **kwargs)
+
+def draw(pcds, raw=True, side_by_side=False, w_editing=False, **kwargs):
     if (not(isinstance(pcds, list))
         and not(isinstance(pcds, np.ndarray))):
         pcds_to_draw = [pcds]
@@ -62,15 +75,18 @@ def draw(pcds, raw=True, side_by_side=False, **kwargs):
     # tree, Secrest27
     tcoords = o3d.t.geometry.TriangleMesh.create_coordinate_frame()
     tcoords.translate(pcds_to_draw[0].get_center())
-    draw_geometries(
-            pcds_to_draw,
-            # mesh_show_wireframe=True,
-            # zoom=0.7,
-            # front=[0, 2, 0],
-            # lookat=[3, -3, 4],
-            # up=[0, -1, 1],
-            **kwargs,
-        )
+    if w_editing:
+        _draw_w_edit_mode(pcds_to_draw, **kwargs)
+    else:
+        draw_geometries(
+                pcds_to_draw,
+                # mesh_show_wireframe=True,
+                # zoom=0.7,
+                # front=[0, 2, 0],
+                # lookat=[3, -3, 4],
+                # up=[0, -1, 1],
+                **kwargs,
+            )
 
 def vdraw(pcds, 
           save_file='',
@@ -97,10 +113,12 @@ def vdraw(pcds,
         vis.capture_screen_image(save_file)
 
 def color_continuous_map(pcd, cvar):
-    density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
-    density_colors = density_colors[:, :3]
-    pcd.colors = o3d.utility.Vector3dVector(density_colors)
-    return pcd
+    if len(cvar)>0:
+        density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
+        density_colors = density_colors[:, :3]
+        pcd.colors = o3d.utility.Vector3dVector(density_colors)
+    print('warning, length 0 array')
+    return pcd, density_colors
 
 def rotating_compare_gif(transient_pcd_in, constant_pcd_in=None,
                                init_rot: np.ndarray = np.eye(3),
