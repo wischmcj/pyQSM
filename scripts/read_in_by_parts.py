@@ -245,7 +245,7 @@ def read_file_sections(file,
                     #     print(f'error in draw {e}' )
                     # breakpoint()
                     
-                    write_point_cloud(f'/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/trim/skeletor_full_{file_num}.pcd',pcd)
+                    write_point_cloud(f'/media/penguaman/code/ActualCode/Research/pyQSM/data/skeletor/inputs/trim/skeletor_full_{file_num}.pcd',pcd)
                     print(f'Wrote file {file_num} on iter {lineno}')
                     # save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
                     # save(f'data/skeletor/inputs/skeletor_full_color_{file_num}.pkl',pcd_cols)
@@ -313,7 +313,7 @@ def read_file_sections(file,
                     #     print(f'error in draw {e}' )
                     # breakpoint()
                     
-                    write_point_cloud(f'/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/trim/skeletor_full_{file_num}.pcd',pcd)
+                    write_point_cloud(f'/media/penguaman/code/ActualCode/Research/pyQSM/data/skeletor/inputs/trim/skeletor_full_{file_num}.pcd',pcd)
                     print(f'Wrote file {file_num} on iter {lineno}')
                     # save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
                     # save(f'data/skeletor/inputs/skeletor_full_color_{file_num}.pkl',pcd_cols)
@@ -406,7 +406,7 @@ def read_file_sections(file,
         pcd.points = o3d.utility.Vector3dVector(pcd_pts)
         pcd.colors =  o3d.utility.Vector3dVector(new_pcd_cols)
         pcd = pcd.uniform_down_sample(2)
-        write_point_cloud(f'/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/trim/skeletor_full_final.pcd',pcd)
+        write_point_cloud(f'/media/penguaman/code/ActualCode/Research/pyQSM/data/skeletor/inputs/trim/skeletor_full_final.pcd',pcd)
         print(f'Wrote file {file_num} on iter {lineno}')
         # save(f'data/skeletor/inputs/skeletor_full_other_{file_num}.pkl',other_vals)
         breakpoint()
@@ -505,12 +505,12 @@ if __name__ == '__main__':
     # compiled_vox_down_skio_raffai_560000000 is a good tree iso file, trees rather already seperated 
     ###########################
     # read_pcd()
-    # skeletor = "/code/code/Research/lidar/converted_pcs/skeletor_xyzrgb.pts"
+    # skeletor = "/code/Research/lidar/converted_pcs/skeletor_xyzrgb.pts"
     # pts_to_pcd_rbg(skeletor)
 
     # file = '/home/penguaman/code/Research/lidar/SKIO-RaffaiEtAl.pts'
-    file = '/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/inputs/skeletor.pts'
-    file = '/media/penguaman/code/code/ActualCode/pyQSM/data/skeletor/SkeletorTrim.xyz'
+    file = '/media/penguaman/code/ActualCode/Research/pyQSM/data/skeletor/inputs/skeletor.pts'
+    file = '/media/penguaman/code/ActualCode/Research/pyQSM/data/skeletor/SkeletorTrim.xyz'
     read_file_sections(file, 0)
     # read_pcd()
     # read_file_sections(0)

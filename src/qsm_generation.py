@@ -1,4 +1,4 @@
-# with open("/code/code/Research/lidar/Secrest_27-5.xyb", mode='rb') as file: # b is important -> binary
+# with open("/code/Research/lidar/Secrest_27-5.xyb", mode='rb') as file: # b is important -> binary
 #     fileContent = file.read()
 
 from collections import defaultdict
@@ -53,9 +53,9 @@ from utils.plotting import plot_dist_dist
 
 log = logging.getLogger('calc')
 
-skeletor = "/code/code/Research/lidar/converted_pcs/skeletor.pts"
-s27 = "/code/code/Research/lidar/converted_pcs/Secrest27_05.pts"
-s32 = "/code/code/Research/lidar/converted_pcs/Secrest32_06.pts"
+skeletor = "/code/Research/lidar/converted_pcs/skeletor.pts"
+s27 = "/code/Research/lidar/converted_pcs/Secrest27_05.pts"
+s32 = "/code/Research/lidar/converted_pcs/Secrest32_06.pts"
 
 s27d = "data/input/s27_downsample_0.04.pcd"
 s32d = "data/input/s32_downsample_0.04.pcd"
@@ -591,7 +591,7 @@ def exclude_dense_areas(pcd, radius=.05):
 
 if __name__ == "__main__":
 
-    root_dir = '/media/penguaman/code/code/ActualCode/pyQSM/'
+    root_dir = '/media/penguaman/code/ActualCode/Research/pyQSM/'
     inputs = 'data/skeletor/inputs'
     from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
     meshfix

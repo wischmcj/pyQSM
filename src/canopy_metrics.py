@@ -647,10 +647,10 @@ if __name__ =="__main__":
     clean_full2 = clean_cloud(full_z)
     full_znw =  remove_color_pts(clean_full2, lambda x: sum(x)>2.7,invert=True)
     print('removed colors',time.time())
-    write_pcd('/media/penguaman/code/code/ActualCode/pyQSM/data/epip/inputs/clean_twice_ds10_epip.pcd',clean_full2)
+    write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/clean_twice_ds10_epip.pcd',clean_full2)
 
     breakpoint()
-    write_pcd('/media/penguaman/code/code/ActualCode/pyQSM/data/epip/inputs/epi_zoomed.pcd',full)
+    write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/epi_zoomed.pcd',full)
     
     pcd = zoom_pcd([[0,120,-25],[70,200,11]],clean_full2)
 
