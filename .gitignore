@@ -113,11 +113,15 @@ copy_of_fragment.pcd
 
 sho/*
 data/bark_texture/*
-scripts/*
+scripts/untracked/*
+scripts/to_share/*
+scripts/gui/*
+scripts/ml/*
+pyQSM/tree.py
 ml/logs/*
 src/logs/*
 src/ml/*
-pyQSM/*
+
 data/notes/*
 
 src/gui/*

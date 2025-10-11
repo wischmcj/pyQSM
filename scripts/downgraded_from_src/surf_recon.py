@@ -9,8 +9,9 @@ from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_p
 
 from set_config import config, log
 from geometry.mesh_processing import check_properties, get_surface_clusters
-from reconstruction import recover_original_details
+from geometry.reconstruction import recover_original_details
 from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays
+from utils.plotting import plot_dist_dist
 from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
 
 
@@ -87,21 +88,6 @@ def meshfix(mesh, algo = 'pyt'):
     
     tmesh = o3d.t.geometry.TriangleMesh.from_legacy(new_mesh)
     return tmesh
-
-def plot_dist_dist(pcd,distances=None):
-    log.info(f'Computing KNN distance')
-    if distances is None:
-        distances = pcd.compute_nearest_neighbor_distance()
-    avg_dist = np.mean(distances)
-    print(f'{avg_dist=}')
-    log.info(f'plotting KNN distance distrobution')
-    bins = np.histogram_bin_edges(distances, bins=300)
-    cum_sum=[ len([x for x in distances if lb>x]) for lb in bins]
-    ax = plt.subplot()
-    ax.scatter(bins,cum_sum)
-    plt.axvline(x=avg_dist, color='r', linestyle='--')
-    plt.axvline(x=avg_dist*2, color='r', linestyle='--')
-    plt.show()
 
 def pivot_ball_mesh(pcd, 
                     radii_factors = [0.1,0.2,0.3,0.4,0.5,0.7,1,1.2,1.5,1.7,2],

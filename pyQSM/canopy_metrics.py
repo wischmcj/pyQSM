@@ -1,10 +1,6 @@
 from copy import deepcopy
 from glob import glob
 import re
-import random
-
-from collections import defaultdict
-
 
 from tree_isolation import extend_seed_clusters, pcds_from_extend_seed_file
 from utils.io import save
@@ -13,31 +9,10 @@ import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
 
-import matplotlib.pyplot as plt
 from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
 from geometry.surf_recon import get_mesh
 from set_config import config, log
-
-from reconstruction import get_neighbors_kdtree
-from utils.math_utils import (
-    get_center,
-    generate_grid
-)
-from utils.fit import kmeans,cluster_DBSCAN
-from geometry.skeletonize import extract_skeleton, extract_topology
-from geometry.point_cloud_processing import ( filter_by_norm,
-    clean_cloud,
-    crop, get_shape,
-    orientation_from_norms,
-    filter_by_norm,
-    get_ball_mesh,
-    crop_by_percentile,
-    cluster_plus
-)
-from geometry.mesh_processing import ( 
-    check_properties
-    )
 from geometry.reconstruction import get_neighbors_kdtree
 from geometry.skeletonize import extract_skeleton, extract_topology
 from geometry.point_cloud_processing import (
@@ -51,16 +26,8 @@ from viz.color import (
     remove_color_pts, 
     get_green_surfaces,
     color_on_percentile,
-    color_distribution,
-    segment_hues,
-    saturate_colors
+    segment_hues
 )
-
-from geometry.mesh_processing import get_surface_clusters
-from reconstruction import recover_original_details
-from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays,project_pcd
-
-import pyvista as pv
 
 
 import pyvista as pv
@@ -82,7 +49,7 @@ def list_if(x):
         return x
     else:
         return [x]
-    
+
 color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,
                'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,
                'blues' : lambda tup:  tup[0]<.7 and tup[0]>.4 and tup[2]>.4 ,
@@ -93,54 +60,6 @@ color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 
 def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gif/'):
-    seed, pcd, clean_pcd, shift_one = file_content
-    log.info('Calculating/drawing contraction')
-    orig_colors = arr(clean_pcd.colors)
-    lowc, highc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
-    clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
-    lowc = clean_pcd.select_by_index(highc_idxs, invert=True)
-    log.info('Extrapoloating contraction to original pcd')
-    # proped_cmag = propogate_shift(pcd,clean_pcd,shift_one)
-
-    log.info('Orienting, extracting hues')
-    center_and_rotate(lowc) 
-    hue_pcds,no_hue_pcds =segment_hues(lowc,seed,draw_gif=False, save_gif=save_gif)
-    no_hue_pcds = [x for x in no_hue_pcds if x is not None]
-    target = no_hue_pcds[len(no_hue_pcds)-1]
-    # draw(target)
-    log.info('creating alpha shapes')
-
-    metrics = {}
-    # get_mesh(pcd,lowc,target)
-    try:
-        mesh = project_pcd(pcd.uniform_down_sample(10),.1,plot=False,seed=f'{seed}_full_pcd')
-        metrics['full_mesh'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
-    except Exception as e:
-        print(f'error creating full mesh for {seed}: {e}')
-    try:
-        mesh = project_pcd(lowc,.1,plot=False,seed=f'{seed}_lowc')
-        metrics['lowc'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
-    except Exception as e:
-        print(f'error creating full mesh for {seed}: {e}')
-    try:
-        mesh = project_pcd(highc,.1,plot=False,seed=f'{seed}_highc')
-        metrics['highc'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
-    except Exception as e:
-        print(f'error creating full mesh for {seed}: {e}')
-    try:
-        mesh = project_pcd(target,.1,plot=False,seed=f'{seed}_stripped')
-        metrics['stripped'] = {'pcd_max': pcd.get_max_bound(), 'pcd_min': pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
-    except Exception as e:
-        print(f'error creating full mesh for {seed}: {e}')
-
-    log.info(f'finished seed {seed}')
-    log.info(f'{seed=}, {metrics=}')
-    # o3d.visualization.draw_geometries([test], mesh_show_back_face=True)
-    ######Ordered small to large leads to more,smaller triangles and increased coverage
-    return metrics 
-    # mesh_out = mesh_in.filter_smooth_simple(number_of_iterations=1)
-  
-def identify_epiphytes_tensorboard(file_content, save_gif=False, out_path = 'data/results/gif/'):
     logdir = "src/logs/id_epi"
     writer = tf.summary.create_file_writer(logdir)
     step=0
@@ -286,7 +205,8 @@ def draw_shift(pcd,
 def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, out_path = 'data/results/gif/'):
     if file_content:
         seed, pcd, clean_pcd, shift_one = file_content
-    down = pcd.uniform_down_sample(10)
+    down = pcd.uniform_down_sample(2)
+    # draw(down)
 
     if shift_one is not None :
         if clean_pcd is None:
@@ -451,6 +371,83 @@ def clean_topo(topo):
 #     # get_leaves(file_content)
 #     pass
 
+def get_shift(file_content,
+              initial_shift = True, contraction=6, attraction=2, iters=20, 
+              debug=False, vox=None, ds=None, use_scs = True):
+    """
+        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
+    """
+    seed, pcd, clean_pcd, shift_one = file_content
+    trunk = None
+    pcd_branch = None
+    file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
+    log.info(f'getting shift for {seed}')
+    if initial_shift:
+        # contracted = contract(clean_pcd,shift_one)
+        cmag = np.array([np.linalg.norm(x) for x in shift_one])
+        highc_idxs = np.where(cmag>np.percentile(cmag,70))[0]
+        test = clean_pcd.select_by_index(highc_idxs, invert=True)
+    else:
+        test = clean_pcd
+    if vox: test = test.voxel_down_sample(voxel_size=vox)
+    if ds: test = test.uniform_down_sample(ds)
+    if not use_scs:
+        skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
+    else:
+        # if trunk and pcd_branch:
+        #     s_lbc = pcsSLBC(point_cloud={'trunk': test, 'branches': pcd_branch},
+        #             semantic_weighting=30)
+        # else:
+        try:
+            # lbc = pcs.LBC(point_cloud=test, filter_nb_neighbors = config['skeletonize']['n_neighbors'], max_iteration_steps= config['skeletonize']['max_iter'], debug = False, termination_ratio=config['skeletonize']['termination_ratio'], step_wise_contraction_amplification = config['skeletonize']['init_contraction'], max_contraction = config['skeletonize']['max_contraction'], max_attraction = config['skeletonize']['max_attraction'])
+            lbc = pcs.LBC(point_cloud=test,
+                     filter_nb_neighbors = config['skeletonize']['n_neighbors'],
+                     max_iteration_steps=20,
+                     debug = False,
+                     down_sample = 0.0001,
+                     termination_ratio=config['skeletonize']['termination_ratio'],
+                     step_wise_contraction_amplification = config['skeletonize']['init_contraction'],
+                     max_contraction = config['skeletonize']['max_contraction'],
+                     max_attraction = config['skeletonize']['max_attraction'])
+            lbc.extract_skeleton()
+            # Debug/Visualization
+            # lbc.visualize()
+            contracted = lbc.contracted_point_cloud
+            lbc_pcd = lbc.pcd
+            total_shift = arr(lbc_pcd.points)-arr(contracted.points)
+            save(f'{file_base}_total_shift.pkl',total_shift)
+            write_pcd(f'data/skio/results/skio/{file_base}_contracted.pcd',contracted)
+
+            topo=extract_topology(lbc.contracted_point_cloud)
+            save_line_set(topo[0],file_base)
+            import pickle 
+            try:
+                with open(f'data/skio/results/skio/{file_base}_topo_graph.pkl','rb') as f:
+                    pickle.dump(topo[1],f)
+            except Exception as e:
+                log.info(f'error saving topo {e}')
+
+            # lbc.export_results('./output')
+            # lbc.animate(init_rot=np.asarray([[1, 0, 0], [0, 0, 1], [0, 1, 0]]),
+            #             steps=300,
+            #             output='./output')
+            # lbc.extract_topology()
+        except Exception as e:
+            log.info(f'error getting lbc {e}')
+
+
+        # lbc = LBC(point_cloud=test)
+        # lbc.extract_skeleton()
+        # contracted, total_point_shift, shift_by_step = skel_res
+    # draw(skel_res[0])
+    # breakpoint()
+    # try:
+    #     topo = extract_topology(skel_res[0])
+    #     save_line_set(topo[0],file_base)
+    # except Exception as e:
+    #     log.info(f'error getting topo {e}')
+    #     # breakpoint()
+    return lbc, topo
     # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
 
 def center_and_rotate(pcd, center=None):
@@ -561,6 +558,53 @@ def get_trunk(file_content):
     stem_pcd = get_stem_pcd(pcd=lowc)
     breakpoint()
 
+def file_info_to_pcds(file_info,
+                        normalize = False,
+                        get_shifts = False,
+                        get_clean_pcd =True,
+                        get_contracted = False,
+                        topo_data = False,
+                        qsm_data = False,
+                        **kwarg_dict):
+    detail_ext_dir = 'data/skio/ext_detail/'
+    shift_dir = 'data/skio/pepi_shift/'
+    addnl_skel_dir = f'data/skio/results/skio/skels2/'
+
+    seed, (pcd_file, shift_file_one,shift_file_two) = file_info
+    log.info('')
+    log.info(f' {shift_file_one=},{shift_file_two=},{pcd_file=}')
+    log.info('loading shifts')
+    shift_one = None
+    if get_shifts:
+        try:
+            shift_one = load(shift_file_one)
+        except Exception as e:
+            shift_one = None
+            print(f'Error getting shift for seed {seed}: {e}')
+    if get_contracted:
+        try:
+            contracted = read_pcd(f'data/skio/results/skio/{pcd_file}')
+        except Exception as e:
+            print(f'Error getting contracted for seed {seed}: {e}')
+    if topo_data:
+        try:
+            topo = load_line_set(f'data/skio/results/skio/{pcd_file}')
+        except Exception as e:
+            print(f'Error getting topo for seed {seed}: {e}')
+    if qsm_data:
+        try:
+            qsm_data = load(f'data/skio/results/skio/{pcd_file}')   
+        except Exception as e:
+            print(f'Error getting qsm_data for seed {seed}: {e}')
+
+    log.info('loading pcd')
+    pcd = read_pcd(f'{detail_ext_dir}/{pcd_file}')
+    log.info('downsampling/coloring pcd')
+    clean_pcd = None
+    if get_clean_pcd:   
+        clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
+    return seed, pcd, clean_pcd, shift_one
+
 def loop_over_files(func,args = [], kwargs =[],
                     requested_pcds=[],
                     requested_seeds=[],skip_seeds = [],
@@ -647,10 +691,10 @@ if __name__ =="__main__":
     clean_full2 = clean_cloud(full_z)
     full_znw =  remove_color_pts(clean_full2, lambda x: sum(x)>2.7,invert=True)
     print('removed colors',time.time())
-    write_pcd('/media/penguaman/code/code/ActualCode/pyQSM/data/epip/inputs/clean_twice_ds10_epip.pcd',clean_full2)
+    write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/clean_twice_ds10_epip.pcd',clean_full2)
 
     breakpoint()
-    write_pcd('/media/penguaman/code/code/ActualCode/pyQSM/data/epip/inputs/epi_zoomed.pcd',full)
+    write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/epi_zoomed.pcd',full)
     
     pcd = zoom_pcd([[0,120,-25],[70,200,11]],clean_full2)
 

@@ -5,7 +5,7 @@ from itertools import chain
 import scipy.spatial as sps
 import pickle
 
-sys.path.insert(0,'/code/code/pyQSM/src/')
+sys.path.insert(0,'/code/pyQSM/src/')
 import robust_laplacian
 from plyfile import PlyData
 import numpy as np

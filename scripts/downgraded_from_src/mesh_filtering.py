@@ -5,13 +5,6 @@ import numpy as np
 
 
 def average_filtering(mesh_in):
-    # Create noisy mesh.
-    # knot_mesh = o3d.data.KnotMesh()
-    # mesh_in = o3d.io.read_triangle_mesh(knot_mesh.path)
-    # vertices = np.asarray(mesh_in.vertices)
-    # noise = 5
-    # vertices += np.random.uniform(0, noise, size=vertices.shape)
-    # mesh_in.vertices = o3d.utility.Vector3dVector(vertices)
     mesh_in.compute_vertex_normals()
     print("Displaying input mesh ...")
     o3d.visualization.draw_geometries([mesh_in])
@@ -29,13 +22,6 @@ def average_filtering(mesh_in):
 
 
 def laplace_filtering(mesh_in):
-    # Create noisy mesh.
-    # knot_mesh = o3d.data.KnotMesh()
-    # mesh_in = o3d.io.read_triangle_mesh(knot_mesh.path)
-    # vertices = np.asarray(mesh_in.vertices)
-    # noise = 5
-    # vertices += np.random.uniform(0, noise, size=vertices.shape)
-    # mesh_in.vertices = o3d.utility.Vector3dVector(vertices)
     mesh_in.compute_vertex_normals()
     print("Displaying input mesh ...")
     o3d.visualization.draw_geometries([mesh_in])
@@ -53,14 +39,6 @@ def laplace_filtering(mesh_in):
 
 
 def taubin_filtering(mesh_in):
-    # Create noisy mesh.
-
-    # knot_mesh = o3d.data.KnotMesh()
-    # mesh_in = o3d.io.read_triangle_mesh(knot_mesh.path)
-    # vertices = np.asarray(mesh_in.vertices)
-    # noise = 5
-    # vertices += np.random.uniform(0, noise, size=vertices.shape)
-    # mesh_in.vertices = o3d.utility.Vector3dVector(vertices)
     mesh_in.compute_vertex_normals()
     print("Displaying input mesh ...")
     o3d.visualization.draw_geometries([mesh_in])

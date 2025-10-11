@@ -38,40 +38,6 @@ from open3d.visualization.tensorboard_plugin import summary
 # Utility function to convert Open3D geometry to a dictionary format
 from open3d.visualization.tensorboard_plugin.util import to_dict_batch
 
-def loop_over_pcd_parts(file_prefix = 'data/input/SKIO/part_skio_raffai',
-                    return_pcd_list =False,
-                    return_single_pcd = False,
-                    return_list = None,
-                    return_lambda = None):
-    if return_lambda: return_list = []
-    else:
-        if not return_single_pcd and not return_pcd_list:
-            return None, None, None 
-    extents = {}
-    pcds = []
-    pts = []
-    colors = []
-    contains_region= []
-    base = 20000000
-
-    for i in range(40):
-        num = base*(i+1) 
-        file = f'{file_prefix}_{num}.pcd'
-        pcd = read_point_cloud(file)
-        if return_lambda:
-            return_list.append(return_lambda(pcd))
-        if return_pcd_list:
-            pcds.append(pcd)
-        elif return_single_pcd:
-            pts.extend(list(arr(pcd.points)))   
-            colors.extend(list(arr(pcd.colors)))
-    if return_single_pcd:
-        collective = o3d.geometry.PointCloud()
-        collective.points = o3d.utility.Vector3dVector(pts)
-        collective.colors = o3d.utility.Vector3dVector(colors)   
-        pcds.append(pcd)     
-    return return_list, contains_region, pcds
-
 def labeled_pts_to_lists(labeled_pts,
                             idc_to_label_map={},
                             file='',
@@ -93,52 +59,6 @@ def labeled_pts_to_lists(labeled_pts,
         save(file, pt_lists)
     return pt_lists, tree_pcds
 
-
-def load_completed(cell_to_run_id,
-                    files = []):
-    # Loading completed clusters and their 
-    #  found nbr points from prev runs
-
-    if files == []:
-        for cell_num in range(cell_to_run_id):
-            files.append(f'cell{cell_num}_complete2.pkl')
-        files.append(f'cell5_complete.pkl')
-        files.append(f'cellall_complete2.pkl')
-        files.append(f'all_complete.pkl')
-
-    completed_cluster_idxs = []
-    completed_cluster_pts = []
-    for file in files:
-        print(f'adding clusters found in {file}')
-        with open(file,'rb') as f:
-            # dict s.t. {cluster_id: [list_of_pts]}
-            cell_completed = dict(pickle.load(f))
-        
-        # non_overlap_grid = grid[cell_num]
-        all_idcs = len([idc for idc,_ in cell_completed.items()])
-        pts_per_cluster = [len(pts) for (idc,pts) in cell_completed.items()]
-        
-        in_idcs = [idc for idc in cell_completed.keys() if idc not in completed_cluster_idxs]
-        k_cluster_pts= [pts for idc, pts in cell_completed.items() if idc in in_idcs]
-        # completed_cluster_keys = [x for x in completed.keys()]
-        # in_idcs = filter_list_to_region(k_cluster_pts, non_overlap_grid)
-
-        # breakpoint()
-        num_new_clusters = len(in_idcs)
-        pts_per_new_cluster = [len(pts) for pts in k_cluster_pts]
-        num_new_pts = sum(pts_per_new_cluster)
-        completed_cluster_idxs.extend(in_idcs)
-        completed_cluster_pts.extend(k_cluster_pts)
-
-        print(f'{all_idcs} total clusters found in grid')
-        print(f'{pts_per_cluster} pts in each cluster')
-
-        print(f'{num_new_clusters} new, complete clusters found in {file}')
-        print(f'{pts_per_new_cluster} pts in each new cluster')
-        print(f'{num_new_pts} points categorized in grid')
-        # added_k_ids = len(in_idcs)
-        # print(f'{added_k_ids} complete clusters from grid cell {cell_num}')
-    return completed_cluster_idxs , completed_cluster_pts
 
 def extend_seed_clusters(clusters_and_idxs:list[tuple],
                             src_pcd,
@@ -540,3 +460,4 @@ if __name__ =="__main__":
     # seed_to_root_map = {seed_id: root_pcd for seed_id,root_pcd in zip(all_ids,root_pcds)}
     # seed_to_root_id = {seed: idc for idc,seed in enumerate(all_ids)}
     # unmatched_roots = [seed_to_root_id[seed] for seed in seed_to_exts.keys()]
+
