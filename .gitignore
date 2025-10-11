@@ -117,6 +117,7 @@ scripts/untracked/*
 scripts/to_share/*
 scripts/gui/*
 scripts/ml/*
+pyQSM/tree.py
 ml/logs/*
 src/logs/*
 src/ml/*
