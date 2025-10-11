@@ -12,7 +12,6 @@
 :maxdepth: 1
 :caption: Getting Started
 getting_started.md
-page_example.md
 ```
 ```{toctree}
 :maxdepth: 1
@@ -23,8 +22,6 @@ examples/examples_index.md
 :maxdepth: 1
 :caption: References:
 glossary.rst
-qsm_generation.rst
-tree_isolation.rst
-canopy_metrics.rst
+modules.rst
 
 ```

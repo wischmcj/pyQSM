@@ -1,3 +1,4 @@
+./pyQSM
 geopandas
 matplotlib==3.9.0
 myst-parser

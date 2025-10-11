@@ -14,6 +14,10 @@ mkdir docs
 generate sphinx process files 
 sphinx-generate 
 
+
+*** install local package with 
+pip3 install .
+
 generate docs for package 
 sphinx-apidoc -o docs/source pyQSM 
 
