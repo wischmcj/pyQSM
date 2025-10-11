@@ -1,6 +1,6 @@
 <!-- install libs  -->
 
-pip3 install myst-parser pandoc sphinx-rtd-theme sphinxcontrib-napoleon nbsphinx sphinx
+pip3 install myst-parser pandoc sphinx-rtd-theme sphinxcontrib-napoleon nbsphinx sphinx build twine
 
 
 download pandocs
@@ -14,9 +14,8 @@ mkdir docs
 generate sphinx process files 
 sphinx-generate 
 
-
-*** install local package with 
-pip3 install .
+deploy package to pypi
+https://packaging.python.org/en/latest/tutorials/packaging-projects/
 
 generate docs for package 
 sphinx-apidoc -o docs/source pyQSM 
