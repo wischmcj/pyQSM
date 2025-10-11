@@ -115,6 +115,8 @@ sho/*
 data/bark_texture/*
 scripts/untracked/*
 scripts/to_share/*
+scripts/gui/*
+scripts/ml/*
 ml/logs/*
 src/logs/*
 src/ml/*
