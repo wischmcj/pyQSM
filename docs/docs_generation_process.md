@@ -1,6 +1,21 @@
 <!-- install libs  -->
+# Sphinx
+pip3 install myst-parser pandoc sphinx-rtd-theme sphinxcontrib-napoleon nbsphinx sphinx 
+# pypi
+python3 -m pip install --upgrade twine build
 
-pip3 install myst-parser pandoc sphinx-rtd-theme sphinxcontrib-napoleon nbsphinx sphinx build twine
+
+# Package Deploy
+## Test Pypi
+### deploy
+python3 -m build
+python3 -m twine upload --repository testpypi dist/*
+### test deploy
+python3 -m pip install --index-url https://test.pypi.org/simple/ --no-deps example-package-YOUR-USERNAME-HERE
+
+# Prod 
+python3 -m twine upload --repository pypi dist/*
+
 
 
 download pandocs
