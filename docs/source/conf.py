@@ -4,6 +4,10 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 from __future__ import annotations
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../pyQSM'))
+sys.path.insert(0, os.path.abspath('../pyQSM'))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -17,7 +21,7 @@ release = "0.1.1"
 extensions = [
     "myst_parser",
     "nbsphinx",
-    # "sphinx.ext.autodoc",
+    "sphinx.ext.autodoc",
     "sphinx.ext.duration",
     "sphinx.ext.doctest",
     "sphinx.ext.napoleon",
