@@ -16,13 +16,13 @@ from open3d.io import read_point_cloud, write_point_cloud
 
 from geometry.skeletonize import extract_skeleton, extract_topology
 from tree_isolation import extend_seed_clusters
-from utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
-from utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from math_utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
+from math_utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.io import save, load, save_line_set
 from utils.lib_integration import find_neighbors_in_ball
 from viz.color import color_on_percentile
 from viz.viz_utils import color_continuous_map
-from utils.math_utils import (
+from math_utils.general import (
     get_angles,
     get_center,
     get_radius,
@@ -49,7 +49,7 @@ from geometry.reconstruction import get_neighbors_kdtree
 from tree_isolation import pcds_from_extend_seed_file
 import pickle 
 from geometry.mesh_processing import map_density
-from utils.plotting import plot_dist_dist
+from viz.plotting import plot_dist_dist
 
 log = logging.getLogger('calc')
 
@@ -593,13 +593,13 @@ if __name__ == "__main__":
 
     root_dir = '/media/penguaman/code/ActualCode/Research/pyQSM/'
     inputs = 'data/skeletor/inputs'
-    from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
+    from viz.ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
     meshfix
 
     trim = read_point_cloud(f'{inputs}/trim/skeletor_full_ds2.pcd')
     pcd = trim.uniform_down_sample(15)
     # pcd = read_point_cloud('finpcdal_branch_cc_iso_pt9_top100_mdpt_k50.pcd')
-    from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
+    from viz.ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
     mesh = project_pcd(pcd)
     
     # breakpoint()

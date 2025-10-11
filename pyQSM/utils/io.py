@@ -4,7 +4,7 @@ import sys
 import pickle 
 import open3d as o3d
 import numpy as np
-from set_config import log
+from set_config import log, config
 from numpy import array as arr
 from itertools import product
 from prettytable import PrettyTable

@@ -6,7 +6,7 @@ import scipy.spatial as sps
 from matplotlib import pyplot as plt, patches
 
 from set_config import config, log
-from utils.math_utils import get_center, get_radius, get_percentile
+from math_utils.general import get_center, get_radius, get_percentile
 from viz.viz_utils import iter_draw, draw
 
 ## Numpy

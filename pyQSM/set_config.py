@@ -34,7 +34,11 @@ def load_config(config_file: str) -> dict:
 
 
 log_config = load_config(log_config_file)
-logging.config.dictConfig(log_config)
+try:
+    logging.config.dictConfig(log_config)
+except Exception as e:
+    log.error(f"Error loading log config {log_config_file}: {e}")
+    log.error(f"Default values will be used")
 log = logging.getLogger('calc')
 
 config = load_config(config_file)
