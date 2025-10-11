@@ -12,7 +12,7 @@
 :maxdepth: 1
 :caption: Getting Started
 getting_started.md
-high_level_tutorial.md
+page_example.md
 ```
 ```{toctree}
 :maxdepth: 1

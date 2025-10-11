@@ -612,6 +612,7 @@ def loop_over_files(func,args = [], kwargs =[],
                     shift_dir = 'data/skio/pepi_shift/',
                     seed_pat = re.compile('.*seed([0-9]{1,3}).*')
                     ):
+    # reads in the files from the indicated directories
     if not requested_pcds:
         detail_files = glob('*detail*',root_dir=detail_ext_dir)
         shift_one_files = []
