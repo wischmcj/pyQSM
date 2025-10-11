@@ -55,6 +55,7 @@ def save(file, to_write, root_dir = data_root):
 def load(file, root_dir = data_root):
     # be_root()
     if '.pkl' not in file: file=f'{file}.pkl'
+    if root_dir[-1] != '/': root_dir += '/'
     fqp = f'{root_dir}{file}'
 
     with open(fqp,'rb') as f:
