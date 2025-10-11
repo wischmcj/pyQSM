@@ -22,7 +22,7 @@ from geometry.point_cloud_processing import clean_cloud, cluster_and_get_largest
 from qsm_generation import filter_by_norm, get_low_cloud, sphere_step
 from viz.viz_utils import draw
 from utils.lib_integration import pts_to_cloud
-from utils.math_utils import get_angles, get_percentile, poprow, rotation_matrix_from_arr, unit_vector, angle_from_xy
+from math_utils.general import get_angles, get_percentile, poprow, rotation_matrix_from_arr, unit_vector, angle_from_xy
 
 
 

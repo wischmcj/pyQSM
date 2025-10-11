@@ -18,11 +18,11 @@ import matplotlib.pyplot as plt
 
 from set_config import config, log
 from geometry.reconstruction import get_neighbors_kdtree
-from utils.math_utils import (
+from math_utils.general import (
     get_center,
     generate_grid
 )
-from utils.fit import kmeans,cluster_DBSCAN
+from math_utils.fit import kmeans,cluster_DBSCAN
 from geometry.skeletonize import extract_skeleton, extract_topology
 from geometry.point_cloud_processing import ( filter_by_norm,
     clean_cloud,

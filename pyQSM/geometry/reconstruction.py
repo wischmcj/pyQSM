@@ -27,7 +27,7 @@ from matplotlib import patches
 
 from open3d.io import read_point_cloud, write_point_cloud
 
-from utils.math_utils import (
+from math_utils.general import (
     get_center
 )
 

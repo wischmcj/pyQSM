@@ -11,7 +11,6 @@ from numpy import asarray as arr
 
 from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
-from geometry.surf_recon import get_mesh
 from set_config import config, log
 from geometry.reconstruction import get_neighbors_kdtree
 from geometry.skeletonize import extract_skeleton, extract_topology
@@ -31,11 +30,11 @@ from viz.color import (
 
 
 import pyvista as pv
-from viz.tables import create_table
+from utils.io import create_table
 from qsm_generation import get_stem_pcd
 
 from utils.lib_integration import get_pairs
-from ray_casting import project_pcd
+from viz.ray_casting import project_pcd
 import pc_skeletor as pcs
 
 import tensorflow as tf
