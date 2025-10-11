@@ -54,76 +54,6 @@ color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]
                'red_yellow' : lambda tup:  tup[0]<=2/9 and tup[2]>.3}
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 
-def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gif/'):
-    logdir = "src/logs/id_epi"
-    writer = tf.summary.create_file_writer(logdir)
-    step=0
-    with writer.as_default():
-        seed, pcd, clean_pcd, shift_one = file_content
-        log.info('Calculating/drawing contraction')
-        step+=1
-        summary.add_3d('id_epi_low', to_dict_batch([clean_pcd]), step=step, logdir=logdir)
-        summary.add_3d('id_epi_high', to_dict_batch([clean_pcd]), step=step, logdir=logdir)
-        
-        orig_colors = deepcopy(arr(clean_pcd.colors))
-        highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
-        clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
-        lowc = clean_pcd.select_by_index(highc_idxs, invert=True)
-        highc = clean_pcd.select_by_index(highc_idxs, invert=False)
-        step+=1
-        summary.add_3d('id_epi_low', to_dict_batch([lowc]), step=step, logdir=logdir)
-        summary.add_3d('removed', to_dict_batch([highc]), step=step, logdir=logdir)
-        # draw(lowc)
-        # draw(highc)
-
-        high_shift = shift_one[highc_idxs]
-        z_mag = np.array([x[2] for x in high_shift])
-        leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
-        pcd_no_epi = join_pcds([highc,leaves])
-        step+=1
-        summary.add_3d('removed', to_dict_batch([epis]), step=step, logdir=logdir)
-        summary.add_3d('id_epi_low', to_dict_batch([pcd_no_epi]), step=step, logdir=logdir)
-        # draw(leaves)
-        # draw(epis)
-        # breakpoint()
-        # log.info('Extrapoloating contraction to original pcd')
-        # proped_cmag = propogate_shift(pcd,clean_pcd,shift_one)
-
-        log.info('Orienting, extracting hues')
-        # center_and_rotate(lowc) 
-        hue_pcds,no_hue_pcds =segment_hues(lowc,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
-        no_hue_pcds = [x for x in no_hue_pcds if x is not None]
-        target = no_hue_pcds[len(no_hue_pcds)-1]
-        # draw(target)
-        # epis_hue_pcds,epis_no_hue_pcds =segment_hues(epis,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
-        # epis_no_hue_pcds = [x for x in epis_no_hue_pcds if x is not None]
-        # stripped_epis = epis_no_hue_pcds[len(epis_no_hue_pcds)-1]
-
-        step+=1
-        # summary.add_3d('epis', to_dict_batch([stripped_epis]), step=step, logdir=logdir)
-        summary.add_3d('id_epi_low', to_dict_batch([target]), step=step, logdir=logdir)
-        summary.add_3d('removed', to_dict_batch([hue_pcds[len(hue_pcds)-1]]), step=step, logdir=logdir)
-
-    return []
-    # log.info('creating alpha shapes')
-
-    # metrics = {}
-    # # get_mesh(pcd,lowc,target)
-    # to_project = [('whole',pcd),('lowc',lowc),('highc',highc),('target',target),('leaves',leaves),('epis',epis)]
-    # for name, tp_pcd in to_project:
-    #     try:
-    #         mesh = project_pcd(tp_pcd,.1,name = name,seed=f'{seed}_{name}_pcd')
-    #         metrics[name] = {'pcd_max': tp_pcd.get_max_bound(), 'pcd_min': tp_pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
-    #     except Exception as e:
-    #         print(f'error creating {name} mesh for {seed}: {e}')
-
-    # log.info(f'finished seed {seed}')
-    # log.info(f'{seed=}, {metrics=}')
-    # o3d.visualization.draw_geometries([test], mesh_show_back_face=True)
-    ######Ordered small to large leads to more,smaller triangles and increased coverage
-    # return metrics 
-    # mesh_out = mesh_in.filter_smooth_simple(number_of_iterations=1)
-  
 def draw_hues(file_content,**kwargs):
     seed, pcd, _, _ = file_content
     # clean_pcd = get_downsample(pcd=pcd,normalize=False)
@@ -466,18 +396,97 @@ def get_trunk(file_content):
     breakpoint()
     stem_pcd = get_stem_pcd(pcd=lowc)
     breakpoint()
-    
+
+def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gif/'):
+    logdir = "src/logs/id_epi"
+    writer = tf.summary.create_file_writer(logdir)
+    seed, pcd, clean_pcd, shift_one = file_content
+    assert shift_one is not None # No shifts for this seed; Ensure you pass get_shifts=True to file_info_to_pcds
+    run_name = f'{seed}_id_epi'
+    step=0
+    try:
+        with writer.as_default():
+            log.info('Calculating/drawing contraction')
+            step+=1
+            summary.add_3d(run_name, to_dict_batch([clean_pcd]), step=step, logdir=logdir)
+            
+            orig_colors = deepcopy(arr(clean_pcd.colors))
+            highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
+            clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
+            lowc = clean_pcd.select_by_index(highc_idxs, invert=True)
+            highc = clean_pcd.select_by_index(highc_idxs, invert=False)
+            step+=1
+            summary.add_3d(run_name, to_dict_batch([lowc]), step=step, logdir=logdir)
+            step+=1
+            summary.add_3d(run_name, to_dict_batch([highc]), step=step, logdir=logdir)
+            # draw(lowc)
+            # draw(highc)
+
+            high_shift = shift_one[highc_idxs]
+            z_mag = np.array([x[2] for x in high_shift])
+            leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
+            pcd_no_epi = join_pcds([highc,leaves])[0]
+            step+=1
+            summary.add_3d(run_name, to_dict_batch([epis]), step=step, logdir=logdir)
+            step+=1
+            summary.add_3d(run_name, to_dict_batch([pcd_no_epi]), step=step, logdir=logdir)
+            # draw(leaves)
+            # draw(epis)
+            # breakpoint()
+            # log.info('Extrapoloating contraction to original pcd')
+            # proped_cmag = propogate_shift(pcd,clean_pcd,shift_one)
+
+            log.info('Orienting, extracting hues')
+            # center_and_rotate(lowc) 
+            hue_pcds,no_hue_pcds =segment_hues(lowc,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
+            no_hue_pcds = [x for x in no_hue_pcds if x is not None]
+            target = no_hue_pcds[len(no_hue_pcds)-1]
+            # draw(target)
+            # epis_hue_pcds,epis_no_hue_pcds =segment_hues(epis,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
+            # epis_no_hue_pcds = [x for x in epis_no_hue_pcds if x is not None]
+            # stripped_epis = epis_no_hue_pcds[len(epis_no_hue_pcds)-1]
+
+            step+=1
+            # summary.add_3d('epis', to_dict_batch([stripped_epis]), step=step, logdir=logdir)
+            summary.add_3d('id_epi_low', to_dict_batch([target]), step=step, logdir=logdir)
+            summary.add_3d('removed', to_dict_batch([hue_pcds[len(hue_pcds)-1]]), step=step, logdir=logdir)
+    except Exception as e:
+        breakpoint()
+        log.info(f'error getting epiphytes for {seed}: {e}')
+    return []
+    # log.info('creating alpha shapes')
+
+    # metrics = {}
+    # # get_mesh(pcd,lowc,target)
+    # to_project = [('whole',pcd),('lowc',lowc),('highc',highc),('target',target),('leaves',leaves),('epis',epis)]
+    # for name, tp_pcd in to_project:
+    #     try:
+    #         mesh = project_pcd(tp_pcd,.1,name = name,seed=f'{seed}_{name}_pcd')
+    #         metrics[name] = {'pcd_max': tp_pcd.get_max_bound(), 'pcd_min': tp_pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
+    #     except Exception as e:
+    #         print(f'error creating {name} mesh for {seed}: {e}')
+
+    # log.info(f'finished seed {seed}')
+    # log.info(f'{seed=}, {metrics=}')
+    # o3d.visualization.draw_geometries([test], mesh_show_back_face=True)
+    ######Ordered small to large leads to more,smaller triangles and increased coverage
+    # return metrics 
+    # mesh_out = mesh_in.filter_smooth_simple(number_of_iterations=1)
+  
 def file_info_to_pcds(file_info,
                         normalize = False,
-                        get_shifts = False,
+                        get_shifts = True,
                         get_clean_pcd =True,
                         get_contracted = False,
                         topo_data = False,
                         qsm_data = False,
+                        base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm',
                         **kwarg_dict):
-    detail_ext_dir = 'data/skio/ext_detail/'
-    shift_dir = 'data/skio/pepi_shift/'
-    addnl_skel_dir = f'data/skio/results/skio/skels2/'
+    # base_dir = 'data/skio'
+    detail_ext_dir = f'{base_dir}/ext_detail/'
+    shift_dir = f'{base_dir}/pepi_shift/'
+    addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
+    topo_dir = f'{base_dir}/results/'
 
     seed, (pcd_file, shift_file_one,shift_file_two) = file_info
     log.info('')
@@ -486,26 +495,26 @@ def file_info_to_pcds(file_info,
     shift_one = None
     if get_shifts:
         try:
-            shift_one = load(shift_file_one)
+            shift_one = load(shift_file_one, root_dir=shift_dir)
         except Exception as e:
             shift_one = None
             print(f'Error getting shift for seed {seed}: {e}')
     if get_contracted:
         try:
-            contracted = read_pcd(f'data/skio/results/skio/{pcd_file}')
+            contracted = read_pcd(f'{pcd_file}', root_dir=addnl_skel_dir)
         except Exception as e:
             print(f'Error getting contracted for seed {seed}: {e}')
     if topo_data:
         try:
-            topo = load_line_set(f'data/skio/results/skio/{pcd_file}')
+            topo = load_line_set(f'{pcd_file}', root_dir=topo_dir)
         except Exception as e:
             print(f'Error getting topo for seed {seed}: {e}')
     if qsm_data:
         try:
-            qsm_data = load(f'data/skio/results/skio/{pcd_file}')   
+            qsm_data = load(f'{pcd_file}', root_dir=detail_ext_dir)   
         except Exception as e:
             print(f'Error getting qsm_data for seed {seed}: {e}')
-
+    
     log.info('loading pcd')
     pcd = read_pcd(f'{detail_ext_dir}/{pcd_file}')
     log.info('downsampling/coloring pcd')
@@ -539,7 +548,8 @@ def loop_over_files(func,args = [], kwargs =[],
         
     else:
         seed_to_content = {seed:(seed,pcd,None,None) for seed,pcd in enumerate(requested_pcds)}
-
+    print(detail_files)
+    print(seed_to_content)
                     
     if args ==[]: args = ['']*len(kwargs)
     inputs = [(arg,kwarg) for arg,kwarg in zip(list_if(args),list_if(kwargs))]
@@ -552,8 +562,8 @@ def loop_over_files(func,args = [], kwargs =[],
             if ((requested_seeds==[] or int(seed) in requested_seeds)
                 and int(seed) not in skip_seeds):
                 if not requested_pcds:
-                    file_content = file_info_to_pcds(file_info,**kwargs)
-
+                    file_content = file_info_to_pcds(file_info,detail_ext_dir=detail_ext_dir,shift_dir=shift_dir,**kwargs)
+                breakpoint()
                 if len(inputs) == 0:
                     result  = func(file_content)
                 for arg_tup, kwarg_dict in inputs:
@@ -591,23 +601,43 @@ if __name__ =="__main__":
     breakpoint()
     write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/epi_zoomed.pcd',full)
     
-    pcd = zoom_pcd([[0,120,-25],[70,200,11]],clean_full2)
+    # # mv_drive='data/epip/inputs/' pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
+    # # file = 'EpiphytusTV4.pts'
+    # full = read_pcd(f'{mv_drive}/{file}')
+    # # cuts out unneeded area
+    # print('read',time.time())
+    # full = full.uniform_down_sample(10)
+    # print('downsampled',time.time())
+    # # full_z = zoom_pcd([[0,120,-25],[70,200,11]],full) # original used 
+    # breakpoint()
+
+    # full_z = zoom_pcd([[0,120,-25],[40,165,11]],full)
+    # print('zoomed',time.time())
+    # clean_full2 = clean_cloud(full_z)
+    # full_znw =  remove_color_pts(clean_full2, lambda x: sum(x)>2.7,invert=True)
+    # print('removed colors',time.time())
+    # write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/clean_twice_ds10_epip.pcd',clean_full2)
+
+    # breakpoint()
+    # write_pcd('/media/penguaman/code/ActualCode/Research/pyQSM/data/epip/inputs/epi_zoomed.pcd',full)
+    
+    # pcd = zoom_pcd([[0,120,-25],[70,200,11]],clean_full2)
 
     
-    write_pcd('./TreeLearn/data/collective_clean.pcd',clean_full)
-    breakpoint()
-    full = read_pcd('data/skeletor/inputs/skeletor_full_ds2.pcd')
-    trunk = read_pcd('data/skeletor/inputs/skeletor_trunk_isolated.pcd')
-    trunk = trunk.uniform_down_sample(6)
-    nbr_pcd = read_pcd('data/skeletor/exts/skel_branch_0_orig_detail_ds2.pcd')
-    import pickle 
-    with open('data/skeletor/seeds/skeletor_final_branch_seeds.pkl','rb') as f:
-        labeled_cluster_pcds = pickle.load(f)
-    clusters = []
-    for idc, pt_list in labeled_cluster_pcds:
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(arr(pt_list))
-        clusters.append((idc,pcd))
+    # write_pcd('./TreeLearn/data/collective_clean.pcd',clean_full)
+    # breakpoint()
+    # full = read_pcd('data/skeletor/inputs/skeletor_full_ds2.pcd')
+    # trunk = read_pcd('data/skeletor/inputs/skeletor_trunk_isolated.pcd')
+    # trunk = trunk.uniform_down_sample(6)
+    # nbr_pcd = read_pcd('data/skeletor/exts/skel_branch_0_orig_detail_ds2.pcd')
+    # import pickle 
+    # with open('data/skeletor/seeds/skeletor_final_branch_seeds.pkl','rb') as f:
+    #     labeled_cluster_pcds = pickle.load(f)
+    # clusters = []
+    # for idc, pt_list in labeled_cluster_pcds:
+    #     pcd = o3d.geometry.PointCloud()
+    #     pcd.points = o3d.utility.Vector3dVector(arr(pt_list))
+    #     clusters.append((idc,pcd))
 
-    res = extend_seed_clusters(clusters,full,file_label='skel_tb_test',cycles=125,save_every=60,draw_every=200,tb_every=2,exclude_pcd=trunk)
+    # res = extend_seed_clusters(clusters,full,file_label='skel_tb_test',cycles=125,save_every=60,draw_every=200,tb_every=2,exclude_pcd=trunk)
     
