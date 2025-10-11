@@ -1,7 +1,10 @@
 pyQSM
-===========
+=====
 
 .. toctree::
    :maxdepth: 4
 
-   pyQSM
+   canopy_metrics
+   qsm_generation
+   set_config
+   tree_isolation

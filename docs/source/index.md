@@ -23,6 +23,8 @@ examples/examples_index.md
 :maxdepth: 1
 :caption: References:
 glossary.rst
-modules.rst
+qsm_generation.rst
+tree_isolation.rst
+canopy_metrics.rst
 
 ```

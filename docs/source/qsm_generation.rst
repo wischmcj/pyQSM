@@ -1,7 +1,7 @@
 qsm\_generation module
 ======================
 
-.. automodule:: qsm_generation
+.. automodule:: pyQSM.qsm_generation
    :members:
    :undoc-members:
    :show-inheritance:
