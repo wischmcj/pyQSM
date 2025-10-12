@@ -243,7 +243,7 @@ def recover_original_details(cluster_pcds,
 
     # return detailed_pcd
 
-def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None, dist=0.03, k=25, return_pcd = True):
+def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None, dist=0.05, k=500, return_pcd = True):
     
     if query_pcd: query_pts = arr(query_pcd.points)
     src_pts = arr(src_pcd.points)
