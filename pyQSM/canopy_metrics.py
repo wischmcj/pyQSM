@@ -604,25 +604,28 @@ def file_info_to_pcds(file_info,
         clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
     return seed, pcd, clean_pcd, shift_one
 
+def get_seed_id_from_file(file, seed_pat = re.compile('.*seed([0-9]{1,3}).*')):
+    return re.match(seed_pat,file).groups(1)[0]
+
 def loop_over_files(func,args = [], kwargs =[],
                     requested_pcds=[],
-                    requested_seeds=[],skip_seeds = [],
-                    detail_ext_dir = 'data/skio/ext_detail/',
-                    shift_dir = 'data/skio/pepi_shift/',
-                    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
+                    requested_seeds=[],
+                    skip_seeds = [],
+                    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm',
+                    detail_ext_folder = 'ext_detail',
+                    shift_folder = 'pepi_shift'
                     ):
     # reads in the files from the indicated directories
     if not requested_pcds:
+        # Get files present in pipeline directories
+        detail_ext_dir = f'{base_dir}/{detail_ext_folder}/'
+        shift_dir = f'{base_dir}/{shift_folder}/'
         detail_files = glob('*detail*',root_dir=detail_ext_dir)
-        shift_one_files = []
-        if shift_dir:
-            shift_one_files = glob('*shift*',root_dir=shift_dir)
-        files_with_seeds = [(file,re.match(seed_pat,file)) for file in detail_files if re.match(seed_pat,file) is not None]
-        seed_to_detail = {match.groups(1)[0]:file for file, match in files_with_seeds}
-        # for seed,file in seed_to_detail.items(): get_shift(read_pcd(file),seed)
-        seed_to_shift_one = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_one_files}
-        seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift_one.get(seed),None))  for seed in seed_to_detail.keys() ]
-        seed_to_content = {seed:(detail,shift_one,shift_two) for seed,(detail,shift_one,shift_two) in seed_to_files}
+        shift_one_files = glob('*shift*',root_dir=shift_dir)
+        # Get files by seed id 
+        seed_to_shift = {get_seed_id_from_file(file):file for file in shift_one_files}
+        seed_to_detail = {get_seed_id_from_file(file):file for file in detail_files}
+        seed_to_content = {seed:(detail,seed_to_shift.get(seed)) for seed,detail in seed_to_detail.items()}
         
     else:
         seed_to_content = {seed:(seed,pcd,None,None) for seed,pcd in enumerate(requested_pcds)}
@@ -658,32 +661,14 @@ def loop_over_files(func,args = [], kwargs =[],
     return results
 
 if __name__ =="__main__":
-    import time 
-    from geometry.zoom import filter_to_region_pcds, zoom_pcd
-    import laspy
-    mv_drive='/media/penguaman/TOSHIBA EXT/tls_lidar/MonteVerde'
-    # file = 'CR-ET6-Crop.las'
-    file = 'EpiphytusTV4.pts'
-    # mv_drive = 'data/epip/inputs'
-    # file = 'cleaned_ds10_epip.pcd'
-    las = laspy.read(f'{mv_drive}/{file}')
-    # pcd = o3d.geometry.PointCloud()
-    # pcd.points = o3d.utility.Vector3dVector(arr(las.xyz))
-    # pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
-    try:
-        las.write(f'/{file.replace('.pts','.las')}')
-    except Exception as e:
-        log.info(f'error writing las {e}')
-    breakpoint()
-    
-    # mv_drive='data/epip/inputs/' pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
-    # file = 'EpiphytusTV4.pts'
-    full = read_pcd(f'{mv_drive}/{file}')
-    # cuts out unneeded area
-    print('read',time.time())
-    full = full.uniform_down_sample(10)
-    print('downsampled',time.time())
-    # full_z = zoom_pcd([[0,120,-25],[70,200,11]],full) # original used 
+    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm'
+    detail_ext_dir = f'{base_dir}/ext_detail/'
+    shift_dir = f'{base_dir}/pepi_shift/'
+    addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
+    loop_over_files( reduce_bloom, #identify_epiphytes,]=
+                    kwargs={'save_gif':True},
+                    base_dir=base_dir,
+                    )
     breakpoint()
 
     full_z = zoom_pcd([[0,120,-25],[40,165,11]],full)
