@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 import tensorflow as tf
 
-from geometry.zoom import filter_to_region_pcds, zoom_pcd
+from geometry.general import filter_to_region_pcds, zoom_pcd
 from viz.ray_casting import project_pcd
 from set_config import config, log
 from math_utils.general import (

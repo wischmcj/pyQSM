@@ -8,39 +8,35 @@ from utils.io import save
 import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
-
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
-
-from set_config import config, log
-from geometry.reconstruction import get_neighbors_kdtree
-from geometry.skeletonize import extract_skeleton, extract_topology
-from geometry.point_cloud_processing import (
-    clean_cloud,
-    join_pcds
-)
-from utils.io import load, load_line_set,save_line_set
-from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
-
-from viz.color import (
-    remove_color_pts, 
-    get_green_surfaces,
-    color_on_percentile,
-    segment_hues
-)
-
-
 import pyvista as pv
-from utils.io import create_table
-from qsm_generation import get_stem_pcd
-
-from utils.lib_integration import get_pairs
-from viz.ray_casting import project_pcd
 import pc_skeletor as pcs
 
 import tensorflow as tf
 from open3d.visualization.tensorboard_plugin import summary
 # Utility function to convert Open3D geometry to a dictionary format
 from open3d.visualization.tensorboard_plugin.util import to_dict_batch
+
+from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
+
+from set_config import config, log
+from geometry.general import center_and_rotate
+from geometry.reconstruction import get_neighbors_kdtree
+from geometry.skeletonize import extract_skeleton, extract_topology
+from geometry.point_cloud_processing import (
+    clean_cloud,
+    join_pcds,
+    join_pcd_files
+)
+from utils.lib_integration import get_pairs
+from utils.io import load, load_line_set,save_line_set, create_table
+from viz.ray_casting import project_pcd
+from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
+from viz.color import (
+    remove_color_pts, 
+    get_green_surfaces,
+    split_on_percentile,
+    segment_hues,
+    saturate_colors)
 
 
 def list_if(x):
@@ -176,10 +172,10 @@ def draw_shift(pcd,
     clean_pcd = pcd
     if down_sample: clean_pcd = get_downsample(pcd=clean_pcd, normalize=False)
     c_mag = np.array([np.linalg.norm(x) for x in shift])
-    highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70)
+    highc_idxs, highc,lowc = split_on_percentile(clean_pcd,c_mag,70, color_on_percentile=True)
     # center_and_rotate(lowc)
     # center_and_rotate(highc)
-    
+
     log.info('preping contraction/coloring')
     if draw_results:
         log.info('giffing')
@@ -194,8 +190,6 @@ def draw_shift(pcd,
                         'save':save_gif, 'out_path':out_path, 'rot_center':clean_pcd.get_center(),
                          'sub_dir':f'{seed}_draw_shift' }
         rotating_compare_gif(highc,constant_pcd_in=lowc,**gif_kwargs)
-
-   
     return highc,lowc,highc_idxs
 
     # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
@@ -211,7 +205,7 @@ def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, ou
         if clean_pcd is None:
             clean_pcd = get_downsample(pcd=clean_pcd, normalize=False)
         c_mag = np.array([np.linalg.norm(x) for x in shift_one])
-        highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70)
+        highc_idxs, highc,lowc = split_on_percentile(clean_pcd,c_mag,70, color_on_percentile=True)
         draw(lowc)
 
     make_mesh=True
@@ -228,36 +222,7 @@ def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, ou
         print(metrics)
     return metrics
 
-def evaluate_shifts(file_content, 
-                    contraction=config['skeletonize']['init_contraction'],
-                    attraction=config['skeletonize']['init_attraction']):
-    seed, pcd, clean_pcd, shift = file_content
-    file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}' #_vox{vox}_ds{ds}'                    
-    contracted = contract(clean_pcd,shift)
-    draw(contracted)
-    topo = load_line_set(file_base)
-    draw(topo)
-    breakpoint()
-    return shift
-
-def read_shift_results(file_content, contraction=1, attraction=1, vox=0, ds=0):
-    """
-    Reads the results of get_shift from the skels3 directory.
-    
-    Args:
-        file_content: Tuple containing (seed, pcd, clean_pcd, shift_one)
-        contraction: Contraction factor used in get_shift
-        attraction: Attraction factor used in get_shift
-        vox: Voxel size used in get_shift
-        ds: Downsample factor used in get_shift
-        
-    Returns:
-        Dictionary containing the loaded results:
-        - 'contracted': The contracted point cloud
-        - 'total_shift': The total shift applied to the point cloud
-        - 'lines': The line set representing the skeleton
-        - 'points': The points of the skeleton
-    """
+def get_pepi_shift(file_content, iters=20):
     seed, pcd, clean_pcd, shift_one = file_content
     cmag = np.array([np.linalg.norm(x) for x in shift_one])
     highc_idxs = np.where(cmag>np.percentile(cmag,70))[0]
@@ -374,7 +339,9 @@ def get_shift(file_content,
               initial_shift = True, contraction=6, attraction=2, iters=20, 
               debug=False, vox=None, ds=None, use_scs = True):
     """
-        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
+        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 
+        Determines what files (e.g. information) is missing for the case passed and 
+            calculates what is needed 
     """
     seed, pcd, clean_pcd, shift_one = file_content
     trunk = None
@@ -382,7 +349,6 @@ def get_shift(file_content,
     file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
     log.info(f'getting shift for {seed}')
     if initial_shift:
-        # contracted = contract(clean_pcd,shift_one)
         cmag = np.array([np.linalg.norm(x) for x in shift_one])
         highc_idxs = np.where(cmag>np.percentile(cmag,70))[0]
         test = clean_pcd.select_by_index(highc_idxs, invert=True)
@@ -393,10 +359,6 @@ def get_shift(file_content,
     if not use_scs:
         skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
     else:
-        # if trunk and pcd_branch:
-        #     s_lbc = pcsSLBC(point_cloud={'trunk': test, 'branches': pcd_branch},
-        #             semantic_weighting=30)
-        # else:
         try:
             # lbc = pcs.LBC(point_cloud=test, filter_nb_neighbors = config['skeletonize']['n_neighbors'], max_iteration_steps= config['skeletonize']['max_iter'], debug = False, termination_ratio=config['skeletonize']['termination_ratio'], step_wise_contraction_amplification = config['skeletonize']['init_contraction'], max_contraction = config['skeletonize']['max_contraction'], max_attraction = config['skeletonize']['max_attraction'])
             lbc = pcs.LBC(point_cloud=test,
@@ -426,37 +388,10 @@ def get_shift(file_content,
             except Exception as e:
                 log.info(f'error saving topo {e}')
 
-            # lbc.export_results('./output')
-            # lbc.animate(init_rot=np.asarray([[1, 0, 0], [0, 0, 1], [0, 1, 0]]),
-            #             steps=300,
-            #             output='./output')
-            # lbc.extract_topology()
         except Exception as e:
             log.info(f'error getting lbc {e}')
-
-
-        # lbc = LBC(point_cloud=test)
-        # lbc.extract_skeleton()
-        # contracted, total_point_shift, shift_by_step = skel_res
-    # draw(skel_res[0])
-    # breakpoint()
-    # try:
-    #     topo = extract_topology(skel_res[0])
-    #     save_line_set(topo[0],file_base)
-    # except Exception as e:
-    #     log.info(f'error getting topo {e}')
-    #     # breakpoint()
     return lbc, topo
-    # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
 
-def center_and_rotate(pcd, center=None):
-    center = pcd.get_center() if center is None else center
-    rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
-    pcd.translate(np.array([-x for x in center ]))
-    pcd.rotate(rot_90_x)
-    pcd.rotate(rot_90_x)
-    pcd.rotate(rot_90_x)
-    return center
 
 def contract(in_pcd,shift, invert=False):
     "Translates the points in the "
@@ -478,31 +413,6 @@ def get_downsample(file = None, pcd = None, normalize = False):
     clean_pcd = remove_color_pts(uni_down,invert = True)
     if normalize: _ = center_and_rotate(clean_pcd)
     return clean_pcd
-
-def draw_skel(pcd, 
-                seed,
-                shift=[], 
-                down_sample=True,
-                skeleton = None,
-                save_gif=False, 
-                out_path = None,
-                on_frames=25,
-                off_frames=25,
-                addnl_frame_duration=.05,
-                point_size=5):
-    out_path = out_path or f'data/results/gif/{seed}'
-    clean_pcd = pcd
-    if down_sample: clean_pcd = get_downsample(pcd=pcd, normalize=False)
-    if not skeleton:
-        skeleton = contract(clean_pcd,shift)
-    draw(skeleton)
-    # center_and_rotate(skeleton)
-    # center_and_rotate(clean_pcd)
-    # _ = center_and_rotate(skeleton) #Rotation makes contraction harder
-    gif_kwargs = {'on_frames': on_frames,'off_frames': off_frames, 'addnl_frame_duration':addnl_frame_duration,'point_size':point_size,'save':save_gif,'out_path':out_path}
-    # rotating_compare_gif(skeleton,clean_pcd, **gif_kwargs)
-    # rotating_compare_gif(contracted,clean_pcd, point_size=4, output=out_path,save = save_gif, on_frames = 50,off_frames=50, addnl_frame_duration=.03)
-    return skeleton
 
 def contraction_analysis(file, pcd, shift):
 
@@ -556,7 +466,7 @@ def get_trunk(file_content):
     breakpoint()
     stem_pcd = get_stem_pcd(pcd=lowc)
     breakpoint()
-
+    
 def file_info_to_pcds(file_info,
                         normalize = False,
                         get_shifts = False,
@@ -604,25 +514,28 @@ def file_info_to_pcds(file_info,
         clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
     return seed, pcd, clean_pcd, shift_one
 
+def get_seed_id_from_file(file, seed_pat = re.compile('.*seed([0-9]{1,3}).*')):
+    return re.match(seed_pat,file).groups(1)[0]
+
 def loop_over_files(func,args = [], kwargs =[],
                     requested_pcds=[],
-                    requested_seeds=[],skip_seeds = [],
-                    detail_ext_dir = 'data/skio/ext_detail/',
-                    shift_dir = 'data/skio/pepi_shift/',
-                    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
+                    requested_seeds=[],
+                    skip_seeds = [],
+                    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm',
+                    detail_ext_folder = 'ext_detail',
+                    shift_folder = 'pepi_shift'
                     ):
     # reads in the files from the indicated directories
     if not requested_pcds:
+        # Get files present in pipeline directories
+        detail_ext_dir = f'{base_dir}/{detail_ext_folder}/'
+        shift_dir = f'{base_dir}/{shift_folder}/'
         detail_files = glob('*detail*',root_dir=detail_ext_dir)
-        shift_one_files = []
-        if shift_dir:
-            shift_one_files = glob('*shift*',root_dir=shift_dir)
-        files_with_seeds = [(file,re.match(seed_pat,file)) for file in detail_files if re.match(seed_pat,file) is not None]
-        seed_to_detail = {match.groups(1)[0]:file for file, match in files_with_seeds}
-        # for seed,file in seed_to_detail.items(): get_shift(read_pcd(file),seed)
-        seed_to_shift_one = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_one_files}
-        seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift_one.get(seed),None))  for seed in seed_to_detail.keys() ]
-        seed_to_content = {seed:(detail,shift_one,shift_two) for seed,(detail,shift_one,shift_two) in seed_to_files}
+        shift_one_files = glob('*shift*',root_dir=shift_dir)
+        # Get files by seed id 
+        seed_to_shift = {get_seed_id_from_file(file):file for file in shift_one_files}
+        seed_to_detail = {get_seed_id_from_file(file):file for file in detail_files}
+        seed_to_content = {seed:(detail,seed_to_shift.get(seed)) for seed,detail in seed_to_detail.items()}
         
     else:
         seed_to_content = {seed:(seed,pcd,None,None) for seed,pcd in enumerate(requested_pcds)}
@@ -658,32 +571,14 @@ def loop_over_files(func,args = [], kwargs =[],
     return results
 
 if __name__ =="__main__":
-    import time 
-    from geometry.zoom import filter_to_region_pcds, zoom_pcd
-    import laspy
-    mv_drive='/media/penguaman/TOSHIBA EXT/tls_lidar/MonteVerde'
-    # file = 'CR-ET6-Crop.las'
-    file = 'EpiphytusTV4.pts'
-    # mv_drive = 'data/epip/inputs'
-    # file = 'cleaned_ds10_epip.pcd'
-    las = laspy.read(f'{mv_drive}/{file}')
-    # pcd = o3d.geometry.PointCloud()
-    # pcd.points = o3d.utility.Vector3dVector(arr(las.xyz))
-    # pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
-    try:
-        las.write(f'/{file.replace('.pts','.las')}')
-    except Exception as e:
-        log.info(f'error writing las {e}')
-    breakpoint()
-    
-    # mv_drive='data/epip/inputs/' pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
-    # file = 'EpiphytusTV4.pts'
-    full = read_pcd(f'{mv_drive}/{file}')
-    # cuts out unneeded area
-    print('read',time.time())
-    full = full.uniform_down_sample(10)
-    print('downsampled',time.time())
-    # full_z = zoom_pcd([[0,120,-25],[70,200,11]],full) # original used 
+    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm'
+    detail_ext_dir = f'{base_dir}/ext_detail/'
+    shift_dir = f'{base_dir}/pepi_shift/'
+    addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
+    loop_over_files( reduce_bloom, #identify_epiphytes,]=
+                    kwargs={'save_gif':True},
+                    base_dir=base_dir,
+                    )
     breakpoint()
 
     full_z = zoom_pcd([[0,120,-25],[40,165,11]],full)

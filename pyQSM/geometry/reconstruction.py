@@ -20,29 +20,8 @@ import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
 
-import matplotlib.pyplot as plt
-
-from matplotlib import patches
-
-
 from open3d.io import read_point_cloud, write_point_cloud
 
-from math_utils.general import (
-    get_center
-)
-
-from set_config import config, log
-from geometry.mesh_processing import subdivide_mesh, get_surface_clusters, map_density
-from geometry.point_cloud_processing import ( filter_by_norm,
-    clean_cloud,
-    crop, get_shape,
-    orientation_from_norms,
-    filter_by_norm,
-    get_ball_mesh,
-    crop_by_percentile,
-    cluster_plus
-)
-from viz.viz_utils import iter_draw, draw
 from utils.io import save,load
 
 

@@ -5,6 +5,14 @@ import open3d as o3d
 from set_config import config, log
 
 
+def center_and_rotate(pcd, center=None):
+    center = pcd.get_center() if center is None else center
+    rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
+    pcd.translate(np.array([-x for x in center ]))
+    pcd.rotate(rot_90_x)
+    pcd.rotate(rot_90_x)
+    pcd.rotate(rot_90_x)
+    return center
 
 def zoom_pcd(zoom_region,
             pcd, 

@@ -331,16 +331,17 @@ def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, r
     
     return corrected_rgb_full,hsv_fulls
 
-def color_on_percentile(pcd,
+def split_on_percentile(pcd,
                         val_list,
                         pctile,
-                        comp=lambda x,y:x>y ):
+                        comp=lambda x,y:x>y,
+                        color_on_percentile=False):
     if len(pcd.points)!= len(val_list):
         msg = f'length of val list does not match size of pcd'
         log.error(f'length of val list does not match size of pcd')
         raise ValueError(msg)
-
-    color_continuous_map(pcd,val_list)
+    if color_on_percentile:
+        color_continuous_map(pcd,val_list)
     val = np.percentile(val_list,pctile)
     highc_idxs = np.where(comp(val_list,val))[0]
     highc_pcd = pcd.select_by_index(highc_idxs,invert=False)
