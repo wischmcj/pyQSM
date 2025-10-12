@@ -20,7 +20,7 @@ from math_utils.fit import cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from math_utils.fit import choose_and_cluster, cluster_DBSCAN, fit_shape_RANSAC, kmeans
 from utils.io import save, load, save_line_set
 from utils.lib_integration import find_neighbors_in_ball
-from viz.color import color_on_percentile
+from viz.color import split_on_percentile
 from viz.viz_utils import color_continuous_map
 from math_utils.general import (
     get_angles,

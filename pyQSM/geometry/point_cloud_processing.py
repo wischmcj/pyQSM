@@ -2,7 +2,11 @@ from matplotlib import pyplot as plt
 import open3d as o3d
 import numpy as np
 from numpy import array as arr
+from glob import glob
 
+import sys
+import os
+sys.path.insert(0,'/media/penguaman/code/ActualCode/Research/pyQSM/pyQSM/')
 from math_utils.general import (
     get_angles,
     get_center,
@@ -16,6 +20,24 @@ from set_config import log, config
 
 from viz.viz_utils import color_continuous_map, draw
 
+def join_pcd_files(files_path, pattern = '*', 
+                    voxel_size = None,
+                    write_to_file = True):
+    detail_files = glob(pattern,root_dir=files_path)
+    pcds=[]
+    for file in detail_files:
+        pcd = o3d.io.read_point_cloud(f'{files_path}/{file}')
+        print(f'{file} has {len(pcd.points)} points')
+        if voxel_size is not None:
+            pcd = pcd.voxel_down_sample(voxel_size)
+            print(f'{file} has {len(pcd.points)} points after voxel downsampling')
+        pcds.append(pcd)
+
+    joined = join_pcds(pcds)
+    if write_to_file:
+        o3d.io.write_point_cloud(f'{files_path}/joined.pcd', joined[0])
+    return joined
+    
 def join_pcds(pcds):
     pts = [arr(pcd.points) for pcd in pcds]
     colors = [arr(pcd.colors) for pcd in pcds]
