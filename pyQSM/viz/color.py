@@ -130,7 +130,7 @@ def saturate_colors(pcd, min_s=1,sc_func =lambda sc: sc + (1-sc)/3):
     target = pcd
     orig_colors = arr(target.colors)
     log.info(f'Correcting colors')
-    corrected_colors, sc = color_distribution(arr(target.colors),min_s=min_s,sc_func =sc_func)
+    corrected_colors, sc = color_distribution(arr(target.colors),cutoff=cutoff,sc_func =sc_func)
     target.colors = o3d.utility.Vector3dVector(corrected_colors)
     return target, orig_colors
 
@@ -242,8 +242,8 @@ def isolate_color(in_colors,icolor='white',get_all=True, std='hsv'):
     
     breakpoint()
 
-def color_distribution(in_colors,oth_colors=None,cutoff=1,elev=40, azim=110, roll=0, 
-                space='none',min_s=.2,sc_func =lambda sc: sc + (1-sc)/3):
+def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, roll=0, 
+                space='none',min_s=.2,sat_correction=2,sc_func =lambda sc: sc + (1-sc)/3):
     
     color_lists = [in_colors]
     if oth_colors is not None:
