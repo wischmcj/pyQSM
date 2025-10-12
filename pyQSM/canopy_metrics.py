@@ -1,3 +1,4 @@
+from collections import defaultdict
 from copy import deepcopy
 from glob import glob
 import re
@@ -254,6 +255,9 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
     seed, pcd, clean_pcd, shift_one = file_content
     assert shift_one is not None # No shifts for this seed; Ensure you pass get_shifts=True to file_info_to_pcds
     run_name = f'{seed}_id_epi'
+
+    epi_file_dir = f'/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm/epis/'
+    epi_file_name = f'seed{seed}_epis.pcd'
     step=0
     try:
         with writer.as_default():
@@ -273,14 +277,14 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
             high_shift = shift_one[highc_idxs]
             z_mag = np.array([x[2] for x in high_shift])
             leaves_idxs, leaves, epis = split_on_percentile(highc,z_mag,60, color_on_percentile=True)
-            
-            high_shift = shift_one[highc_idxs]
-            z_mag = np.array([x[2] for x in high_shift])
-            leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
-            # epis_idxs, epis, leaves = color_on_percentile(highc,z_mag,60, comp=lambda x,y:x<y)
+            epis_colored  = highc.select_by_index(leaves_idxs, invert=True)
+            o3d.io.write_point_cloud(f'{epi_file_dir}/{epi_file_name}', epis_colored)
+            # epis_idxs, epis, leaves = split_on_percentile(highc,z_mag,60, comp=lambda x,y:x<y, color_on_percentile=True)
             pcd_no_epi = join_pcds([highc,leaves])[0]
             step+=1
             summary.add_3d(run_name, to_dict_batch([epis]), step=step, logdir=logdir)
+            step+=1
+            summary.add_3d(run_name, to_dict_batch([epis_colored]), step=step, logdir=logdir)
             step+=1
             summary.add_3d(run_name, to_dict_batch([pcd_no_epi]), step=step, logdir=logdir)
            
@@ -299,9 +303,8 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
             step+=1
             # summary.add_3d('epis', to_dict_batch([stripped_epis]), step=step, logdir=logdir)
             summary.add_3d('id_epi_low', to_dict_batch([target]), step=step, logdir=logdir)
-            summary.add_3d('removed', to_dict_batch([hue_pcds[len(hue_pcds)-1]]), step=step, logdir=logdir)
+            # summary.add_3d('removed', to_dict_batch([hue_pcds[len(hue_pcds)-1]]), step=step, logdir=logdir)
     except Exception as e:
-        breakpoint()
         log.info(f'error getting epiphytes for {seed}: {e}')
     return []
 
@@ -395,7 +398,6 @@ def loop_over_files(func,args = [], kwargs =[],
                 and int(seed) not in skip_seeds):
                 if not requested_pcds:
                     file_content = file_info_to_pcds(file_info,detail_ext_dir=detail_ext_dir,shift_dir=shift_dir,**kwargs)
-                breakpoint()
                 if len(inputs) == 0:
                     result  = func(file_content)
                 for arg_tup, kwarg_dict in inputs:
@@ -412,13 +414,131 @@ def loop_over_files(func,args = [], kwargs =[],
     print('dont finish yet')
     return results
 
-if __name__ =="__main__":
+def get_and_label_neighbors(comp_pcd, base_dir, nbr_label, non_nbr_label = 'wood'):
+    from glob import glob
+    from open3d.io import read_point_cloud as read_pcd
+    from scipy import spatial as sps
 
+    # comp_kd_tree = sps.KDTree(arr(comp_pcd.points))
+
+    glob_pattern = f'{base_dir}/ipnputs/skio_parts/*'
+    files = glob(glob_pattern)
+    logdir = "src/logs/get_epi_details"
+    #Tensor Board prep
+    names_to_labels  = {'unknown':0,f'orig_{nbr_label}':1, f'found_{nbr_label}':2, non_nbr_label:3}
+    writer = tf.summary.create_file_writer(logdir)
+    comp_points = np.array(comp_pcd.points)
+    comp_labels = [names_to_labels[f'orig_{nbr_label}']]*len(comp_pcd.points) 
+    combined_summary = {'vertex_positions':np.vstack(comp_points,np.array(pcd.points)), 
+                        }
+
+    def update_tb(case_name, summary, pcd_labels, step):
+        if step >0: 
+            summary['vertex_positions'] = 0
+            summary['vertex_scores'] = 0
+            summary['vertex_features'] = 0
+        summary['vertex_labels'] = np.vstack(comp_labels,pcd_labels)            
+        summary.add_3d(case_name, summary, step=step, logdir=logdir)
+        step = step + 1
+    
+    epi_ids = defaultdict(list)
+    # finished = ['660000000.pcd','400000000.pcd','800000000.pcd','560000000.pcd']
+    files = [file for file in files if not any(file_name in file for file_name in finished)]
+    with writer.as_default(): 
+        for file in files:
+            #  = {'vertex_positions': np.array(comp_pcd.points), 'vertex_labels': np.zeros(len(comp_pcd.points)), 'vertex_scores': np.zeros((len(comp_pcd.points), 3)), 'vertex_features': np.zeros((len(comp_pcd.points), 3))}
+            # summary.add_3d('get_epi_details', summary_dict, step=step, logdir=logdir)
+            try:
+                #identify neighbors
+                file_name = file.split('/')[-1].replace('.pcd','')
+                case_name = f'{file_name}_get_{nbr_label}_details'
+                pcd = read_pcd(file)
+                nbrs_pcd, nbrs, chained_nbrs = get_neighbors_kdtree(pcd, comp_pcd, return_pcd=True)
+                if nbrs_pcd is None:
+                    print(f'no nbrs found for {file_name}')
+                    epi_ids[file_name] = []
+                    continue
+                uniques = np.unique(chained_nbrs)
+                o3d.io.write_point_cloud(f'{base_dir}/detail/{file_name}_nbrs.pcd', nbrs_pcd)
+                non_matched = pcd.select_by_index(uniques, invert=True)
+                o3d.io.write_point_cloud(f'{base_dir}/not_epis/{file_name}_non_matched.pcd', non_matched)
+
+                # Add run to Tensor Board (done at the end in case there are no neighbors)
+                ## Initial
+                step=0
+                vertices = np.vstack(comp_points,np.array(pcd.points))
+                combined_summary['vertex_positions'] = vertices
+                combined_summary['vertex_scores'] = np.zeros_like(vertices)
+                combined_summary['vertex_features'] = np.zeros_like(vertices)
+
+                pcd_labels = np.zeros(len(pcd.points))
+                pcd_labels = np.vstack(comp_labels,pcd_labels)
+                update_tb(case_name, combined_summary, pcd_labels, step)
+                print(f'{step=}')
+            
+                # Add labels for epiphytes
+                pcd_labels[uniques] = names_to_labels[f'found_{nbr_label}']
+                update_tb(case_name, combined_summary, pcd_labels, step)
+                print(f'{step=}')
+
+                # Update labels for 'wood' (e.g. whatever is left over)
+                pcd_labels = np.full_like(pcd_labels, names_to_labels[non_nbr_label])
+                pcd_labels[uniques] = names_to_labels[f'found_{nbr_label}']
+                update_tb(case_name, combined_summary, pcd_labels, step)
+                print(f'{step=}')
+
+                # Save epiphyte nbrs for future use 
+                epi_ids[file_name] = uniques
+            except Exception as e:
+                print(f'error {e} when getting neighbors in tile {file_name}')
+
+    np.savez_compressed(f'{base_dir}/epis/epis_ids_by_tile.npz', **epi_ids)
+    breakpoint()
+
+def script_for_extracting_epis_and_labeling_orig_detail():
+    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm/epis/'
+    # detail_ext_dir = f'{base_dir}/ext_detail/'
+    # shift_dir = f'{base_dir}/pepi_shift/'
+    # addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
+    # loop_over_files(identify_epiphytes,
+    #                 kwargs={'save_gif':True},
+    #                 detail_ext_dir=detail_ext_dir,
+    #                 shift_dir=shift_dir,
+    #                 )
+
+    # # Joining extracted epiphytes
+    # base_dir = f'/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm/epis/'
+    # _ =join_pcd_files(base_dir, pattern = '*epis.pcd')
+
+    # # Getting orig detail for epis and not epis 
+    # src_pcd = read_pcd(f'{base_dir}/joined_epis.pcd')
+    # get_and_label_neighbors(src_pcd, base_dir, 'epi', non_nbr_label='wood')
+
+    # # Joining extracted epiphytes
+    # _ = join_pcd_files(f'{base_dir}/detail/', pattern = '*nbrs.pcd')
+    # breakpoint()
+
+    _ = join_pcd_files(f'{base_dir}/not_epis/',
+                        pattern = '*non_matched.pcd',
+                        voxel_size = .05,
+                        write_to_file = False)
+    breakpoint()
+
+
+if __name__ =="__main__":
+    # epi_file_dir = f'/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm/epis/'
+    # _=join_pcd_files(epi_file_dir, pattern = '*epis.pcd')
+    script_for_extracting_epis_and_labeling_orig_detail()
+    breakpoint()
+    src_pcd = read_pcd(f'{base_dir}/epis/joined_epis.pcd')
+    get_neighbors_in_tiles(src_pcd, base_dir)
+    breakpoint()
     base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm'
     detail_ext_dir = f'{base_dir}/ext_detail/'
     shift_dir = f'{base_dir}/pepi_shift/'
     addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
-    loop_over_files( reduce_bloom, #identify_epiphytes,]=
+    loop_over_files( #reduce_bloom, 
+                    identify_epiphytes,
                     kwargs={'save_gif':True},
                     base_dir=base_dir,
                     )
@@ -426,22 +546,11 @@ if __name__ =="__main__":
 
 
     # import time 
-    # from geometry.zoom import filter_to_region_pcds, zoom_pcd
+    # from geometry.general import filter_to_region_pcds, zoom_pcd
     # import laspy
     # mv_drive='/media/penguaman/TOSHIBA EXT/tls_lidar/MonteVerde'
     # # file = 'CR-ET6-Crop.las'
-    # file = 'EpiphytusTV4.pts'
-    # # mv_drive = 'data/epip/inputs'
-    # # file = 'cleaned_ds10_epip.pcd'
-    # las = laspy.read(f'{mv_drive}/{file}')
-    # # pcd = o3d.geometry.PointCloud()
-    # # pcd.points = o3d.utility.Vector3dVector(arr(las.xyz))
-    # # pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
-    # try:
-    #     las.write(f'/{file.replace('.pts','.las')}')
-    # except Exception as e:
-    #     log.info(f'error writing las {e}')
-    # breakpoint()
+    
     
     # # mv_drive='data/epip/inputs/' pcd.colors = o3d.utility.Vector3dVector(arr(np.stack([las.red,las.green,las.blue],axis=1)/255))
     # # file = 'EpiphytusTV4.pts'
