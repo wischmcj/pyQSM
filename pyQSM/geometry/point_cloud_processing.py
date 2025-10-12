@@ -20,7 +20,6 @@ from set_config import log, config
 
 from viz.viz_utils import color_continuous_map, draw
 
-
 def bounding_box(points, min_x=-np.inf, max_x=np.inf, min_y=-np.inf,
                         max_y=np.inf, min_z=-np.inf, max_z=np.inf):
     """ex: 
