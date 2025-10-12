@@ -636,25 +636,28 @@ def file_info_to_pcds(file_info,
         clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
     return seed, pcd, clean_pcd, shift_one
 
+def get_seed_id_from_file(file, seed_pat = re.compile('.*seed([0-9]{1,3}).*')):
+    return re.match(seed_pat,file).groups(1)[0]
+
 def loop_over_files(func,args = [], kwargs =[],
                     requested_pcds=[],
-                    requested_seeds=[],skip_seeds = [],
-                    detail_ext_dir = 'data/skio/ext_detail/',
-                    shift_dir = 'data/skio/pepi_shift/',
-                    seed_pat = re.compile('.*seed([0-9]{1,3}).*')
+                    requested_seeds=[],
+                    skip_seeds = [],
+                    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm',
+                    detail_ext_folder = 'ext_detail',
+                    shift_folder = 'pepi_shift'
                     ):
     # reads in the files from the indicated directories
     if not requested_pcds:
+        # Get files present in pipeline directories
+        detail_ext_dir = f'{base_dir}/{detail_ext_folder}/'
+        shift_dir = f'{base_dir}/{shift_folder}/'
         detail_files = glob('*detail*',root_dir=detail_ext_dir)
-        shift_one_files = []
-        if shift_dir:
-            shift_one_files = glob('*shift*',root_dir=shift_dir)
-        files_with_seeds = [(file,re.match(seed_pat,file)) for file in detail_files if re.match(seed_pat,file) is not None]
-        seed_to_detail = {match.groups(1)[0]:file for file, match in files_with_seeds}
-        # for seed,file in seed_to_detail.items(): get_shift(read_pcd(file),seed)
-        seed_to_shift_one = {re.match(seed_pat,file).groups(1)[0]:file for file in shift_one_files}
-        seed_to_files = [(seed,(seed_to_detail.get(seed),seed_to_shift_one.get(seed),None))  for seed in seed_to_detail.keys() ]
-        seed_to_content = {seed:(detail,shift_one,shift_two) for seed,(detail,shift_one,shift_two) in seed_to_files}
+        shift_one_files = glob('*shift*',root_dir=shift_dir)
+        # Get files by seed id 
+        seed_to_shift = {get_seed_id_from_file(file):file for file in shift_one_files}
+        seed_to_detail = {get_seed_id_from_file(file):file for file in detail_files}
+        seed_to_content = {seed:(detail,seed_to_shift.get(seed)) for seed,detail in seed_to_detail.items()}
         
     else:
         seed_to_content = {seed:(seed,pcd,None,None) for seed,pcd in enumerate(requested_pcds)}
@@ -698,8 +701,7 @@ if __name__ =="__main__":
     addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
     loop_over_files( reduce_bloom, #identify_epiphytes,]=
                     kwargs={'save_gif':True},
-                    detail_ext_dir=detail_ext_dir,
-                    shift_dir=shift_dir,
+                    base_dir=base_dir,
                     )
     breakpoint()
 
