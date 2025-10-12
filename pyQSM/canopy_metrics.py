@@ -540,6 +540,9 @@ def get_data_from_config(seed_file_info, data_file_config):
         seed_to_content[f'{file_type}_file'] = file_path
     return seed_to_content
 
+def get_seed_id_from_file(file, seed_pat = re.compile('.*seed([0-9]{1,3}).*')):
+    return re.match(seed_pat,file).groups(1)[0]
+
 def loop_over_files(func,args = [], kwargs =[],
                     requested_seeds=[],
                     skip_seeds = [],
