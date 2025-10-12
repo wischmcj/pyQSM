@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 
 from geometry.point_cloud_processing import get_shape
 from set_config import config, log
-from utils.math_utils import (get_radius, 
+from math_utils.general import (get_radius, 
                     get_center, 
                     rotation_matrix_from_arr,
                     unit_vector)

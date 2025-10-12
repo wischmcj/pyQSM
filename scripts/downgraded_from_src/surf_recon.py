@@ -10,8 +10,8 @@ from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_p
 from set_config import config, log
 from geometry.mesh_processing import check_properties, get_surface_clusters
 from geometry.reconstruction import recover_original_details
-from ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays
-from utils.plotting import plot_dist_dist
+from viz.ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays
+from viz.plotting import plot_dist_dist
 from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
 
 

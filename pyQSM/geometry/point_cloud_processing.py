@@ -3,7 +3,7 @@ import open3d as o3d
 import numpy as np
 from numpy import array as arr
 
-from utils.math_utils import (
+from math_utils.general import (
     get_angles,
     get_center,
     get_percentile,

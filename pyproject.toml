@@ -1,0 +1,170 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyqsm"
+version = "0.1.0"
+description = "Python Utilities for TLS LiDAR Scans of Trees"
+readme = "README.md"
+license = {text = "Mozilla Public License Version 2.0"}
+authors = [
+    {name = "pyQSM Contributors"}
+]
+maintainers = [
+    {name = "pyQSM Contributors"}
+]
+keywords = [
+    "lidar", "point-cloud", "tree-analysis", "forestry", "3d-processing",
+    "skeletonization", "qsm", "terrestrial-laser-scanning", "tls"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "open3d>=0.17.0",
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+    "polyscope>=1.0.0",
+    "networkx>=2.6.0",
+    "mistree>=0.1.0",
+    "robust-laplacian>=0.1.0",
+    "plyfile>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.0.0",
+    "black>=21.0.0",
+    "flake8>=3.8.0",
+    "mypy>=0.910",
+    "pre-commit>=2.0.0",
+]
+docs = [
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "myst-parser>=0.15.0",
+]
+all = [
+    "pyqsm[dev,docs]"
+]
+
+[project.urls]
+Homepage = "https://github.com/wischmcj/pyQSM"
+Documentation = "https://pyqsm.readthedocs.io/"
+Repository = "https://github.com/your-username/pyQSM.git"
+Issues = "https://github.com/your-username/pyQSM/issues"
+
+[project.scripts]
+pyqsm-tree-isolation = "pyQSM.tree_isolation:main"
+pyqsm-qsm-generation = "pyQSM.qsm_generation:main"
+pyqsm-canopy-metrics = "pyQSM.canopy_metrics:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyQSM*"]
+exclude = ["tests*", "scripts*", "docs*"]
+
+[tool.setuptools.package-data]
+pyQSM = ["pyqsm_config.toml"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "open3d.*",
+    "polyscope.*",
+    "mistree.*",
+    "robust_laplacian.*",
+    "plyfile.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=pyQSM",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["pyQSM"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/newvenv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

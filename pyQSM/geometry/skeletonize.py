@@ -29,7 +29,7 @@ from geometry.mesh_processing import map_density,get_surface_clusters
 from set_config import config, log
 from viz.viz_utils import draw, color_continuous_map 
 from utils.lib_integration import pts_to_cloud,get_neighbors_in_tree
-from utils.math_utils import get_center,rot_90_x,unit_vector, get_percentile
+from math_utils.general import get_center,rot_90_x,unit_vector, get_percentile
 from utils.io import save,load
 
 
