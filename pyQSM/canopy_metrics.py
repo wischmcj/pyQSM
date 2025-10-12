@@ -12,6 +12,7 @@ from numpy import asarray as arr
 from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
 from set_config import config, log
+from geometry.general import center_and_rotate
 from geometry.reconstruction import get_neighbors_kdtree
 from geometry.skeletonize import extract_skeleton, extract_topology
 from geometry.point_cloud_processing import (
@@ -228,36 +229,7 @@ def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, ou
         print(metrics)
     return metrics
 
-def evaluate_shifts(file_content, 
-                    contraction=config['skeletonize']['init_contraction'],
-                    attraction=config['skeletonize']['init_attraction']):
-    seed, pcd, clean_pcd, shift = file_content
-    file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}' #_vox{vox}_ds{ds}'                    
-    contracted = contract(clean_pcd,shift)
-    draw(contracted)
-    topo = load_line_set(file_base)
-    draw(topo)
-    breakpoint()
-    return shift
-
-def read_shift_results(file_content, contraction=1, attraction=1, vox=0, ds=0):
-    """
-    Reads the results of get_shift from the skels3 directory.
-    
-    Args:
-        file_content: Tuple containing (seed, pcd, clean_pcd, shift_one)
-        contraction: Contraction factor used in get_shift
-        attraction: Attraction factor used in get_shift
-        vox: Voxel size used in get_shift
-        ds: Downsample factor used in get_shift
-        
-    Returns:
-        Dictionary containing the loaded results:
-        - 'contracted': The contracted point cloud
-        - 'total_shift': The total shift applied to the point cloud
-        - 'lines': The line set representing the skeleton
-        - 'points': The points of the skeleton
-    """
+def get_pepi_shift(file_content, iters=20):
     seed, pcd, clean_pcd, shift_one = file_content
     cmag = np.array([np.linalg.norm(x) for x in shift_one])
     highc_idxs = np.where(cmag>np.percentile(cmag,70))[0]
@@ -374,7 +346,9 @@ def get_shift(file_content,
               initial_shift = True, contraction=6, attraction=2, iters=20, 
               debug=False, vox=None, ds=None, use_scs = True):
     """
-        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 1024
+        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 
+        Determines what files (e.g. information) is missing for the case passed and 
+            calculates what is needed 
     """
     seed, pcd, clean_pcd, shift_one = file_content
     trunk = None
@@ -382,7 +356,6 @@ def get_shift(file_content,
     file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
     log.info(f'getting shift for {seed}')
     if initial_shift:
-        # contracted = contract(clean_pcd,shift_one)
         cmag = np.array([np.linalg.norm(x) for x in shift_one])
         highc_idxs = np.where(cmag>np.percentile(cmag,70))[0]
         test = clean_pcd.select_by_index(highc_idxs, invert=True)
@@ -393,10 +366,6 @@ def get_shift(file_content,
     if not use_scs:
         skel_res = extract_skeleton(test, max_iter = iters, debug=debug, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
     else:
-        # if trunk and pcd_branch:
-        #     s_lbc = pcsSLBC(point_cloud={'trunk': test, 'branches': pcd_branch},
-        #             semantic_weighting=30)
-        # else:
         try:
             # lbc = pcs.LBC(point_cloud=test, filter_nb_neighbors = config['skeletonize']['n_neighbors'], max_iteration_steps= config['skeletonize']['max_iter'], debug = False, termination_ratio=config['skeletonize']['termination_ratio'], step_wise_contraction_amplification = config['skeletonize']['init_contraction'], max_contraction = config['skeletonize']['max_contraction'], max_attraction = config['skeletonize']['max_attraction'])
             lbc = pcs.LBC(point_cloud=test,
@@ -426,37 +395,10 @@ def get_shift(file_content,
             except Exception as e:
                 log.info(f'error saving topo {e}')
 
-            # lbc.export_results('./output')
-            # lbc.animate(init_rot=np.asarray([[1, 0, 0], [0, 0, 1], [0, 1, 0]]),
-            #             steps=300,
-            #             output='./output')
-            # lbc.extract_topology()
         except Exception as e:
             log.info(f'error getting lbc {e}')
-
-
-        # lbc = LBC(point_cloud=test)
-        # lbc.extract_skeleton()
-        # contracted, total_point_shift, shift_by_step = skel_res
-    # draw(skel_res[0])
-    # breakpoint()
-    # try:
-    #     topo = extract_topology(skel_res[0])
-    #     save_line_set(topo[0],file_base)
-    # except Exception as e:
-    #     log.info(f'error getting topo {e}')
-    #     # breakpoint()
     return lbc, topo
-    # save(f'shifts_{file}.pkl', (total_point_shift,shift_by_step))
 
-def center_and_rotate(pcd, center=None):
-    center = pcd.get_center() if center is None else center
-    rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
-    pcd.translate(np.array([-x for x in center ]))
-    pcd.rotate(rot_90_x)
-    pcd.rotate(rot_90_x)
-    pcd.rotate(rot_90_x)
-    return center
 
 def contract(in_pcd,shift, invert=False):
     "Translates the points in the "
@@ -478,31 +420,6 @@ def get_downsample(file = None, pcd = None, normalize = False):
     clean_pcd = remove_color_pts(uni_down,invert = True)
     if normalize: _ = center_and_rotate(clean_pcd)
     return clean_pcd
-
-def draw_skel(pcd, 
-                seed,
-                shift=[], 
-                down_sample=True,
-                skeleton = None,
-                save_gif=False, 
-                out_path = None,
-                on_frames=25,
-                off_frames=25,
-                addnl_frame_duration=.05,
-                point_size=5):
-    out_path = out_path or f'data/results/gif/{seed}'
-    clean_pcd = pcd
-    if down_sample: clean_pcd = get_downsample(pcd=pcd, normalize=False)
-    if not skeleton:
-        skeleton = contract(clean_pcd,shift)
-    draw(skeleton)
-    # center_and_rotate(skeleton)
-    # center_and_rotate(clean_pcd)
-    # _ = center_and_rotate(skeleton) #Rotation makes contraction harder
-    gif_kwargs = {'on_frames': on_frames,'off_frames': off_frames, 'addnl_frame_duration':addnl_frame_duration,'point_size':point_size,'save':save_gif,'out_path':out_path}
-    # rotating_compare_gif(skeleton,clean_pcd, **gif_kwargs)
-    # rotating_compare_gif(contracted,clean_pcd, point_size=4, output=out_path,save = save_gif, on_frames = 50,off_frames=50, addnl_frame_duration=.03)
-    return skeleton
 
 def contraction_analysis(file, pcd, shift):
 
