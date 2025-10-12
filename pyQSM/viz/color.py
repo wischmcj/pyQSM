@@ -121,7 +121,7 @@ def color_compare(in_colors_one, in_colors_two,color_conds, cutoff=.01,elev=40, 
     axis.view_init(elev=elev, azim=azim, roll=roll)
     plt.show()
 
-def saturate_colors(pcd, cutoff=1,sc_func =lambda sc: sc + (1-sc)/3):
+def saturate_colors(pcd, min_s=1,sc_func =lambda sc: sc + (1-sc)/3):
     """
         Calls color distribution, which applies translates
         to hsv space, applies the sc_func to saturation and the
@@ -130,7 +130,7 @@ def saturate_colors(pcd, cutoff=1,sc_func =lambda sc: sc + (1-sc)/3):
     target = pcd
     orig_colors = arr(target.colors)
     log.info(f'Correcting colors')
-    corrected_colors, sc = color_distribution(arr(target.colors),cutoff=cutoff,sc_func =sc_func)
+    corrected_colors, sc = color_distribution(arr(target.colors),min_s=min_s,sc_func =sc_func)
     target.colors = o3d.utility.Vector3dVector(corrected_colors)
     return target, orig_colors
 
@@ -242,8 +242,8 @@ def isolate_color(in_colors,icolor='white',get_all=True, std='hsv'):
     
     breakpoint()
 
-def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, roll=0, 
-                space='none',min_s=.2,sat_correction=2,sc_func =lambda sc: sc + (1-sc)/3):
+def color_distribution(in_colors,oth_colors=None,cutoff=1,elev=40, azim=110, roll=0, 
+                space='none',min_s=.2,sc_func =lambda sc: sc + (1-sc)/3):
     
     color_lists = [in_colors]
     if oth_colors is not None:
@@ -263,9 +263,10 @@ def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, r
         hc,sc,vc = zip(*hsv)
         sc = arr(sc)
         vc = arr(vc)
-        # low_saturation_idxs = np.where(sc<min_s)[0]
+        low_saturation_idxs = np.where(sc<min_s)[0]
         # sc[sc<min_s] = sc[sc<min_s]*sat_correction
-        ret_sc = sc_func(sc)
+        ret_sc = [sc[i] if i not in low_saturation_idxs else sc_func(sc[i]) for i in range(len(sc))]
+        # ret_sc = sc_func(sc)
         # vc =   sc_func(vc)
         # sc = sc*.6
         corrected_rgb_full = arr(hsv_to_rgb([x for x in zip(hc,ret_sc,vc)]))

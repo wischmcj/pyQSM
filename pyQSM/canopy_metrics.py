@@ -229,19 +229,22 @@ def reduce_bloom(file_content, **kwargs):
     seed, pcd, clean_pcd, shift_one = file_content
     logdir = "src/logs/id_epi"
     writer = tf.summary.create_file_writer(logdir)
-    params = [(lambda sc: sc + (1-sc)/3, 1, '33 inc, 1x'), 
-                (lambda sc: sc + (1-sc)/2, 1, '50 inc, 1x'),
-                (lambda sc: sc + (1-sc)/3, 1.5, '33 inc, 1.5x'), 
-                (lambda sc: sc + (1-sc)/2, 1.5, '50 inc, 1.5x'),
-                (lambda sc: sc + (1-sc)/3, .5, '33 inc, .5x'), 
-                (lambda sc: sc + (1-sc)/2, .5, '50 inc, .5x')
+    params = [  (lambda sc: sc + (1-sc)/3, .2, '33 inc, 1x'), # This is too satuated 
+                (lambda sc: sc + (1-sc)/2, .2, '50 inc, 1x'), # the rest are worse that the orig, more washed out
+                (lambda sc: sc + (1-sc)/3, .1, '33 inc, 1.5x'), 
+                (lambda sc: sc + (1-sc)/2, .1, '50 inc, 1.5x'),
+                (lambda sc: sc + (1-sc)/3, .05, '33 inc, .5x'), 
+                (lambda sc: sc + (1-sc)/2, .05, '50 inc, .5x')
                 ]
-
+    step = 0
+    summary.add_3d('sat_test', to_dict_batch([clean_pcd]), step=step, logdir=logdir)
     with writer.as_default():
-        for sat_func, sat_cutoff, case_name in params:
-            sat_pcd, sat_orig_colors = saturate_colors(pcd, cutoff=sat_cutoff, sc_func=sat_func)
+        for sat_func, min_sat, case_name in params:
+            print(f'running case {case_name}')
             step+=1
+            sat_pcd, sat_orig_colors = saturate_colors(clean_pcd, min_s=min_sat, sc_func=sat_func)
             summary.add_3d('sat_test', to_dict_batch([sat_pcd]), step=step, logdir=logdir)
+            clean_pcd.colors = o3d.utility.Vector3dVector(sat_orig_colors)
     breakpoint()
 
 
