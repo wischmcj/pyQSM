@@ -8,6 +8,13 @@ from utils.io import save
 import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
+import pyvista as pv
+import pc_skeletor as pcs
+
+import tensorflow as tf
+from open3d.visualization.tensorboard_plugin import summary
+# Utility function to convert Open3D geometry to a dictionary format
+from open3d.visualization.tensorboard_plugin.util import to_dict_batch
 
 from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 
@@ -17,32 +24,20 @@ from geometry.reconstruction import get_neighbors_kdtree
 from geometry.skeletonize import extract_skeleton, extract_topology
 from geometry.point_cloud_processing import (
     clean_cloud,
-    join_pcds
+    join_pcds,
+    join_pcd_files
 )
-from utils.io import load, load_line_set,save_line_set
+from utils.lib_integration import get_pairs
+from utils.io import load, load_line_set,save_line_set, create_table
+from viz.ray_casting import project_pcd
 from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
-
 from viz.color import (
     remove_color_pts, 
     get_green_surfaces,
-    color_on_percentile,
+    split_on_percentile,
     segment_hues,
     saturate_colors
 )
-
-
-import pyvista as pv
-from utils.io import create_table
-from qsm_generation import get_stem_pcd
-
-from utils.lib_integration import get_pairs
-from viz.ray_casting import project_pcd
-import pc_skeletor as pcs
-
-import tensorflow as tf
-from open3d.visualization.tensorboard_plugin import summary
-# Utility function to convert Open3D geometry to a dictionary format
-from open3d.visualization.tensorboard_plugin.util import to_dict_batch
 
 
 def list_if(x):
@@ -59,20 +54,6 @@ color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]
                'light_greens' : lambda tup: tup[0]<=.5 and tup[0]>2/9 and tup[2]>.5 ,
                'red_yellow' : lambda tup:  tup[0]<=2/9 and tup[2]>.3}
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
-
-def draw_hues(file_content,**kwargs):
-    seed, pcd, _, _ = file_content
-    # clean_pcd = get_downsample(pcd=pcd,normalize=False)
-    logdir = "src/logs/hues"
-    writer = tf.summary.create_file_writer(logdir)
-    hue_pcds,no_hue_pcds =segment_hues(pcd,seed,draw_gif=False, save_gif=False)
-    # no_hue_pcds = [x for x in no_hue_pcds if x is not None]
-    # target = no_hue_pcds[len(no_hue_pcds)-1]
-    with writer.as_default(): 
-        summary.add_3d(f'hue_pcd', to_dict_batch([pcd]), step=0, logdir=logdir)
-        for step in range(0,len(hue_pcds)):
-            summary.add_3d(f'hue_pcd', to_dict_batch([hue_pcds[step]]), step=step+1, logdir=logdir)
-            summary.add_3d(f'no_hue', to_dict_batch([no_hue_pcds[step]]), step=step+1, logdir=logdir)
 
 
 def propogate_shift(pcd,clean_pcd,shift):
@@ -108,10 +89,10 @@ def draw_shift(pcd,
     clean_pcd = pcd
     if down_sample: clean_pcd = get_downsample(pcd=clean_pcd, normalize=False)
     c_mag = np.array([np.linalg.norm(x) for x in shift])
-    highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70)
+    highc_idxs, highc,lowc = split_on_percentile(clean_pcd,c_mag,70, color_on_percentile=True)
     # center_and_rotate(lowc)
     # center_and_rotate(highc)
-    
+
     log.info('preping contraction/coloring')
     if draw_results:
         log.info('giffing')
@@ -126,8 +107,6 @@ def draw_shift(pcd,
                         'save':save_gif, 'out_path':out_path, 'rot_center':clean_pcd.get_center(),
                          'sub_dir':f'{seed}_draw_shift' }
         rotating_compare_gif(highc,constant_pcd_in=lowc,**gif_kwargs)
-
-   
     return highc,lowc,highc_idxs
 
     # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
@@ -143,7 +122,7 @@ def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, ou
         if clean_pcd is None:
             clean_pcd = get_downsample(pcd=clean_pcd, normalize=False)
         c_mag = np.array([np.linalg.norm(x) for x in shift_one])
-        highc_idxs, highc,lowc = color_on_percentile(clean_pcd,c_mag,70)
+        highc_idxs, highc,lowc = split_on_percentile(clean_pcd,c_mag,70, color_on_percentile=True)
         draw(lowc)
 
     make_mesh=True
@@ -290,8 +269,8 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
 
             high_shift = shift_one[highc_idxs]
             z_mag = np.array([x[2] for x in high_shift])
-            leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
-
+            leaves_idxs, leaves, epis = split_on_percentile(highc,z_mag,60, color_on_percentile=True)
+            
             high_shift = shift_one[highc_idxs]
             z_mag = np.array([x[2] for x in high_shift])
             leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
