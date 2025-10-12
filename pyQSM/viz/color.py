@@ -21,8 +21,12 @@ from matplotlib.colors import rgb_to_hsv
 
 
 def homog_colors(pcd):
+    """
+        Replaces the color of white points with the average color of their neighbors
+        Intended to deal with bloom from overly reflective surfaces
+    """
     colors = arr(pcd.colors)
-    pts=arr(pcd.points)
+    pts = arr(pcd.points)
     white_idxs = [idc for idc,color in enumerate(colors) if sum(color)>2.7]
     white_pts = [pts[idc] for idc in white_idxs]
 
@@ -121,12 +125,12 @@ def saturate_colors(pcd, cutoff=1,sc_func =lambda sc: sc + (1-sc)/3):
     """
         Calls color distribution, which applies translates
         to hsv space, applies the sc_func to saturation and the
-        converts back to rgb. Preserves original colors.
+        converts back to rgb.
     """
     target = pcd
     orig_colors = arr(target.colors)
     log.info(f'Correcting colors')
-    corrected_colors, sc = color_distribution(arr(target.colors),cutoff=1,sc_func =lambda sc: sc + (1-sc)/3)
+    corrected_colors, sc = color_distribution(arr(target.colors),cutoff=cutoff,sc_func =sc_func)
     target.colors = o3d.utility.Vector3dVector(corrected_colors)
     return target, orig_colors
 
@@ -239,7 +243,7 @@ def isolate_color(in_colors,icolor='white',get_all=True, std='hsv'):
     breakpoint()
 
 def color_distribution(in_colors,oth_colors=None,cutoff=.01,elev=40, azim=110, roll=0, 
-                space='none',min_s=.2,sat_correction=2,sc_func =lambda sc: sc + (1-sc)/2):
+                space='none',min_s=.2,sat_correction=2,sc_func =lambda sc: sc + (1-sc)/3):
     
     color_lists = [in_colors]
     if oth_colors is not None:

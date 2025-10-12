@@ -26,7 +26,8 @@ from viz.color import (
     remove_color_pts, 
     get_green_surfaces,
     color_on_percentile,
-    segment_hues
+    segment_hues,
+    saturate_colors
 )
 
 
@@ -287,7 +288,7 @@ def clean_topo(topo):
     breakpoint()
     topo_new = o3d.geometry.LineSet()
     topo_new.lines = o3d.utility.Vector2iVector(lines)
-    topo_new.points = o3d.utility.Vector3dVector(points)
+    topo_new.points = o3d.utility.Vector3dVector(pts)
     return topo_new
 
 # def get_pepi_shift(file_content):
@@ -488,6 +489,26 @@ def get_trunk(file_content):
     stem_pcd = get_stem_pcd(pcd=lowc)
     breakpoint()
 
+def reduce_bloom(file_content):
+    seed, pcd, clean_pcd, shift_one = file_content
+    logdir = "src/logs/id_epi"
+    writer = tf.summary.create_file_writer(logdir)
+    params = [(lambda sc: sc + (1-sc)/3, 1, '33 inc, 1x'), 
+                (lambda sc: sc + (1-sc)/2, 1, '50 inc, 1x'),
+                (lambda sc: sc + (1-sc)/3, 1.5, '33 inc, 1.5x'), 
+                (lambda sc: sc + (1-sc)/2, 1.5, '50 inc, 1.5x'),
+                (lambda sc: sc + (1-sc)/3, .5, '33 inc, .5x'), 
+                (lambda sc: sc + (1-sc)/2, .5, '50 inc, .5x')
+                ]
+
+    with writer.as_default():
+        for sat_func, sat_cutoff, case_name in params:
+            sat_pcd, sat_orig_colors = saturate_colors(pcd, cutoff=sat_cutoff, sc_func=sat_func)
+            step+=1
+            summary.add_3d('sat_test', to_dict_batch([sat_pcd]), step=step, logdir=logdir)
+    breakpoint()
+
+
 def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gif/'):
     logdir = "src/logs/id_epi"
     writer = tf.summary.create_file_writer(logdir)
@@ -500,7 +521,6 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
             log.info('Calculating/drawing contraction')
             step+=1
             summary.add_3d(run_name, to_dict_batch([clean_pcd]), step=step, logdir=logdir)
-            
             orig_colors = deepcopy(arr(clean_pcd.colors))
             highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
             clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
@@ -510,12 +530,15 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
             summary.add_3d(run_name, to_dict_batch([lowc]), step=step, logdir=logdir)
             step+=1
             summary.add_3d(run_name, to_dict_batch([highc]), step=step, logdir=logdir)
-            # draw(lowc)
-            # draw(highc)
 
             high_shift = shift_one[highc_idxs]
             z_mag = np.array([x[2] for x in high_shift])
             leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
+
+            high_shift = shift_one[highc_idxs]
+            z_mag = np.array([x[2] for x in high_shift])
+            leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
+            # epis_idxs, epis, leaves = color_on_percentile(highc,z_mag,60, comp=lambda x,y:x<y)
             pcd_no_epi = join_pcds([highc,leaves])[0]
             step+=1
             summary.add_3d(run_name, to_dict_batch([epis]), step=step, logdir=logdir)
@@ -527,6 +550,7 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
             # log.info('Extrapoloating contraction to original pcd')
             # proped_cmag = propogate_shift(pcd,clean_pcd,shift_one)
 
+            breakpoint()
             log.info('Orienting, extracting hues')
             # center_and_rotate(lowc) 
             hue_pcds,no_hue_pcds =segment_hues(lowc,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
@@ -563,7 +587,6 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
     ######Ordered small to large leads to more,smaller triangles and increased coverage
     # return metrics 
     # mesh_out = mesh_in.filter_smooth_simple(number_of_iterations=1)
-  
 def file_info_to_pcds(file_info,
                         normalize = False,
                         get_shifts = True,
@@ -674,12 +697,11 @@ if __name__ =="__main__":
     detail_ext_dir = f'{base_dir}/ext_detail/'
     shift_dir = f'{base_dir}/pepi_shift/'
     addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
-    loop_over_files(identify_epiphytes,
+    loop_over_files( reduce_bloom, #identify_epiphytes,]=
                     kwargs={'save_gif':True},
                     detail_ext_dir=detail_ext_dir,
                     shift_dir=shift_dir,
                     )
-
     breakpoint()
 
 
