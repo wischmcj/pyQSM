@@ -113,10 +113,12 @@ def vdraw(pcds,
         vis.capture_screen_image(save_file)
 
 def color_continuous_map(pcd, cvar):
-    if len(cvar)>0:
-        density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
-        density_colors = density_colors[:, :3]
-        pcd.colors = o3d.utility.Vector3dVector(density_colors)
+    if len(cvar)==0:
+        print('warning, length 0 array')
+        return pcd, None
+    density_colors = plt.get_cmap('plasma')((cvar - cvar.min()) / (cvar.max() - cvar.min()))
+    density_colors = density_colors[:, :3]
+    pcd.colors = o3d.utility.Vector3dVector(density_colors)
     print('warning, length 0 array')
     return pcd, density_colors
 

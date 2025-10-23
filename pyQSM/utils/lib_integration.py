@@ -11,6 +11,36 @@ from viz.viz_utils import iter_draw, draw
 
 ## Numpy
 
+def convert_las(file_dir, file_name, ext='pts'):
+    import laspy
+    # file_name = 'EpiphytusTV4.pts'
+    # # file_dir = 'data/epip/inputs'
+    # # file_name = 'cleaned_ds10_epip.pcd'
+    las = laspy.read(f'{file_dir}/{file_name}')
+    if ext == 'pts':
+        try:
+            las.write(f'/{file_name.replace('.pts','.las')}')
+        except Exception as e:
+            log.info(f'error writing las {e}')
+        return 
+    
+    pts = arr(las.xyz)
+    colors = arr(np.stack([las.red,las.green,las.blue],axis=1)/255)
+
+    if ext == 'pcd':
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        o3d.io.write_point_cloud(f'/{file_name.replace('.pts','.pcd')}', pcd)
+        return pcd
+    elif ext == 'npy':
+        np.save(f'/{file_name.replace('.pts','.npy')}', np.hstack([pts, colors]))
+    elif ext == 'npz':
+        np.savez(f'/{file_name.replace('.pts','.npz')}', points=pts, colors=colors)
+    else:
+        raise ValueError(f'Invalid extension {ext}')
+    breakpoint()
+
 def pts_to_cloud(points:np.ndarray, colors = None):
     '''
     Convert a numpy array to an open3d point cloud. Just for convenience to avoid converting it every single time.

@@ -44,6 +44,17 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
     mesh_pts.rotate(R_from_z)
     return mesh, _, inliers, fit_radius, _
 
+def cluster_2d(pcd,axis,eps,min_points):
+    import copy
+    pcd_pts = np.array( pcd.points)
+    new_pcd_pts = copy.deepcopy(pcd_pts) 
+    new_pcd_pts[:,axis] = np.zeros_like(pcd_pts[:,axis])
+    pcd.points = o3d.utility.Vector3dVector(new_pcd_pts)
+    labels = cluster_and_draw(pcd, eps=eps, min_points=min_points)
+    pcd.points = o3d.utility.Vector3dVector(pcd_pts)
+    draw([pcd])
+    return labels
+
 def choose_and_cluster(new_neighbors, main_pts, cluster_type, debug=False):
     """
     Determines the appropriate clustering algorithm to use
