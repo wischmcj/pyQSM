@@ -144,7 +144,7 @@ def draw_shift(pcd,
 
 def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, out_path = 'data/results/gif/'):
     if file_content:
-        seed, pcd, clean_pcd, shift_one = file_content
+        seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
     down = pcd.uniform_down_sample(2)
     # draw(down)
 
@@ -170,7 +170,7 @@ def get_pcd_projections(file_content=None, pcd=None, seed='', save_gif=False, ou
     return metrics
 
 def get_pepi_shift(file_content, iters=20):
-    seed, pcd, clean_pcd, shift_one = file_content
+    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
     file = f'new_seed{seed}_rf_voxpt05_uni3_shift'
     skel_res = extract_skeleton(clean_pcd, max_iter = iters, cmag_save_file=file)
     pass
@@ -183,7 +183,7 @@ def get_shift(file_content,
         Determines what files (e.g. information) is missing for the case passed and 
             calculates what is needed 
     """
-    seed, pcd, clean_pcd, shift_one = file_content
+    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
     trunk = None
     pcd_branch = None
     file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
@@ -308,8 +308,8 @@ def get_trunk(file_content):
     breakpoint()
 
 def reduce_bloom(file_content, **kwargs):
-    seed, pcd, clean_pcd, shift_one = file_content
-    logdir = "src/logs/id_epi"
+    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
+    logdir = "/media/penguaman/writable/lidar_sync/py_qsm/tensor_board/id_epi"
     writer = tf.summary.create_file_writer(logdir)
     params = [(lambda sc: sc + (1-sc)/3, 1, '33 inc, 1x'), 
                 (lambda sc: sc + (1-sc)/2, 1, '50 inc, 1x'),
@@ -330,9 +330,9 @@ def reduce_bloom(file_content, **kwargs):
 def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gif/'):
     logdir = "src/logs/id_epi"
     writer = tf.summary.create_file_writer(logdir)
-    seed, pcd, clean_pcd, shift_one = file_content
-    assert shift_one is not None # No shifts for this seed; Ensure you pass get_shifts=True to file_info_to_pcds
-    run_name = f'{seed}_id_epi'
+    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
+    assert shift_one is not None # No shifts for this seed; Ensure you pass get_shifts=True to read_pcds_and_feats
+    run_name = f'{seed}_id_epi_'
 
     epi_file_dir = f'/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm/epis/'
     epi_file_name = f'seed{seed}_epis.pcd'
@@ -386,104 +386,108 @@ def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gi
         log.info(f'error getting epiphytes for {seed}: {e}')
     return []
 
-def file_info_to_pcds(file_info,
-                        normalize = False,
-                        get_shifts = True,
-                        get_clean_pcd =True,
-                        get_contracted = False,
-                        topo_data = False,
-                        qsm_data = False,
-                        base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm',
-                        **kwarg_dict):
-    # base_dir = 'data/skio'
-    detail_ext_dir = f'{base_dir}/ext_detail/'
-    shift_dir = f'{base_dir}/pepi_shift/'
-    addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
-    topo_dir = f'{base_dir}/results/'
-
-    seed, (pcd_file, shift_file_one,shift_file_two) = file_info
-    log.info('')
-    log.info(f' {shift_file_one=},{shift_file_two=},{pcd_file=}')
-    log.info('loading shifts')
-    shift_one = None
-    if get_shifts:
-        try:
-            shift_one = load(shift_file_one, root_dir=shift_dir)
-        except Exception as e:
-            shift_one = None
-            print(f'Error getting shift for seed {seed}: {e}')
-    if get_contracted:
-        try:
-            contracted = read_pcd(f'{pcd_file}', root_dir=addnl_skel_dir)
-        except Exception as e:
-            print(f'Error getting contracted for seed {seed}: {e}')
-    if topo_data:
-        try:
-            topo = load_line_set(f'{pcd_file}', root_dir=topo_dir)
-        except Exception as e:
-            print(f'Error getting topo for seed {seed}: {e}')
-    if qsm_data:
-        try:
-            qsm_data = load(f'{pcd_file}', root_dir=detail_ext_dir)   
-        except Exception as e:
-            print(f'Error getting qsm_data for seed {seed}: {e}')
+def get_files_by_seed(data_file_config, 
+                        base_dir,
+                        key_pattern = re.compile('.*seed([0-9]{1,3}).*')
+                        ):
+    seed_to_files = defaultdict(dict)
+    for file_type, file_info in data_file_config.items():
+        # Get all matchig files
+        folder = f'{base_dir}/{file_info["folder"]}'
+        file_pattern = file_info['file_pattern']
+        files = glob(file_pattern,root_dir=folder)
+        # organize files by seed
+        for file in files:
+            file_key = re.match(key_pattern,file)
+            if file_key is None:
+                print(f'no seed found in seed_to_content{file}. Ignoring file...')
+                continue
+            file_key = file_key.groups(1)[0]
+            seed_to_files[file_key][file_type] = f'{base_dir}/{file_info["folder"]}/{file}'
     
-    log.info('loading pcd')
-    pcd = read_pcd(f'{detail_ext_dir}/{pcd_file}')
-    log.info('downsampling/coloring pcd')
-    clean_pcd = None
-    if get_clean_pcd:   
-        clean_pcd = get_downsample(pcd=pcd,normalize=normalize)
-    return seed, pcd, clean_pcd, shift_one
+    return seed_to_files
 
-def get_seed_id_from_file(file, seed_pat = re.compile('.*seed([0-9]{1,3}).*')):
-    return re.match(seed_pat,file).groups(1)[0]
+def get_data_from_config(seed_file_info, data_file_config):
+    seed_to_content = defaultdict(dict)
+    for file_type, file_path in seed_file_info.items():
+        load_func = data_file_config[file_type]['load_func']
+        load_kwargs = data_file_config[file_type].get('kwargs',{})
+        seed_to_content[file_type] = load_func(file_path, **load_kwargs)
+        if file_type == 'src':
+            seed_to_content['clean_pcd'] = get_downsample(pcd=seed_to_content['src'],
+                                                          **load_kwargs)
+    return seed_to_content
 
 def loop_over_files(func,args = [], kwargs =[],
                     requested_pcds=[],
                     requested_seeds=[],
                     skip_seeds = [],
-                    base_dir = '/media/penguaman/writable/SyncedBackup/Research/projects/skio/py_qsm',
+                    base_dir = '/media/penguaman/writable/lidar_sync/py_qsm',
                     detail_ext_folder = 'ext_detail',
-                    shift_folder = 'pepi_shift'
+                    data_file_config:dict = { 
+                        'src': {
+                                'folder': 'ext_detail',
+                                'file_pattern': '*orig_detail.pcd',
+                                'load_func': read_pcd, # custom, for pickles
+                            },
+                        'shift_one': {
+                                'folder': 'pepi_shift',
+                                'file_pattern': '*shift*',
+                                'load_func': load, # custom, for pickles
+                                'kwargs': {'root_dir': '/'},
+                            },
+                        # 'contracted': {
+                        #         'folder': '/results/skio/skels2/',
+                        #         'file_pattern': '*contracted.pcd',  
+                        #         'load_func': read_pcd,
+                        #     },
+                        # 'topo': {
+                        #         'folder': '/results/',
+                        #         'file_pattern': '*detail*', 
+                        #         'load_func': load_line_set, 
+                        #     },
+                        # 'vox_feat_data': {
+                        #         'folder': 'ext_detail/with_all_feats/',
+                        #         'file_pattern': 'int_color_data_$seed.npz',  
+                        #         'load_func': np.load,
+                        #     },
+                        'smoothed_feat_data': {
+                                'folder': 'ext_detail/with_all_feats/',
+                                'file_pattern': 'int_color_data_*_smoothed.npz',  
+                                'load_func': np.load,
+                            },
+                        'detail_feat_data': {
+                                'folder': 'ext_detail/with_all_feats/',
+                                'file_pattern': 'int_color_data_*_detail_feats.npz',  
+                                'load_func': np.load,
+                            },
+                    },
+                    shift_folder = 'pepi_shift',
                     ):
     # reads in the files from the indicated directories
     if not requested_pcds:
-        # Get files present in pipeline directories
-        detail_ext_dir = f'{base_dir}/{detail_ext_folder}/'
-        shift_dir = f'{base_dir}/{shift_folder}/'
-        detail_files = glob('*detail*',root_dir=detail_ext_dir)
-        shift_one_files = glob('*shift*',root_dir=shift_dir)
-        # Get files by seed id 
-        seed_to_shift = {get_seed_id_from_file(file):file for file in shift_one_files}
-        seed_to_detail = {get_seed_id_from_file(file):file for file in detail_files}
-        seed_to_content = {seed:(detail,seed_to_shift.get(seed)) for seed,detail in seed_to_detail.items()}
-        
-    else:
-        seed_to_content = {seed:(seed,pcd,None,None) for seed,pcd in enumerate(requested_pcds)}
-    print(detail_files)
-    print(seed_to_content)
-                    
+        files_by_seed = get_files_by_seed(data_file_config, base_dir)
+        # seed_to_content = {seed:(detail,seed_to_shift.get(seed)) for seed,detail in seed_to_detail.items()}
+
     if args ==[]: args = ['']*len(kwargs)
     inputs = [(arg,kwarg) for arg,kwarg in zip(list_if(args),list_if(kwargs))]
 
     results = []
-    for file_info in seed_to_content.items():
-        try:
-            seed, file_content = file_info
-            log.info(f'processing seed {seed}')
-            if ((requested_seeds==[] or int(seed) in requested_seeds)
-                and int(seed) not in skip_seeds):
-                if not requested_pcds:
-                    file_content = file_info_to_pcds(file_info,detail_ext_dir=detail_ext_dir,shift_dir=shift_dir,**kwargs)
-                if len(inputs) == 0:
-                    result  = func(file_content)
-                for arg_tup, kwarg_dict in inputs:
-                    result  = func(file_content,*arg_tup,**kwarg_dict)
-                    results.append(result)
-        except Exception as e:
-            log.info(f'error with {seed}: {e}')
-    # test = [file_info_to_pcds(file_info) for file_info in seed_to_content.items()]
+    for seed, seed_file_info in files_by_seed.items():
+        log.info(f'processing seed {seed}')
+        if ((requested_seeds==[] or int(seed) in requested_seeds)
+                   and int(seed) not in skip_seeds):
+            if not requested_pcds:
+                content = get_data_from_config(seed_file_info, data_file_config)
+                content['seed'] = seed
+            else:
+                content = requested_pcds
+            if len(inputs) == 0:
+                result  = func(content)
+            for arg_tup, kwarg_dict in inputs:
+                result  = func(content,*arg_tup,**kwarg_dict)
+                results.append(result)
+
     log.info(results)
     breakpoint()
     myTable = create_table(results)
@@ -501,7 +505,7 @@ def get_and_label_neighbors(comp_pcd, base_dir, nbr_label, non_nbr_label = 'wood
 
     glob_pattern = f'{base_dir}/ipnputs/skio_parts/*'
     files = glob(glob_pattern)
-    logdir = "src/logs/get_epi_details"
+    logdir = "/media/penguaman/writable/lidar_sync/py_qsm/tensor_board/get_epi_details"
     #Tensor Board prep
     names_to_labels  = {'unknown':0,f'orig_{nbr_label}':1, f'found_{nbr_label}':2, non_nbr_label:3}
     writer = tf.summary.create_file_writer(logdir)
@@ -617,7 +621,8 @@ if __name__ =="__main__":
     addnl_skel_dir = f'{base_dir}/results/skio/skels2/'
     loop_over_files( #reduce_bloom, 
                     identify_epiphytes,
-                    kwargs={'save_gif':True},
+                    # requested_seeds=[191,113],
+                    kwargs={'save_gif':False},
                     base_dir=base_dir,
                     )
     breakpoint()
