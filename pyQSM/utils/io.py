@@ -66,16 +66,25 @@ def create_table(
                 results:list[dict] | list[tuple[str,dict[str,dict]]] | dict[str,dict[str,dict]]
                  ,cols=None,sub_cols=None,ids=None):
     if cols is None:
-        cols = [x for x in results[0].keys()]
-    if sub_cols is None:
-        try:
-            sub_cols = results[0][cols[0]].keys()
-        except:
-            log.info(f'no sub_cols found for {cols[0]}')
-            sub_cols = results[0].keys()
-    all_cols =list([x for x in product(cols, sub_cols)])
+        if isinstance(results,dict):
+            cols = [x for x in results.keys()]
+        else:
+            row1 = results[0]
+            if isinstance(row1,tuple):
+                cols = list(row1[1].keys())
+            elif isinstance(row1,dict):
+                cols = list(row1.keys())
+            else:
+                cols = []
+        print(f'{cols=}')
 
-    col_names = [f'{col}_{sub_col}' for col, sub_col in all_cols]
+    if sub_cols is not None:
+        all_cols =list([x for x in product(cols, sub_cols)])
+        col_names = [f'{col}_{sub_col}' for col, sub_col in all_cols]
+    else:
+        col_names = cols
+    print(f'{col_names=}')
+    
     fin_cols = ['ID'] + col_names
     myTable = PrettyTable(fin_cols)
 
@@ -89,7 +98,7 @@ def create_table(
         elif isinstance(results,list):
             results = dict([(idx,x) for idx,x in enumerate(results)])
 
-    for row_id, row_data in results.items():
+    for row_id, row_data in results:
         row = [row_data[col] for col in col_names]
         if sub_cols is not None:
             row = [row[col] for col in sub_cols]

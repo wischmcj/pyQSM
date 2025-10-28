@@ -23,6 +23,26 @@ from set_config import log
 s27d = "s32_downsample_0.04.pcd"
 
 
+def draw_view(pcd=None, suffix=''):
+    log.info("Testing camera in open3d ...")
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+    if pcd is not None:
+        vis.add_geometry(pcd)
+    try:
+        camera_params = o3d.io.read_pinhole_camera_parameters(f"data/viz_configs/ex_branch_camera_params_{suffix}.json")
+        vis.get_render_option().load_from_json(f"data/viz_configs/viz_options_{suffix}.json")
+        vis.get_view_control().convert_from_pinhole_camera_parameters(camera_params)
+    except Exception as e:
+        log.info(f'view files not found for {suffix}, using default')
+    vis.run()
+    ex_branch_view_control = vis.get_view_control()
+    ex_branch_camera_params = ex_branch_view_control.convert_to_pinhole_camera_parameters()
+    o3d.io.write_pinhole_camera_parameters(f"data/viz_configs/ex_branch_camera_params_{suffix}.json",ex_branch_camera_params)
+    vis.get_render_option().save_to_json(f"data/viz_configs/viz_options_{suffix}.json")   
+    vis.run()
+    vis.destroy_window()
+
 def iter_draw(idxs_list, pcd):
     pcds = []
     for idxs in idxs_list:
