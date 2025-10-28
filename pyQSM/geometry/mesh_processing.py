@@ -181,7 +181,7 @@ def get_surface_clusters(mesh,
         largest_inds = np.argpartition(cluster_n_triangles, -top_n_clusters)[-top_n_clusters:]
         largest_ns = cluster_n_triangles[largest_inds]
         triangles_to_remove = cluster_n_triangles[triangle_clusters] < min(largest_ns)
-        mesh_0.connected_(triangles_to_remove)
+        mesh_0.remove_triangles_by_mask(triangles_to_remove)
         # out_mesh.remove_triangles_by_mask(~triangles_to_remove)
     if max_cluster_area:
         triangles_to_remove = cluster_area[triangle_clusters] < max_cluster_area

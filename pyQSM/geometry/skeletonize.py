@@ -259,8 +259,11 @@ def extract_skeleton(pcd,
     M_list = [M.diagonal()]
 
     # Init weights
-    positional_weights = attraction_factor * np.ones(M.shape[0]) # WH
-    laplacian_weights = (contraction_factor * np.sqrt(np.mean(M.diagonal()))) * np.ones(M.shape[0]) # WL
+    # positional_weights = attraction_factor * np.ones(M.shape[0]) # WH
+    # laplacian_weights = (contraction_factor * np.sqrt(np.mean(M.diagonal()))) * np.ones(M.shape[0]) # WL
+    positional_weights = attraction_factor * np.ones(M.shape[0])
+    laplacian_weights = contraction_factor * 10 ** 3 * np.sqrt(np.mean(M.diagonal())) * np.ones(M.shape[0])
+
     # (contraction_factor * np.sqrt(np.mean(M.diagonal())) 
     #                      * np.ones(M.shape[0])) 
     # Init weights, weighted by the mass matrix
@@ -304,16 +307,18 @@ def extract_skeleton(pcd,
             shift_by_step.append(pcd_point_shift)
 
         print('running debug')
+        
         if debug or iteration ==0:
             try:
                 print('saving cmag')
                 # c_mag = np.array([np.linalg.norm(x) for x in pcd_point_shift])
-                save(f'{cmag_save_file}_shift.pkl',shift_by_step)
+                with open(f'{cmag_save_file}_shift.pkl', 'wb') as f:
+                    pickle.dump(shift_by_step, f)
+                # save(f'{cmag_save_file}_shift.pkl',shift_by_step)
                 # curr_pts_pcd = pts_to_cloud(pts_current)
                 # o3d.write_point_cloud(f'{cmag_save_file}_contracted.pcd',curr_pts_pcd)
             except FileNotFoundError as e:
                 print(f'error in cmag, file not found: {e.filename}')
-                import pickle
                 with open(f'{cmag_save_file}_shift.pkl', 'wb') as f:
                     pickle.dump(shift_by_step, f)
             except Exception as e:
@@ -347,13 +352,17 @@ def extract_skeleton(pcd,
         # Checking to see if we've reached the end
         if iteration >= max_iteration_steps:
             try:
-                save(f'{cmag_save_file}_tpshift.pkl',shift_by_step)
+                # save(f'{cmag_save_file}_tpshift.pkl',shift_by_step)
+                with open(f'{cmag_save_file}_tpshift.pkl', 'wb') as f:
+                    pickle.dump(shift_by_step, f)
             except Exception as e:
                 print(f'error when saving total shift {e}.')
             break
         if volume_ratio < termination_ratio:
             try:
-                save(f'{cmag_save_file}_tpshift.pkl',shift_by_step)
+                with open(f'{cmag_save_file}_tpshift.pkl', 'wb') as f:
+                    pickle.dump(shift_by_step, f)
+                # save(f'{cmag_save_file}_tpshift.pkl',shift_by_step)
             except Exception as e:
                 print(f'error when saving total shift {e}.')
 
