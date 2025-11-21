@@ -96,7 +96,8 @@ def project_pcd(point_cloud = None,
                 sub_name='',
                 seed='default',
                 screen_shots = [#[20,-60,30],[20,-60,60],[-20,-60,-10],[-20,60,30],
-                [-20,60,60]],
+                # [-20,60,60]
+                ],
                 off_screen = False):
     # num_points = 100
     # rng = np.random.default_rng(seed=0)  # Seed rng for reproducibility
@@ -109,7 +110,6 @@ def project_pcd(point_cloud = None,
     origin = [0, 0, 0]
     normal = [0, 0, 1]
     # plane = pv.Plane(center=origin, direction=normal)
-    breakpoint()
 
 
     def project_points_to_plane(points, plane_origin, plane_normal):
@@ -129,11 +129,11 @@ def project_pcd(point_cloud = None,
 
     # Mesh using delaunay_2d and pyvista
     mesh = polydata.delaunay_2d(alpha=alpha)
-    log.info(f'Plotting...')
     # plane_vis = pv.Plane(center=origin,direction=normal,i_size=.5,j_size=.5,i_resolution=10,j_resolution=10,)
     if plot:
+        log.info(f'Plotting...')
         import os
-        base_dir = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas/{seed}/{name}'
+        base_dir = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas_clusters/{seed}/{name}'
         os.makedirs(base_dir, exist_ok=True)
         try:
             for pos in screen_shots:
