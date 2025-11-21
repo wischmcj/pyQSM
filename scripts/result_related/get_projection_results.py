@@ -47,35 +47,45 @@ def create_table(
     print(myTable)
     return myTable
 
+PROJ_TYPE = 'clusters'
+
 base_dir = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/'
 # sub_dir = 'ext_detail/projected_areas_prod'
-sub_dir = 'cluster_joining/projected_areas/'
+if PROJ_TYPE == 'clusters':
+    sub_dir = 'cluster_joining/projected_areas_clusters/'
+else:
+    sub_dir = 'cluster_joining/projected_areas/'
 files = glob(f'{base_dir}/{sub_dir}/*/all_metrics*.pkl')
 data = {}
+errors=['skio_107_tl_0', 'skio_134_tl_0', 'skio_0_tl_6', 'skio_0_tl_188', 'skio_135_tl_0', 'skio_190_tl_220', 'skio_33_tl_0', 'skio_136_tl_9', 'skio_0_tl_490', 'skio_151_tl_1']
+results=[]
+
 for file in files:
     seed = file.split('/')[-2]
     with open(file, 'rb') as f:
         data[seed] = pickle.load(f)
 final_data = []
 for seed, data in data.items():
+    if PROJ_TYPE == 'clusters':
+        epi_key = 'epi_clusters'
+        leaf_key = 'leaf_clusters'
+        wood_key = 'wood_clusters'
+    else:
+        epi_key = 'epis'
+        leaf_key = 'leaves'
+        wood_key = 'wood'
     print(f'{seed=}')
-    leaf_area_std = data['epis'] + data['leaves'] + data['wood']
+    leaf_area_std = data[epi_key] + data[leaf_key] + data[wood_key]
     total_area = data.get('total_area')
-    whole_area = data['whole']
-    lai_std = leaf_area_std/whole_area
-    lai_adj = (data['wood'] + data['leaves'])/whole_area
-    eai = (data['epis'])/whole_area
-    
+    whole_area = data['whole']    
     final_data.append((seed, { #'wood': data.get('wood_singular'),
                         # 'Tree ID': seed, 
-                        'Epiphyte Area': data['epis'],
+                        'Projected Canopy Area': whole_area,
+                        "''Wood' (Non-Leaf, Non-P. Epiphytes)": data['wood'],
                         'Leaf Area': data['leaves'],
-                        'Wood (Overlap)': data['wood'],
+                        'P. Epiphytes Only': data['epis'],
                         'Total Area': total_area,
-                        'Whole Area': whole_area,
-                        'LAI (Standard)': lai_std,
-                        'LAI (Proposed)': lai_adj,
-                        'EAI': eai,}))
+    }))
 myTable = create_table(final_data)
 print(myTable)
 breakpoint()
