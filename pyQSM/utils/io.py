@@ -62,6 +62,54 @@ def load(file, root_dir = data_root):
         ret = pickle.load(f)
     return ret
 
+## Reading in various file types 
+
+def get_attrs_las(las_file, header=None):
+    try:
+        x = las_file.X * header.scales[0] + header.offsets[0]
+        y = las_file.Y * header.scales[1] + header.offsets[1]
+        z = las_file.Z * header.scales[2] + header.offsets[2]
+    except AttributeError as e:
+        log.info(f'No scale attributes found, using coordinates directly')
+        x,y,z = las_file.X, las_file.Y, las_file.Z
+    red = las_file.red
+    blue = las_file.blue
+    green = las_file.green
+    points = np.vstack((x, y, z)).T
+    colors = np.vstack((red, blue, green)).T
+    intensity = las_file.intensity
+    data = np.hstack([points,colors, np.arange(len(x))[:,np.newaxis]])
+    return data
+
+def convert_las(file_name, file_dir='', ext='las'):
+    import laspy
+    # file_name = 'EpiphytusTV4.pts'
+    # # file_dir = 'data/epip/inputs'
+    # # file_name = 'cleaned_ds10_epip.pcd'
+    file = f'{file_dir}/{file_name}' if file_dir != '' else file_name
+    las = laspy.read(file)
+    data = get_attrs_las(las)
+    breakpoint()
+
+    if ext == 'las':
+        return data
+
+    if ext == 'pcd':
+        pts = data[:, :3]
+        colors = data[:, 3:6]/65280
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        o3d.io.write_point_cloud(f'/{file_name.replace('.pts','.pcd')}', pcd)
+        return pcd
+    elif ext == 'npy':
+        np.save(f'/{file_name.replace('.pts','.npy')}', np.hstack([pts, colors]))
+    elif ext == 'npz':
+        np.savez(f'/{file_name.replace('.pts','.npz')}', points=pts, colors=colors)
+    else:
+        raise ValueError(f'Invalid extension {ext}')
+    breakpoint()s
+
 def np_to_o3d(npz_file):
     data = np.load(npz_file)
     pcd = o3d.geometry.PointCloud()
