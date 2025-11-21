@@ -20,6 +20,31 @@ from set_config import log, config
 
 from viz.viz_utils import color_continuous_map, draw
 
+# subsample data with voxel_size
+def voxelize_and_trace(data, voxel_size):
+    """
+    Voxelizes np.array data and preserves the non-point and color data if present
+    """
+    points = data[:, :3]
+    points = np.round(points, 2)
+    if data.shape[1] >= 4:
+        other = data[:, 3:]
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    bound = np.max(np.abs(points)) + 100
+    min_bound, max_bound = np.array([-bound, -bound, -bound]), np.array([bound, bound, bound])
+    downpcd, _, idx = pcd.voxel_down_sample_and_trace(voxel_size, min_bound, max_bound)
+
+    if data.shape[1] >= 4:
+        idx_keep = [item[0] for item in idx]
+        other = other[idx_keep]
+        data = np.hstack((np.asarray(downpcd.points), other))
+    else:
+        data = np.asarray(downpcd.points)
+    
+    return data, idx
+    
 def join_pcd_files(files_path, pattern = '*', 
                     voxel_size = None,
                     write_to_file = True):
