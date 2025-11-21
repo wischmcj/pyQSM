@@ -9,7 +9,7 @@ import scipy.cluster as spc
 from sklearn.metrics import silhouette_score
 # from sklearn.metrics import calinski_harabasz_score
 # from sklearn.metrics import davies_bouldin_score
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, KMeans
 import pyransac3d as pyrsc
 from matplotlib import pyplot as plt
 
@@ -156,6 +156,14 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
 #             min_pts=config['dbscan']["min_neighbors"],
 #         )
 #     return labels, returned_clusters
+
+def kmeans_feature(smoothed_feature, pcd= None):
+    kmeans = KMeans(n_clusters=2, random_state=0, n_init="auto").fit(smoothed_feature[:,np.newaxis])
+    unique_vals, counts = np.unique(kmeans.labels_, return_counts=True)
+    log.info(f'{unique_vals=} {counts=}')
+    cluster_idxs = [np.where(kmeans.labels_==val)[0] for val in unique_vals]
+    cluster_features = [smoothed_feature[idxs] for idxs in cluster_idxs]
+    return cluster_idxs, cluster_features
 
 def kmeans(points, min_clusters):
     """

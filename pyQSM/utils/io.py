@@ -62,6 +62,32 @@ def load(file, root_dir = data_root):
         ret = pickle.load(f)
     return ret
 
+def np_to_o3d(npz_file):
+    data = np.load(npz_file)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(data['points'])
+    log.info('warning: dividing colors by 255')
+    if 'colors' in data.files:
+        pcd.colors = o3d.utility.Vector3dVector(data['colors']/255)
+    return pcd
+
+def to_o3d(coords=None, colors=None, labels=None, las=None):
+    if las is not None:
+        las = np.asarray(las)
+        coords = las[:, :3]
+        if las.shape[1]>3:
+            labels = las[:, 3]
+        if las.shape[1]>4:
+            colors = las[:, 4:7]       
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(coords)
+    if colors is not None:
+        pcd.colors = o3d.utility.Vector3dVector(np.asarray(colors))
+    elif labels is not None:
+        pcd, _ = color_continuous_map(pcd,labels)
+    # labels = labels.astype(np.int32)
+    return pcd
+
 def create_table(
                 results:list[dict] | list[tuple[str,dict[str,dict]]] | dict[str,dict[str,dict]]
                  ,cols=None,sub_cols=None,ids=None):
