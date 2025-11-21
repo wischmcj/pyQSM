@@ -5,10 +5,12 @@ from itertools import product
 import multiprocessing
 import re
 import time
+from typing import Any
 from joblib import Parallel, delayed
 
+
 from tree_isolation import extend_seed_clusters, pcds_from_extend_seed_file
-from utils.io import save
+from utils.io import np_to_o3d, save
             
 import open3d as o3d
 import numpy as np
@@ -16,7 +18,6 @@ from numpy import asarray as arr
 import pyvista as pv
 import pc_skeletor as pcs
 
-import tensorflow as tf
 from open3d.visualization.tensorboard_plugin import summary
 # Utility function to convert Open3D geometry to a dictionary format
 from open3d.visualization.tensorboard_plugin.util import to_dict_batch
@@ -28,33 +29,29 @@ from math_utils.fit import cluster_DBSCAN
 from matplotlib import pyplot as plt
 from glob import glob
 import os
-from open3d.io import read_point_cloud as read_pcd
 from scipy import spatial as sps
 
 from set_config import config, log
 from geometry.general import center_and_rotate
 from geometry.reconstruction import get_neighbors_kdtree
-from geometry.skeletonize import extract_skeleton, extract_topology
+from geometry.skeletonize import extract_skeleton
 from geometry.point_cloud_processing import (
-    clean_cloud,
-    get_ball_mesh,
-    join_pcds,
     join_pcd_files
 )
-from utils.lib_integration import get_pairs
-from utils.io import load, load_line_set,save_line_set, create_table
+from utils.io import load
 from viz.ray_casting import project_pcd
 from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
 from viz.plotting import plot_3d, histogram
 from viz.color import (
-    remove_color_pts, 
-    get_green_surfaces,
     split_on_percentile,
     segment_hues,
     saturate_colors
 )
+from utils.lib_integration import convert_las
 from geometry.surf_recon import meshfix
 from sklearn.cluster import KMeans
+from geometry.point_cloud_processing import cluster_plus
+from cluster_joining import user_cluster
 
 def list_if(x):
     if isinstance(x,list):
@@ -71,112 +68,6 @@ color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]
                'red_yellow' : lambda tup:  tup[0]<=2/9 and tup[2]>.3}
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 
-# subsample data with voxel_size
-def voxelize(data, voxel_size):
-    points = data[:, :3]
-    points = np.round(points, 2)
-    if data.shape[1] >= 4:
-        other = data[:, 3:]
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    bound = np.max(np.abs(points)) + 100
-    min_bound, max_bound = np.array([-bound, -bound, -bound]), np.array([bound, bound, bound])
-    downpcd, _, idx = pcd.voxel_down_sample_and_trace(voxel_size, min_bound, max_bound)
-
-    if data.shape[1] >= 4:
-        idx_keep = [item[0] for item in idx]
-        other = other[idx_keep]
-        data = np.hstack((np.asarray(downpcd.points), other))
-    else:
-        data = np.asarray(downpcd.points)
-    
-    return data, idx
-
-def to_o3d(coords=None, colors=None, labels=None, las=None):
-    if las is not None:
-        las = np.asarray(las)
-        coords = las[:, :3]
-        if las.shape[1]>3:
-            labels = las[:, 3]
-        if las.shape[1]>4:
-            colors = las[:, 4:7]       
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(coords)
-    if colors is not None:
-        pcd.colors = o3d.utility.Vector3dVector(np.asarray(colors))
-    elif labels is not None:
-        pcd, _ = color_continuous_map(pcd,labels)
-    # labels = labels.astype(np.int32)
-    return pcd
-
-def kmeans_feature(smoothed_feature, pcd= None):
-    kmeans = KMeans(n_clusters=2, random_state=0, n_init="auto").fit(smoothed_feature[:,np.newaxis])
-    unique_vals, counts = np.unique(kmeans.labels_, return_counts=True)
-    log.info(f'{unique_vals=} {counts=}')
-    cluster_idxs = [np.where(kmeans.labels_==val)[0] for val in unique_vals]
-    cluster_features = [smoothed_feature[idxs] for idxs in cluster_idxs]
-    if pcd is not None:
-        for idxs in cluster_idxs: draw(pcd.select_by_index(idxs))
-    for feats in cluster_features: histogram(feats)
-    return cluster_idxs, cluster_features
-
-
-def propogate_shift(pcd,clean_pcd, cvar):
-    """
-        extrapolating point shift to the more detailed pcd
-    """
-    highc_idxs = np.where(cvar>np.percentile(cvar,40))[0]
-    highc = clean_pcd.select_by_index(highc_idxs)
-    cvar_high = cvar[highc_idxs]
-    _, nbrs = get_neighbors_kdtree(highc,pcd, k=50, return_pcd=False)
-    nbrs = [[x for x in nbr_list if x<len(cvar_high)] for nbr_list in nbrs]
-    proped_cvar = np.zeros(len(nbrs))
-    for idnl, nbr_list in enumerate(nbrs): 
-        if len(nbr_list)>0: 
-            proped_cvar[idnl] = np.mean(arr(cvar_high[nbr_list]))
-    # proped_c_mag = [np.mean(arr(cvar_high[nbr_list])) for nbr_list in nbrs]
-    # color_continuous_map(pcd,arr(proped_c_mag))
-    # draw(pcd)
-    np.mean(arr(proped_cvar)[np.where(arr(proped_cvar)>0)[0]])
-    highc_proped_idxs = np.where(arr(proped_cvar)>0)[0]
-    test = pcd.select_by_index(highc_proped_idxs, invert = True)
-    draw(test)
-    return proped_cvar
-    
-def draw_shift(pcd,
-                seed,
-                shift,
-                down_sample=False,draw_results=False, save_gif=False, out_path = None,
-                on_frames=25, off_frames=25, addnl_frame_duration=.01, point_size=5,
-                pctile_cutoff = 70):
-    out_path = out_path or f'data/results/gif/'
-    clean_pcd = pcd
-    if down_sample: clean_pcd = get_downsample(pcd=clean_pcd, normalize=False)
-    c_mag = np.array([np.linalg.norm(x) for x in shift])
-    highc_idxs, highc,lowc = split_on_percentile(clean_pcd,c_mag,pctile_cutoff, color_on_percentile=True)
-    # center_and_rotate(lowc)
-    # center_and_rotate(highc)
-
-    log.info('preping contraction/coloring')
-    if draw_results:
-        log.info('giffing')
-        lowc.rotate(rot_90_x,center =  clean_pcd.get_center())
-        lowc.rotate(rot_90_x,center =  clean_pcd.get_center())
-        lowc.rotate(rot_90_x,center =  clean_pcd.get_center())
-        highc.rotate(rot_90_x,center = clean_pcd.get_center())
-        highc.rotate(rot_90_x,center = clean_pcd.get_center())
-        highc.rotate(rot_90_x,center = clean_pcd.get_center())
-        gif_kwargs = {'on_frames': on_frames, 'off_frames': off_frames, 
-                        'addnl_frame_duration':addnl_frame_duration, 'point_size':point_size,
-                        'save':save_gif, 'out_path':out_path, 'rot_center':clean_pcd.get_center(),
-                         'sub_dir':f'{seed}_draw_shift' }
-        rotating_compare_gif(highc,constant_pcd_in=lowc,**gif_kwargs)
-    return highc,lowc,highc_idxs
-
-    # # nowhite_custom =remove_color_pts(pcd, lambda x: sum(x)>2.3,invert=True)
-    # draw(highc_detail
-
 def get_shift(file_content,
               initial_shift = True, contraction=1, attraction=.6, iters=1, 
               debug=False, vox=None, ds=None, use_scs = True):
@@ -191,15 +82,9 @@ def get_shift(file_content,
     file_base = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/shifts/{seed}_'
     # skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
     log.info(f'getting shift for {seed}')
-    # if initial_shift:
-    #     cmag = np.array([np.linalg.norm(x) for x in shift_one])
-    #     highc_idxs = np.where(cmag>np.percentile(cmag,70))[0]
-    #     test = clean_pcd.select_by_index(highc_idxs, invert=True)
-    # else:
-    #     test = clean_pcd
-    # if vox: test = test.voxel_down_sample(voxel_size=vox)
-    # if ds: test = test.uniform_down_sample(ds)
-    # if not use_scs:
+    if shift_one is None:
+        log.warning(f'no shift found for {seed}')
+        return None
     skel_res = extract_skeleton(clean_pcd, max_iter = iters, debug=False, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
     # else:
     #     try:
@@ -236,7 +121,7 @@ def get_shift(file_content,
     # return lbc, topo
 
 def contract(in_pcd,shift, invert=False):
-    "Translates the points in the "
+    "Translates the points by the magnitude and direction indicated by the shift vector"
     pts=arr(in_pcd.points)
     if not invert:
         shifted=[(pt[0]-shift[0],pt[1]-shift[1],pt[2]-shift[2]) for pt, shift in zip(pts,shift)]
@@ -247,14 +132,31 @@ def contract(in_pcd,shift, invert=False):
     contracted.points = o3d.utility.Vector3dVector(shifted)
     return contracted
 
-def get_downsample(file = None, pcd = None, normalize = False):
+def get_downsample(file = None, pcd = None):
     if file: pcd = read_pcd(file)
     log.info('Down sampling pcd')
     voxed_down = pcd.voxel_down_sample(voxel_size=.05)
     clean_pcd = voxed_down.uniform_down_sample(3)
-    # clean_pcd = remove_color_pts(uni_down,invert = True)
-    if normalize: _ = center_and_rotate(clean_pcd)
     return clean_pcd
+
+def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
+    # # get neighbors of comp_pcd in the extracted feat pcd
+    dists, nbrs = get_neighbors_kdtree(nbr_pcd, orig_pcd, return_pcd=False)
+
+    full_detail_feats = defaultdict(list)
+    full_detail_feats['points'] = orig_pcd.points
+    # For each list of neighbors, get the average value of each feature in all_data and add it to full_detail_feats
+    feat_names = [k for k in nbr_data.keys() if k not in ['points','colors', 'labels']]
+    final_data =[]
+    nbrs = [np.array([x for x in nbr_list  if x< len(orig_pcd.points)]) for nbr_list in nbrs]
+    nbrs = [nbr_list if len(nbr_list) > 0 else np.array([0]) for nbr_list in nbrs]
+    for nbr_list in tqdm(nbrs):
+        nbr_vals = np.array([np.mean(nbr_data[feat_name][nbr_list]) for feat_name in feat_names])
+        final_data.append(nbr_vals)
+    final_data = np.array(final_data)
+    full_detail_feats['features'] = final_data
+    return full_detail_feats
+    # breakpoint()    
 
 def smooth_feature( points, values, query_pts=None,
                     n_nbrs = 25,
@@ -292,7 +194,7 @@ def segment_feature(file_content,
     #         smoothed_features = {feature_name: smoothed_data[feature_name]}
     #     except Exception as e:
     #         log.error(f'error loading smoothed data: {e}')
-    #         breakpoint()
+    #         # breakpoint()
     #         smoothed_data = None
     # else:
     # if 1==1:
@@ -303,7 +205,7 @@ def segment_feature(file_content,
     # for feat in feats.keys():
     #     if feat not in ['intensity', 'color', 'points']:
     #         smoothed_features[feat] = smooth_feature(feat_points, feats[feat], query_pts=points)
-    #                 breakpoint()
+    #                 # breakpoint()
     #     else:        
     #         smoothed_features = {feature_name: smooth_feature(points, feature, query_pts=points)}
     #     np.savez_compressed(smoothed_data_file, **smoothed_features)
@@ -330,13 +232,12 @@ def segment_feature(file_content,
     #         filtered_feature = smoothed_feat[non_filter_idxs]
     #         histogram(filtered_feature, feature_name)
     #     except Exception as e:
-    #         breakpoint()
+    #         # breakpoint()
     #         log.info(f'error saving smoothed data: {e}')
 
-        # breakpoint()
+        # # breakpoint()
 
     # return smoothed_features
-
         
 def project_in_slices(pcd,seed, name='', off_screen = True):
     points=arr(pcd.points)
@@ -372,25 +273,22 @@ def cluster_color(pcd,labels):
     pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
     return pcd, orig_colors
 
-def crop_with_box():
-    bb = new_pcd.get_oriented_bounding_box()
-    bb.center=arr([122,395,1.4])
-    bb.extent=arr([14, 8, 0.2])
-    new_pt_ids = bb.get_point_indices_within_bounding_box( o3d.utility.Vector3dVector(arr(new_pcd.points)))
-    new_pcd = new_pcd.select_by_index(new_pt_ids)
+def crop_with_box(pcd, center=None, extent=None):
+    bb = pcd.get_oriented_bounding_box()
+    print(bb)
+    if center is not None:
+        bb.center=center
+    if extent is not None:
+        bb.extent=extent
+    print(bb)
+    new_pt_ids = bb.get_point_indices_within_bounding_box( o3d.utility.Vector3dVector(arr(pcd.points)))
+    new_pcd = pcd.select_by_index(new_pt_ids)
+    draw([new_pcd])
+    return new_pcd
 
 def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, axis=2):
     """
     Calculate the width of a point cloud at a given height above ground.
-
-    Args:
-        pcd: open3d.geometry.PointCloud, assumed z is vertical (axis=2)
-        height: float, target height above ground in meters
-        tolerance: float, +/- range around 'height' for points to use (thickness of slice)
-        axis: int, axis index for vertical (default is 2 for z)
-
-    Returns:
-        width: float, max distance in x/y-plane (other two axes) between points in slice.
     """
     log.info('identifying epiphytes')
     # user_input = 65
@@ -398,6 +296,7 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
     seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
     
     import numpy as np
+    height = 2.8
     # Get a 'slice' of the pointcloud at the given height
     pts = np.asarray(clean_pcd.points)
     # Find ground level (minimum in z/axis)
@@ -408,17 +307,8 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
     z_max = ground + height + tolerance
     # Get indices of points within slice
     idx = np.where((pts[:, axis] >= z_min) & (pts[:, axis] <= z_max))[0]
-    if len(idx) < 2:
-        return 0.0  # Not enough points to define width
     slice_pts = pts[idx]
-    # Project to the x/y-plane for width calculation
-    if axis == 2:
-        plane_pts = slice_pts[:, :2]
-    else:
-        # e.g., axis=1 means drop y, use x and z
-        axes = [i for i in range(3) if i != axis]
-        plane_pts = slice_pts[:, axes]
-    
+    plane_pts = slice_pts[:, :2]
     # Viz. the slice against the original pointcloud
     new_pcd = clean_pcd.select_by_index(idx)
     _, ind = new_pcd.remove_statistical_outlier(nb_neighbors=15, std_ratio=.95)
@@ -426,15 +316,18 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
 
     vis = o3d.visualization.Visualizer()
     vis.create_window()
-    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+    coord_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
     center = new_pcd.get_center()
-    axis.translate(center, relative=False)
-    vis.add_geometry(axis)
+    coord_axis.translate(center, relative=False)
+    vis.add_geometry(coord_axis)
     vis.add_geometry(clean_pcd)
     vis.add_geometry(new_pcd)
     vis.run()
     vis.destroy_window()
     draw([new_pcd]) 
+
+    # crop_pcd = crop_with_box(new_pcd,center=np.array([89.47, 347.5, 2.17695]),extent = np.array([1.300391, 1.7, 1.18837]))
+    breakpoint()
 
     # Collect metrics to inform choice of width
     bounds = new_pcd.get_max_bound() - new_pcd.get_min_bound()
@@ -460,47 +353,8 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
         width = float(user_input)
     return {'seed':seed, 'width':width, 'bounds':bounds}
 
-
-test = [{'seed':'skio_112_tl_0', 'width': '0.698', 'bounds': np.array([0.698, 0.621, 0.   , 1.103, 0.743])}, \
-{'seed':'skio_116_tl_493', 'width': '0.621', 'bounds': np.array([0.621, 0.531, 0.17 , 1.103, 0.743])}, \
-{'seed':'skio_137_tl_34', 'width': '1.103', 'bounds': np.array([1.02157047, 1.8493    , 0.1911    ])}, \
-{'seed':'skio_108_tl_0', 'width': '0.743', 'bounds': np.array([0.6524477 , 0.72928627, 0.158     ])}, \
-{'seed': 'skio_114_tl_0', 'width': '0.481', 'bounds': np.array([0.42325   , 0.53070539, 0.16966039])}, \
-{'seed': 'skio_111_tl_0', 'width': '0.588', 'bounds': np.array([0.706  , 0.45875, 0.182  ])}, \
-{'seed': 'skio_189_tl_236', 'width': '1.268', 'bounds': np.array([1.02157047, 1.8493    , 0.1911    ])}, \
-{'seed': 'skio_0_tl_223', 'width': '1.116', 'bounds': np.array([1.35583333, 0.86      , 0.16698718])}, \
-{'seed': 'skio_0_tl_69', 'width': '0.695', 'bounds': np.array([0.6524477 , 0.72928627, 0.158     ])}, \
-{'seed': 'skio_191_tl_236', 'width': '1.406', 'bounds': np.array([1.02157047, 1.8493    , 0.1911    ])}, \
-{'seed': 'skio_107_tl_0', 'width': '0.701', 'bounds': np.array([0.62389246, 0.71      , 0.18244444])},  \
-{'seed': 'skio_134_tl_0', 'width': '0.69', 'bounds': np.array([0.63188333, 0.72208108, 0.16166667])}, \
-{'seed': 'skio_0_tl_6', 'width': '0.940', 'bounds': np.array([1.115     , 0.82305952, 0.192     ])}, \
-{'seed': 'skio_0_tl_188', 'width': '0.753', 'bounds': np.array([0.8845    , 0.63366607, 0.179     ])}, \
-{'seed': 'skio_136_tl_9', 'width': '1.155', 'bounds': np.array([0.97840909, 1.58758846, 0.186     ])}, \
-{'seed': 'skio_112_tl_0', 'width': '0.697', 'bounds': np.array([0.62353623, 0.59716897, 0.1728474 ])}, \
-{'seed': 'skio_116_tl_493', 'width': '0.627', 'bounds': np.array([0.62732651, 0.61358025, 0.16866667])},  \
-{'seed': 'skio_0_tl_157', 'width': '.200', 'bounds': np.array([0.29091667, 0.4775    , 0.17116667])},  \
-{'seed': 'skio_0_tl_23', 'width': '0.859', 'bounds': np.array([0.75925   , 0.99261111, 0.1814    ])},  \
-{'seed': 'skio_137_tl_34', 'width': '1.37', 'bounds': np.array([1.3733    , 1.53746863, 0.18664286])},  \
-{'seed': 'skio_108_tl_0', 'width': '0.813', 'bounds': np.array([0.95068421, 0.64367083, 0.197     ])}, \
-{'seed': 'skio_0_tl_307', 'width': '0.585', 'bounds': np.array([0.55324138, 0.62558333, 0.18616667])}, \
-{'seed': 'skio_0_tl_246', 'width': '0.79', 'bounds': np.array([0.832 , 0.9095, 0.199 ])}, \
-{'seed': 'skio_135_tl_0', 'width': '1.51', 'bounds': np.array([1.51782222, 1.42825   , 0.17480952])}, \
-{'seed': 'skio_0_tl_490', 'width': '1.592', 'bounds': np.array([2.109875  , 1.63352174, 0.199     ])}
-# {'seed': '109', 'width': '1.027', 'bounds': array([1.32123491, 0.74951172, 0.19942859])},
-# {'seed': '68', 'width': '.759', 'bounds': array([0.72000122, 0.70999908, 0.16999984])},
-# {'seed': '190', 'width': '1.109', 'bounds': array([1.09286679, 1.20758184, 0.16613868])}]
-
-]
-### not for use 
-# {'seed': 'skio_33_tl_0', 'width': '0', 'bounds': np.array([2.246     , 3.49415461, 0.2       ])}, # has a bush against trunk
-# {'seed': 'skio_115_tl_0', 'width': '0', 'bounds': np.array([0.09126471, 0.22861176, 0.16081176])},
-# {'seed': 'skio_138_tl_0', 'width': '0', 'bounds': np.array([3.0225, 5.5895, 0.2   ])},
-# {'seed': 'skio_0_tl_15', 'width': '0', 'bounds': np.array([1.98865074, 0.89584848, 0.189     ])}, # half a tree
-# {'seed': 'skio_133_tl_68', 'width': '0', 'bounds': np.array([12.06221429,  3.83677778,  0.191     ])},   # three trees
-
 def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True):
     metrics={}
-    breakpoint()
     metrics['epis'] = project_in_slices(epis,seed, name='epis', off_screen=off_screen)
     metrics['leaves'] = project_in_slices(leaves,seed, name='leaves', off_screen=off_screen)
     metrics['wood'] = project_in_slices(wood,seed, name='wood', off_screen=off_screen)
@@ -523,45 +377,62 @@ def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name=
         pickle.dump(fin_metrics, f)
     log.info(f'{seed}, {fin_metrics=}')
 
+def project_components_in_clusters(src_pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True):
+    metrics=defaultdict(dict)
+
+    for case in [
+                #(epis, 'epi_clusters'), (leaves, 'leaf_clusters'), 
+                (wood, 'wood_clusters')]:
+        pcd, case_name = case
+        print(f'clustering {case_name}')
+        label_to_cluster, eps, min_points = user_cluster(pcd, return_pcds=True)
+        # labels =  np.array( pcd.cluster_dbscan(eps=0.5, min_points=100,print_progress=True))
+        # unique_labels = np.unique(labels)
+        # label_to_cluster = {ulabel: pcd.select_by_index(np.where(labels == ulabel)[0]) for ulabel in unique_labels}
+        print('got clusters')
+        total_area = 0
+        for cluster_idx, cluster_pcd in label_to_cluster.items():
+            print(f'projecting cluster {cluster_idx}')
+            mesh = project_pcd(pts=np.array(cluster_pcd.points), alpha=.2, plot=False, seed=seed, name=case_name, sub_name=f'{cluster_idx}', off_screen=True)
+            # geo = mesh.extract_geometry()
+            metrics[case_name][f'{cluster_idx}'] ={'mesh_area': mesh.area }
+            total_area += mesh.area
+        print(f'summing cluster areas for {case_name}')
+        metrics[case_name] = total_area
+        print(f'{case_name} total area: {total_area}')
+    
+
+    import pickle
+    with open(f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas_clusters/all_metrics_split5.pkl', 'wb') as f: 
+        pickle.dump(metrics, f)
+    log.info(f'{seed}, {metrics=}')
+    return {seed: metrics}
+
 def identify_epiphytes(file_content, save_gif=False, out_path = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/'):
     log.info('identifying epiphytes')
     # user_input = 65
     # while user_input is not None:
     seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
     assert shift_one is not None # No shifts for this seed; Ensure you pass get_shifts=True to read_pcds_and_feats
-    run_name = f'{seed}_id_epi_'
-    epi_file_dir = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/ext_detail/epis/'
-    epi_file_name = f'seed{seed}_epis.pcd'
-    # draw([pcd])
-    # breakpoint()
+    
     orig_colors = deepcopy(arr(clean_pcd.colors))
-    # try:
-    # highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
-    # except Exception as e:
-    #     log.info(f'error drawingskio_0_tl_69 shift for {seed}: {e}')
-    #     breakpoint()
-    #     log.info(f'error drawing shift for {seed}: {e}')
-    highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif, pctile_cutoff=65)
+    c_mag = np.array([np.linalg.norm(x) for x in shift_one])
+    
+    highc_idxs, highc,lowc = split_on_percentile(clean_pcd,c_mag,65, color_on_percentile=True)
     clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
     lowc = clean_pcd.select_by_index(highc_idxs, invert=True)
     highc = clean_pcd.select_by_index(highc_idxs, invert=False)
 
-    draw([clean_pcd])
-    draw([highc])
-    draw([lowc])
+    # draw([clean_pcd])
+    # draw([highc])
+    # draw([lowc])
     high_shift = shift_one[highc_idxs]
     z_mag = np.array([x[2] for x in high_shift])
     leaves_idxs, leaves, epis = split_on_percentile(highc,z_mag,60, color_on_percentile=True)
     epis_colored  = highc.select_by_index(leaves_idxs, invert=True)
-    draw([lowc, leaves,epis])
-    draw([epis])
-    # user_input=None
-    # user_input = input("Try new percentile? (number): ").strip().lower()
-    # if user_input.isdigit():
-    #     user_input = int(user_input)
-    # else:
-    #     user_input = None
-    project_components_in_slices(pcd, clean_pcd, epis, leaves, lowc, seed)
+    # draw([lowc, leaves,epis])
+    # draw([epis])
+    project_components_in_clusters(pcd, clean_pcd, epis, leaves, lowc, seed)
 
     # id_mesh =False
     # if id_mesh:
@@ -582,90 +453,20 @@ def identify_epiphytes(file_content, save_gif=False, out_path = '/media/penguama
     #         pcd.orient_normals_consistent_tangent_plane(100)
     #         bmesh = get_ball_mesh(pcd,radii= [.15,.2,.25])
     #         draw([bmesh])
-    #         breakpoint()
+    #         # breakpoint()
     #         new_mesh = tmesh + bmesh
     #         fmesh = meshfix(new_mesh) 
     #         mesh_file_dir = f'{out_path}/ray_casting/epi_mesh/'
     #         o3d.io.write_triangle_mesh(f'{mesh_file_dir}/{seed}_epis_mesh.ply', new_mesh)
-    #         breakpoint()    
+    #         # breakpoint()    
 
-def identify_epiphytes_tb(file_content, save_gif=False, out_path = 'data/results/gif/'):
-    logdir = "/media/penguaman/backupSpace/lidar_sync/pyqsm/tensor_board/id_epi"
-    writer = tf.summary.create_file_writer(logdir)
-    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
-    assert shift_one is not None # No shifts for this seed; Ensure you pass get_shifts=True to read_pcds_and_feats
-    run_name = f'{seed}_id_epi_'
-
-    epi_file_dir = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/epis/'
-    epi_file_name = f'seed{seed}_epis.pcd'
-    step=0
-    try:
-        with writer.as_default():
-            log.info('Calculating/drawing contraction')
-            step+=1
-            summary.add_3d(run_name, to_dict_batch([clean_pcd]), step=step, logdir=logdir)
-            orig_colors = deepcopy(arr(clean_pcd.colors))
-            try:
-                highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
-            except Exception as e:
-                log.info(f'error drawing shift for {seed}: {e}')
-                breakpoint()
-                log.info(f'error drawing shift for {seed}: {e}')
-                
-            clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
-            lowc = clean_pcd.select_by_index(highc_idxs, invert=True)
-            highc = clean_pcd.select_by_index(highc_idxs, invert=False)
-            step+=1
-            summary.add_3d(run_name, to_dict_batch([lowc]), step=step, logdir=logdir)
-            step+=1
-            summary.add_3d(run_name, to_dict_batch([highc]), step=step, logdir=logdir)
-            draw([clean_pcd])
-            draw([highc])
-            draw([lowc])
-            breakpoint()
-            high_shift = shift_one[highc_idxs]
-            z_mag = np.array([x[2] for x in high_shift])
-            leaves_idxs, leaves, epis = split_on_percentile(highc,z_mag,60, color_on_percentile=True)
-            epis_colored  = highc.select_by_index(leaves_idxs, invert=True)
-            o3d.io.write_point_cloud(f'{epi_file_dir}/{epi_file_name}', epis_colored)
-            # epis_idxs, epis, leaves = split_on_percentile(highc,z_mag,60, comp=lambda x,y:x<y, color_on_percentile=True)
-            pcd_no_epi = join_pcds([highc,leaves])[0]
-            step+=1
-            summary.add_3d(run_name, to_dict_batch([epis]), step=step, logdir=logdir)
-            step+=1
-            summary.add_3d(run_name, to_dict_batch([epis_colored]), step=step, logdir=logdir)
-            step+=1
-            summary.add_3d(run_name, to_dict_batch([pcd_no_epi]), step=step, logdir=logdir)
-            breakpoint()
-            cvar = np.array([np.linalg.norm(x) for x in shift_one])
-            proped_cmag = propogate_shift(pcd,clean_pcd,cvar)
-            color_continuous_map(pcd,proped_cmag)
-            draw([pcd])
-            breakpoint()
-            log.info('Orienting, extracting hues')
-            # center_and_rotate(lowc) 
-            hue_pcds,no_hue_pcds =segment_hues(lowc,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
-            no_hue_pcds = [x for x in no_hue_pcds if x is not None]
-            target = no_hue_pcds[len(no_hue_pcds)-1]
-            # draw(target)
-            # epis_hue_pcds,epis_no_hue_pcds =segment_hues(epis,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
-            # epis_no_hue_pcds = [x for x in epis_no_hue_pcds if x is not None]
-            # stripped_epis = epis_no_hue_pcds[len(epis_no_hue_pcds)-1]
-
-            step+=1
-            # summary.add_3d('epis', to_dict_batch([stripped_epis]), step=step, logdir=logdir)
-            summary.add_3d('id_epi_low', to_dict_batch([target]), step=step, logdir=logdir)
-            # summary.add_3d('removed', to_dict_batch([hue_pcds[len(hue_pcds)-1]]), step=step, logdir=logdir)
-    except Exception as e:
-        log.info(f'error getting epiphytes for {seed}: {e}')
-    return []
 
 def get_files_by_seed(data_file_config, 
                         base_dir,
                         # key_pattern = re.compile('.*seed([0-9]{1,3}).*')
                         key_pattern = re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
                         ):
-    seed_to_files = defaultdict(dict)
+    seed_to_files = defaultdict[Any, dict](dict)
     for file_type, file_info in data_file_config.items():
         # Get all matchig files
         folder = f'{base_dir}/{file_info["folder"]}'
@@ -677,19 +478,13 @@ def get_files_by_seed(data_file_config,
             if file_key is None:
                 log.info(f'no seed found in seed_to_content: {file}. Ignoring file...')
                 continue
-            file_key = file_key.groups(1)[0]
+            if len(file_key.groups(1)) > 0:
+                file_key = file_key.groups(1)[0]
+            else:
+                file_key = file_key[0]
             seed_to_files[file_key][file_type] = f'{base_dir}/{file_info["folder"]}/{file}'
-    
     return seed_to_files
 
-def np_to_o3d(npz_file):
-    data = np.load(npz_file)
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(data['points'])
-    log.info('warning: dividing colors by 255')
-    if 'colors' in data.files:
-        pcd.colors = o3d.utility.Vector3dVector(data['colors']/255)
-    return pcd
 
 def np_feature(feature_name):
     def my_feature_func(npz_file):
@@ -697,16 +492,26 @@ def np_feature(feature_name):
         return npz_data[feature_name]
     return my_feature_func
 
+def read_and_downsample(file_path, **kwargs):
+    if file_path.endswith('.npz'):
+        pcd = np_to_o3d(file_path)
+    elif file_path.endswith('.las'):
+        pcd = convert_las(file_path)
+    else:
+        pcd = read_pcd(file_path, **kwargs)
+    clean_pcd = get_downsample(pcd=pcd, **kwargs)
+    return pcd, clean_pcd
+
 def get_data_from_config(seed_file_info, data_file_config):
     seed_to_content = defaultdict(dict)
     for file_type, file_path in seed_file_info.items():
         load_func = data_file_config[file_type]['load_func']
         load_kwargs = data_file_config[file_type].get('kwargs',{})
-        seed_to_content[file_type] = load_func(file_path, **load_kwargs)
+        if load_func == read_and_downsample:
+            seed_to_content[file_type], seed_to_content['clean_pcd'] = load_func(file_path, **load_kwargs)
+        else:
+            seed_to_content[file_type] = load_func(file_path, **load_kwargs)
         seed_to_content[f'{file_type}_file'] = file_path
-        if file_type == 'src':
-            seed_to_content['clean_pcd'] = get_downsample(pcd=seed_to_content['src'],
-                                                          **load_kwargs)
     return seed_to_content
 
 def loop_over_files(func,args = [], kwargs =[],
@@ -761,17 +566,21 @@ def loop_over_files(func,args = [], kwargs =[],
         results = Parallel(n_jobs=3)(delayed(func(content.update({'seed':seed}),*arg_tup,**kwarg_dict)) for (seed,content), (arg_tup, kwarg_dict) in to_call)
     else: 
         for (seed, seed_file_info), (arg_tup, kwarg_dict) in to_run:
-            # try:
-            print(f'getting data for {seed}')
-            content = get_data_from_config(seed_file_info, data_file_config)
-            content['seed'] = seed
-            print(f'running function for {seed} done')
-            result = func(content,*arg_tup,**kwarg_dict)
-            results.append(result)
-            # except Exception as e:
-            #     log.info(f'error {e} when processing seed {seed}')
-            #     errors.append(seed)
+            try:
+                print(f'{seed=}')
+                content = get_data_from_config(seed_file_info, data_file_config)
+                content['seed'] = seed
+                print(f'running function for {seed} done')
+                result = func(content,*arg_tup,**kwarg_dict)
+                results.append(result)
+            except Exception as e:
+                breakpoint()
+                log.info(f'error {e} when processing seed {seed}')
+                errors.append(seed)
     print(f'{errors=}')
+    print(f'{results=}')
+
+
     # results = Parallel(n_jobs=3)(delayed(extract_skeleton(pcd, max_iter = 1, debug=False, cmag_save_file=f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/shifts/{seed}_', contraction_factor=1, attraction_factor=.6))(seed,pcd) for seed,pcd in to_run)
     
     
@@ -794,93 +603,8 @@ def loop_over_files(func,args = [], kwargs =[],
         #     log.info(f'error {e} when processing seed {seed}')
         #     continue
 
-    log.info(results)
-    breakpoint()
-    myTable = create_table(results)
-    log.info(myTable)
-    breakpoint()    
-    log.info('dont finish yet')
-    return results
+    log.info('loop over files done')
 
-def get_and_label_neighbors(comp_pcd, base_dir, nbr_label, non_nbr_label = 'wood'):
-
-    # comp_kd_tree = sps.KDTree(arr(comp_pcd.points))
-
-    glob_pattern = f'{base_dir}/inputs/skio_parts/*'
-    files = glob(glob_pattern)
-    logdir = "/media/penguaman/backupSpace/lidar_sync/pyqsm/tensor_board/get_epi_details"
-    #Tensor Board prep
-    names_to_labels  = {'unknown':0,f'orig_{nbr_label}':1, f'found_{nbr_label}':2, non_nbr_label:3}
-    writer = tf.summary.create_file_writer(logdir)
-    comp_points = np.array(comp_pcd.points)
-    comp_labels = [names_to_labels[f'orig_{nbr_label}']]*len(comp_pcd.points) 
-    combined_summary = {'vertex_positions':np.vstack(comp_points,np.array(pcd.points)), 
-                        }
-
-    def update_tb(case_name, summary, pcd_labels, step):
-        if step >0: 
-            summary['vertex_positions'] = 0
-            summary['vertex_scores'] = 0
-            summary['vertex_features'] = 0
-        summary['vertex_labels'] = np.vstack(comp_labels,pcd_labels)            
-        summary.add_3d(case_name, summary, step=step, logdir=logdir)
-        step = step + 1
-    
-    epi_ids = defaultdict(list)
-    finished = []
-    # finished = ['660000000.pcd','400000000.pcd','800000000.pcd','560000000.pcd']
-    files = [file for file in files if not any(file_name in file for file_name in finished)]
-    with writer.as_default(): 
-        for file in files:
-            #  = {'vertex_positions': np.array(comp_pcd.points), 'vertex_labels': np.zeros(len(comp_pcd.points)), 'vertex_scores': np.zeros((len(comp_pcd.points), 3)), 'vertex_features': np.zeros((len(comp_pcd.points), 3))}
-            # summary.add_3d('get_epi_details', summary_dict, step=step, logdir=logdir)
-            try:
-                #identify neighbors
-                file_name = file.split('/')[-1].replace('.pcd','')
-                case_name = f'{file_name}_get_{nbr_label}_details'
-                pcd = read_pcd(file)
-                log.info(f'getting neighbors for {file_name}')
-                nbrs_pcd, nbrs, chained_nbrs = get_neighbors_kdtree(pcd, comp_pcd, return_pcd=True)
-                if nbrs_pcd is None:
-                    log.info(f'no nbrs found for {file_name}')
-                    epi_ids[file_name] = []
-                    continue
-                uniques = np.unique(chained_nbrs)
-                o3d.io.write_point_cloud(f'{base_dir}/detail/{file_name}_nbrs.pcd', nbrs_pcd)
-                non_matched = pcd.select_by_index(uniques, invert=True)
-                o3d.io.write_point_cloud(f'{base_dir}/not_epis/{file_name}_non_matched.pcd', non_matched)
-
-                # Add run to Tensor Board (done at the end in case there are no neighbors)
-                ## Initial
-                step=0
-                vertices = np.vstack(comp_points,np.array(pcd.points))
-                combined_summary['vertex_positions'] = vertices
-                combined_summary['vertex_scores'] = np.zeros_like(vertices)
-                combined_summary['vertex_features'] = np.zeros_like(vertices)
-
-                pcd_labels = np.zeros(len(pcd.points))
-                pcd_labels = np.vstack(comp_labels,pcd_labels)
-                update_tb(case_name, combined_summary, pcd_labels, step)
-                log.info(f'{step=}')
-            
-                # Add labels for epiphytes
-                pcd_labels[uniques] = names_to_labels[f'found_{nbr_label}']
-                update_tb(case_name, combined_summary, pcd_labels, step)
-                log.info(f'{step=}')
-
-                # Update labels for 'wood' (e.g. whatever is left over)
-                pcd_labels = np.full_like(pcd_labels, names_to_labels[non_nbr_label])
-                pcd_labels[uniques] = names_to_labels[f'found_{nbr_label}']
-                update_tb(case_name, combined_summary, pcd_labels, step)
-                log.info(f'{step=}')
-
-                # Save epiphyte nbrs for future use 
-                epi_ids[file_name] = uniques
-            except Exception as e:
-                log.info(f'error {e} when getting neighbors in tile {file_name}')
-
-    np.savez_compressed(f'{base_dir}/epis/epis_ids_by_tile.npz', **epi_ids)
-    breakpoint()
 
 def get_features(file, step_through=True):#comp_pcd, base_dir, comp_file_name = ''):
     all_nbrs= {}
@@ -912,8 +636,10 @@ def overlap_voxel_grid(src_pts, comp_voxel_grid = None, source_pcd = None, inver
     log.info(f'{num_in_occupied_voxel} points in occupied voxels')
     if num_in_occupied_voxel == 0:
         return []
-    # if invert:
-    #     uniques = np.where(~in_occupied_voxel_mask)[0]
+    if invert:
+        not_in_occupied_voxel_mask = np.ones_like(in_occupied_voxel_mask, dtype=bool)
+        not_in_occupied_voxel_mask[in_occupied_voxel_mask] = False
+        uniques = np.where(not_in_occupied_voxel_mask)[0]
     # else:
     uniques = np.where(in_occupied_voxel_mask)[0]
 
@@ -925,13 +651,15 @@ def get_nbrs_voxel_grid(comp_pcd,
                         tile_pattern,
                         invert=False,
                         out_folder='detail',
+                        out_file_prefix='detail_feats',
                         ):
     log.info('creating voxel grid')
     comp_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(comp_pcd,voxel_size=0.1)
     log.info('voxel grid created')
     nbr_ids = defaultdict(list)
     all_data =  defaultdict(list)
-                        
+    
+    # dodraw = True
     files = glob(f'{tile_dir}/{tile_pattern}')
     pcd=None
     for file in files:
@@ -949,16 +677,31 @@ def get_nbrs_voxel_grid(comp_pcd,
             data_keys = data.files
             log.info(f'{data_keys=}')
 
-        nbr_dir = f'{tile_dir}/color_int_tree_nbrs/{file_name}'
-        # existing_nbrs = assemble_nbrs([nbr_dir])[nbr_dir]
-        # if len(existing_nbrs) > 0:
-        #     log.info(f'existing nbrs found: {len(existing_nbrs)}')
+        # if dodraw:
+        #     pcd = to_o3d(data['points'])
+        #     draw([pcd, comp_pcd])
 
+        # Determine if the boundaries of pcd and comp_pcd intersect at all
+        # Compute bounding boxes for both point clouds and check for intersection
+        pcd_min = np.min(data['points'], axis=0)
+        pcd_max = np.max(data['points'], axis=0)
+        comp_min = np.min(np.asarray(comp_pcd.points), axis=0)
+        comp_max = np.max(np.asarray(comp_pcd.points), axis=0)
+        # Intersection exists if, on all axes, the max of the lower bounds <= min of the upper bounds
+        intersect = np.all((pcd_max >= comp_min) & (comp_max >= pcd_min))
+        log.info(f'Bounding box intersection: {intersect}')
+        if not intersect:
+            log.info("Bounding boxes do not intersect, skipping file.")
+            continue
+        else:
+            log.info("Bounding boxes intersect, processing file.")
+    
+        nbr_dir = f'{tile_dir}/color_int_tree_nbrs/{file_name}'
         uniques = overlap_voxel_grid(data['points'], comp_voxel_grid, invert=invert)
 
         if not os.path.exists(nbr_dir):
             os.makedirs(nbr_dir)
-        np.savez_compressed(f'{nbr_dir}/detail_feats_{comp_file_name}.npz', nbrs=uniques)
+        np.savez_compressed(f'{nbr_dir}/{out_file_prefix}_{comp_file_name}.npz', nbrs=uniques)
         log.info('filtering data to neighbors') 
         # smooth_intensity = smooth_feature(src_pts, data['intensity'])
         # all_data['smooth_intensity'].append(smooth_intensity)
@@ -984,14 +727,15 @@ def get_nbrs_voxel_grid(comp_pcd,
     # cluster_idxs = [np.where(kmeans.labels_==val)[0] for val in unique_vals]
 
     np.savez_compressed(f'{out_folder}/{comp_file_name}.npz', **all_data)
-    # breakpoint()
+    # # breakpoint()
     # o3d.io.write_point_cloud(f'{base_dir}/int_color_data_{comp_file_name}.pcd', pcd)
-    # breakpoint()
+    # # breakpoint()
     return all_data
     # log.info('Calculating smoothed features and plotting')
     # get_smoothed_features(all_data, save_file = save_file, step_through=step_through, file_name=comp_file_name)
      
-def assemble_nbrs(requested_dirs:list[str]=[]):
+def assemble_nbrs(requested_dirs:list[str]=[],
+                    nbr_file_pattern='*.npz'):
     """
         Used to use nbr files from get_nbrs_voxel_grid to determine
            which points in the src pcd tiles files are not assigned to a tree
@@ -999,19 +743,66 @@ def assemble_nbrs(requested_dirs:list[str]=[]):
     if len(requested_dirs)>0:
         nbr_dirs = requested_dirs
     else:
-        nbr_dirs = glob('/media/penguaman/backupSpace/lidar_sync/tls_lidar/SKIO/color_int_tree_nbrs/*')
+        nbr_dirs = glob('/media/penguaman/backupSpace/lidar_sync/tls_lidar/SKIO/color_int_tree_nbrs/SKIO-RaffaiEtAlcolor_int*')
     nbr_lists = defaultdict(list)
+    log.info(f'{nbr_dirs=}')
     for nbr_dir in tqdm(nbr_dirs):
-        log.info(f'getting nbr files form {nbr_dir=}')
-        all_tree_nbrs = []
-        nbr_files = glob(f'{nbr_dir}/*.npz')
-        for nbr_file in nbr_files:
-            nbr_name = nbr_file.split('/')[-1].replace('.npz','')
-            nbrs = np.load(nbr_file)['nbrs']
-            all_tree_nbrs.extend(nbrs)
-        # nbr_lists[nbr_dir] = all_tree_nbrs
-        np.savez_compressed(f'{nbr_dir}_all_tree_nbrs.npz', nbrs=all_tree_nbrs)
+        if '.npz' not in nbr_dir:
+            # Construct existing file name
+            if nbr_dir[-1] == '/':
+                nbr_dir = nbr_dir[:-1]
+            existing_nbr_file = f'{nbr_dir}_all_tree_nbrs.npz'
+            all_tree_nbrs=[]
+            if os.path.exists(existing_nbr_file):
+                log.info(f'{existing_nbr_file=} already exists, loading it')
+                # all_tree_nbrs = list(np.load(f'{nbr_dir}_all_tree_nbrs.npz')['nbrs'])
+            log.info(f'{existing_nbr_file=}')
+
+            nbr_files_path = f'{nbr_dir}/{nbr_file_pattern}'
+            log.info(f'getting nbr files form {nbr_files_path=}')
+            nbr_files = glob(nbr_files_path)
+            log.info(f'{nbr_files=}')
+
+            for nbr_file in nbr_files:
+                print(f'processing nbr file {os.path.basename(nbr_file)}')
+                # nbrs = np.load(nbr_file)['nbrs']
+                # all_tree_nbrs.extend(nbrs)
+
+            save_file = f'{nbr_dir}_all_tree_nbrs_fin.npz'
+            log.info(f'saving all tree nbrs to {save_file}')
+            # np.savez_compressed(f'{nbr_dir}_all_tree_nbrs_fin.npz', nbrs=all_tree_nbrs)
     return nbr_lists
+
+def get_remaining_pcds():
+    from cluster_joining import user_cluster
+    nbr_files = glob('/media/penguaman/backupSpace/lidar_sync/tls_lidar/SKIO/color_int_tree_nbrs/SKIO-RaffaiEtAlcolor_int*_all_tree_nbrs_fin.npz')
+    for nbr_file in nbr_files:
+        nbr_name = nbr_file.split('/')[-1].replace('.npz','')
+        print(f'processing nbr file {nbr_name=}')
+        nbrs = np.load(nbr_file)['nbrs']
+        src_file = f'{nbr_file.replace('/color_int_tree_nbrs','').replace('_all_tree_nbrs_fin','')}'
+        src_data= np.load(src_file)
+
+        nbr_mask = np.ones_like(src_data['intensity'], dtype=bool)
+        nbr_mask[nbrs] = False
+        to_write = {}
+        for file_name in src_data.files:
+            to_write[file_name] = src_data[file_name][nbr_mask]
+        num_pts_remaining = len(to_write['points'])
+        print(f'{num_pts_remaining} points remaining')
+        # np.savez_compressed(f'{nbr_file.replace('_all_tree_nbrs_fin.npz','')}_remaining.npz', **to_write)
+        print(f'creating pcd')
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(to_write['points'][::10])
+        pcd.colors = o3d.utility.Vector3dVector(to_write['colors'][::10]/255)
+        labels, eps, min_points = user_cluster(pcd, src_pcd=None)
+        # src_pcd = o3d.geometry.PointCloud()
+        # src_pcd.points = o3d.utility.Vector3dVector(src_data['points'][::20])
+        # src_pcd.paint_uniform_color([1,0,0])
+        draw([pcd])
+        # o3d.io.write_point_cloud(f'{nbr_file.replace('_all_tree_nbrs_fin.npz','')}_remaining.pcd', pcd)
+        # 
+    return
 
 def script_for_extracting_epis_and_labeling_orig_detail():
 
@@ -1034,32 +825,13 @@ def script_for_extracting_epis_and_labeling_orig_detail():
 
     # Joining extracted epiphytes
     _ = join_pcd_files(f'{base_dir}/detail/', pattern = '*nbrs.pcd')
-    breakpoint()
+    # breakpoint()
 
     _ = join_pcd_files(f'{base_dir}/not_epis/',
                         pattern = '*non_matched.pcd',
                         voxel_size = .05,
                         write_to_file = False)
-    breakpoint()
-
-def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
-    # # get neighbors of comp_pcd in the extracted feat pcd
-    dists, nbrs = get_neighbors_kdtree(nbr_pcd, orig_pcd, return_pcd=False)
-
-    full_detail_feats = defaultdict(list)
-    full_detail_feats['points'] = orig_pcd.points
-    # For each list of neighbors, get the average value of each feature in all_data and add it to full_detail_feats
-    feat_names = [k for k in nbr_data.keys() if k not in ['points','colors', 'labels']]
-    final_data =[]
-    nbrs = [np.array([x for x in nbr_list  if x< len(orig_pcd.points)]) for nbr_list in nbrs]
-    nbrs = [nbr_list if len(nbr_list) > 0 else np.array([0]) for nbr_list in nbrs]
-    for nbr_list in tqdm(nbrs):
-        nbr_vals = np.array([np.mean(nbr_data[feat_name][nbr_list]) for feat_name in feat_names])
-        final_data.append(nbr_vals)
-    final_data = np.array(final_data)
-    full_detail_feats['features'] = final_data
-    return full_detail_feats
-    breakpoint()    
+    # breakpoint()
 
 def get_smoothed_features(all_data, 
                 plot_labels=['intensity', ''], 
@@ -1086,7 +858,7 @@ def get_smoothed_features(all_data,
 
     #     smoothed_datum = smoothed_data.get(datum_name, None)
     #     if smoothed_datum is None or smoothed_datum.shape[0] != len(points):
-    #         breakpoint()
+    #         # breakpoint()
     #         smoothed_datum = smooth_feature(points, datum, pcd=pcd)
     #         smoothed_data[datum_name] = smoothed_datum
 
@@ -1112,7 +884,7 @@ def get_smoothed_features(all_data,
             draw_view(new_detail_pcd, file_name)
             histogram(final_data, datum_name)
             np.sort(final_data)
-            breakpoint()
+            # breakpoint()
             from scipy.stats import mode
             datum_mode = mode(final_data)[0]
             idxs = np.where(np.logical_and(final_data != datum_mode, final_data >= -1750))[0]
@@ -1135,14 +907,13 @@ def get_smoothed_features(all_data,
     # if save_file is not None:
     #     np.savez_compressed(smoothed_data_file, **smoothed_data)
     # if step_through:
-    #     breakpoint()
+    #     # breakpoint()
     #     plot_labels = ['planarity', 'intensity', 'linearity']
     #     try:
     #         plot_3d([all_data[x] for x in plot_labels], plot_labels)
     #     except Exception as e:
     #         log.info(f'error {e} when plotting {plot_labels}')
     # # return idxs
-
 
 def compare_dirs(dir1, dir2, 
                 file_pat1 ='', file_pat2 ='',
@@ -1162,65 +933,201 @@ def compare_dirs(dir1, dir2,
 
     return in_one_not_two_files, in_one_not_two_keys
 
-if __name__ =="__main__":
-
-    base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining'
-    files = glob(f'{base_dir}/to_get_detail/*_joined_replaced.pcd')
-    # seed_pat = '.*seed([0-9]{1,3}).*'
-    seed_pat = '.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*'
-    # seed_pat = '([0-9]{1,3})_joined_2.*'
-    for file in files:
-        comp_file_name = re.match(re.compile(seed_pat),file).groups(1)[0]
-        # comp_file_name = f'skio_0_tl_{comp_file_name}'
-        log.info(f'processing {comp_file_name}')
-        tile_dir = '/media/penguaman/backupSpace/lidar_sync/tls_lidar/SKIO/'
-        tile_pattern = 'SKIO-RaffaiEtAlcolor_int_*.npz'
-        comp_pcd = read_pcd(file)
-        # comp_pcd = to_o3d(coords=np.load(file)['points'] + np.array([113.42908253, 369.58605156,   4.60074394]))
-        get_nbrs_voxel_grid(comp_pcd,
-                        comp_file_name,
-                        tile_dir = tile_dir,
-                        tile_pattern = tile_pattern,
-                        invert=False,
-                        out_folder= f'{base_dir}/detail')
-    breakpoint()
-    # assemble_nbrs()
+def crop_and_remove():
+    from open3d.visualization import draw_geometries_with_editing as edit
+    
+    # files = glob(f'*ep_bs*.ply')
+    # # pcds = [read_pcd(file) for file in files]
+    # out_pcd = o3d.geometry.PointCloud()
+    # for file in files:
+    #     pcd = read_pcd(file)
+    #     o3d.io.write_point_cloud(file.replace('.ply', '.pcd'), pcd)
     # breakpoint()
-    # # 246
+
+    # pcd =  read_pcd('/media/penguaman/backupSpace/lidar_sync/pyqsm/epip/ep_branch_mass_connector.ply') + read_pcd('ep_lower_trunk.ply')
+
+    # mask_pcd = read_pcd('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4_treeiso.pcd')
+    # mask_pcd.paint_uniform_color([1,0,0])
+    # mask_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(mask_pcd,voxel_size=1)
+    
+    files = glob('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4color_int_[0-9]_treeiso.npz')
+    all_points = []
+    all_colors = []
+    all_intensity = []
+    for file in files:
+        print(f'{file=}')
+        to_filter_data = np.load(file).append(to_filter_data['points'])
+        all_colors.append(to_filter_data['colors'])
+        all_intensity.append(to_filter_data['intensity'][:, np.newaxis])
+        
+        # queries = queries - np.array( [20.39992401, 148.73167031, -18.70106613])
+        
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(queries)
+
+        # in_occupied_voxel_mask= mask_voxel_grid.check_if_included(o3d.utility.Vector3dVector(queries))
+        # new_data = {file_name: to_filter_data[file_name][in_occupied_voxel_mask] for file_name in to_filter_data.files}
+        
+        # np.savez_compressed(file.replace('.npz', '_treeiso_mask.npz'), mask = in_occupied_voxel_mask)
+        # np.savez_compressed(file.replace('.npz', '_treeiso.npz'), **new_data)
+
+    all_points = np.vstack(all_points)
+    all_colors = np.vstack(all_colors)
+    all_intensity = np.vstack(all_intensity)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(all_points)
+    draw([pcd])
+    breakpoint()
+    new_data = { 'points': to_filter_data['points'], 'colors': to_filter_data['colors'], 'intensity': to_filter_data['intensity'] }
+    np.savez_compressed('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4color_int_treeiso.npz', **new_data)
+    breakpoint()
+    # comp_pcd = np_to_o3d('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4color_int_0.npz')
+    # comp_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(mask_pcd,voxel_size=1)
+    # queries = np.array(comp_pcd.points)
+    # in_occupied_voxel_mask= mask_voxel_grid.check_if_included(o3d.utility.Vector3dVector(queries))
+    # breakpoint()
+
+
+    # num_in_occupied_voxel = np.sum(in_occupied_voxel_mask)
+    # log.info(f'{num_in_occupied_voxel} points in occupied voxels')
+    # not_in_occupied_voxel_mask = np.ones_like(in_occupied_voxel_mask, dtype=bool)
+    # not_in_occupied_voxel_mask[in_occupied_voxel_mask] = False
+    # uniques = np.where(not_in_occupied_voxel_mask)[0]
+    # new_pcd = comp_pcd.select_by_index(uniques)
+    # draw(new_pcd)
+    # breakpoint()
+    # print('asdf')
+
+def kevin_holden():
+    base_dir = '/media/penguaman/data/kevin_holden/'
+    loop_over_files(
+                    get_shift,
+                    # requested_seeds=requested_seeds,
+                    parallel = False,
+                    base_dir=base_dir,
+                    data_file_config={ 
+                        'src': {
+                                'folder': 'orig/',
+                                'file_pattern': f'*.las',
+                                'load_func': read_and_downsample, 
+                            },
+                        # 'shift_one': {
+                        #         'folder': 'shifts',
+                        #         'file_pattern': 'skio_*_tl_*_shift.pkl',
+                        #         'load_func': lambda x, root_dir: load(x,root_dir)[0], 
+                        #         'kwargs': {'root_dir': '/'},
+                        #     },
+                    },
+                    seed_pat = re.compile('.*')
+                    )
+
+if __name__ =="__main__":
+    kevin_holden()
+    breakpoint()
+    crop_and_remove()
+    # files = glob('/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/to_get_detail/*tl_1_custom.npz')
+    # for idf, file in enumerate(files):
+    #     if idf>1:
+    #         pcd_data = np.load(file)
+    #         pcd = o3d.geometry.PointCloud()
+    #         pcd.points = o3d.utility.Vector3dVector(pcd_data['points'])
+    #         seed = re.match(re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*'), file).groups(1)[0]
+    #         print(f'{seed=}')
+    #         get_nbrs_voxel_grid(comp_pcd = pcd, 
+    #                         comp_file_name = seed,
+    #                         tile_dir = '/media/penguaman/backupSpace/lidar_sync/tls_lidar/SKIO/',
+    #                         tile_pattern = 'SKIO-RaffaiEtAlcolor_int_*.npz', invert=False,
+    #                         out_folder='/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/detail')
+    # breakpoint()
+    # file_content = defaultdict(list)
+    # file_content['seed'] = '33'
+    # file_content['clean_pcd'] =pcd
+    # # width_at_height(file_content, tolerance=.1)
+    # # breakpoint()
+    # # assemble_nbrs(nbr_file_pattern = 'detail_*')
+    # get_remaining_pcds()
+    # # breakpoint()
+    # skip_seeds = ['skio_114_tl_0','skio_0_tl_246','skio_0_tl_246','skio_138_tl_0','skio_138_tl_0','skio_0_tl_240','skio_0_tl_240','skio_134_tl_0','skio_134_tl_0','skio_0_tl_223','skio_0_tl_223','skio_115_tl_0','skio_115_tl_0','skio_0_tl_69','skio_0_tl_69','skio_112_tl_0','skio_112_tl_0','skio_111_tl_0','skio_111_tl_0','skio_107_tl_0','skio_107_tl_0','skio_0_tl_188','skio_0_tl_188','skio_135_tl_0','skio_135_tl_0','skio_116_tl_493','skio_33_tl_0','skio_33_tl_0','skio_0_tl_490  ','skio_0_tl_490  ','skio_0_tl_15   ','skio_0_tl_15   ','skio_108_tl_0  ','skio_108_tl_0  ','skio_136_tl_9  ','skio_136_tl_9  ','skio_0_tl_6    ','skio_0_tl_6    ','skio_133_tl_68 ','skio_133_tl_68 ','skio_137_tl_34 ','skio_190_tl_220','skio_190_tl_220','skio_189_tl_236','skio_191_tl_236','skio_191_tl_236','skio_116_tl_493','skio_137_tl_34','skio_189_tl_236', 'skio_0_tl_306','skio_0_tl_157', 'skio_0_tl_377','skio_0_tl_49',
+    #                 'skio_0_tl_167', 'skio_0_tl_158', 'skio_0_tl_23', 
+    #                 'skio_0_tl_14', 'skio_0_tl_191', 'skio_0_tl_154', 'skio_0_tl_512',
+    # #                 # The below may be worth rerunning shift calc without vox
+    #                 'skio_33_tl_0',
+    #                 'skio_107_tl_0',
+    #                 'skio_108_tl_0',
+    #                 'skio_111_tl_0',
+    #                 'skio_112_tl_0',
+    #                 'skio_114_tl_0',
+    #                 'skio_116_tl_493',
+    #                 'skio_133_tl_68',
+    #                 'skio_134_tl_0',
+    #                 'skio_135_tl_0',
+    #                 'skio_136_tl_9',
+    #                 'skio_137_tl_34',
+    #                 'skio_189_tl_236',
+    #                 'skio_190_tl_220',
+    #                 'skio_191_tl_236',
+    #                 'skio_0_tl_15',
+    #                 'skio_0_tl_188',
+    #                 'skio_0_tl_223',
+    #                 'skio_0_tl_240',
+    #                 'skio_0_tl_246',
+    #                 'skio_0_tl_490',
+    #                 'skio_0_tl_6',
+    #                 'skio_0_tl_69',
+    #                 ]
+                     
+    requested_seeds = [
+        #'skio_133_tl_1',
+                        'skio_193_tl_241'
+                        ]
+                    
     # base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/'
     # remaining_files, remaining_keys = compare_dirs(base_dir + 'detail/', base_dir + 'shifts/',
     #                             file_pat1 = 'skio_*_tl_*.npz', file_pat2 = 'skio_*_tl_*_shift.pkl',
     #                             key_pat1 = '(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*', key_pat2 = '(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
     # remaining_keys = list(set(remaining_keys) - set(skip_seeds))
     # print(f'{remaining_keys=}')
-    base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/'
+    base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining'
     ######## 138, 193 partial trees
+    # loop_over_files(
+    #                 get_shift,
+    #                 requested_seeds=requested_seeds,
+    #                 parallel = False,
+    #                 base_dir=base_dir,
+    #                 data_file_config={ 
+    #                     'src': {
+    #                             'folder': 'detail/',
+    #                             'file_pattern': f'*.npz',
+    #                             'load_func': read_and_downsample, 
+    #                         },
+    #                     # 'shift_one': {
+    #                     #         'folder': 'shifts',
+    #                     #         'file_pattern': 'skio_*_tl_*_shift.pkl',
+    #                     #         'load_func': lambda x, root_dir: load(x,root_dir)[0], 
+    #                     #         'kwargs': {'root_dir': '/'},
+    #                     #     },
+    #                 },
+    #                 seed_pat = re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
+    #                 )
     loop_over_files(
-                    # width_at_height,
-                    
-                    parallel=False,
+                    identify_epiphytes,
+                    requested_seeds=requested_seeds,
+                    parallel = False,
                     base_dir=base_dir,
                     data_file_config={ 
                         'src': {
-                                'folder': 'to_get_detail/',
-                                'file_pattern': f'*.pcd',
-                                'load_func': read_pcd, 
+                                'folder': 'detail/',
+                                'file_pattern': f'*.npz',
+                                'load_func': read_and_downsample, 
                             },
-                        # 'shift_one': {
-                        #         'folder': 'shifts',
-                        #         'file_pattern': 'skio_*_tl_*_shift.pkl',
-                        #         'load_func': lambda x,root_dir: load(x,root_dir)[0], 
-                        #         'kwargs': {'root_dir': '/'},
-                        #     },
-                        # 'intensity': {
-                        #         'folder': 'detail',
-                        #         'file_pattern': f'skio_*_tl_*.npz',
-                        #         'load_func': np_feature('intensity'), # custom, for pickles
-                        #     },
+                        'shift_one': {
+                                'folder': 'shifts',
+                                'file_pattern': 'skio_*_tl_*_shift.pkl',
+                                'load_func': lambda x, root_dir: load(x,root_dir)[0], 
+                                'kwargs': {'root_dir': '/'},
+                            },
                     },
-                    # seed_pat = re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
-                    seed_pat = re.compile('.*seed([0-9]{1,3}).*'),
-                    
+                    seed_pat = re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
                     )
-    breakpoint()
+    # breakpoint()
     
