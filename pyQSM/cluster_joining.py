@@ -192,9 +192,10 @@ def get_clusters_joined_from_input_files(requested_labels:list[int]=[]):
                         clusters_joined[key].append(lbl)
     return clusters_joined
 
-EPS_DEFAULT = 1.2
-MIN_POINTS_DEFAULT = 175
-def user_cluster(pcd, src_pcd, eps=EPS_DEFAULT, min_points=MIN_POINTS_DEFAULT, filter_non_clusters=True, draw_result=True):
+EPS_DEFAULT = .5
+MIN_POINTS_DEFAULT = 100
+def user_cluster(pcd, src_pcd=None, eps=EPS_DEFAULT, min_points=MIN_POINTS_DEFAULT, 
+return_pcds=False):
     print('clustering')
     choosing_inputs = True
     eps = EPS_DEFAULT
@@ -209,7 +210,7 @@ def user_cluster(pcd, src_pcd, eps=EPS_DEFAULT, min_points=MIN_POINTS_DEFAULT, f
         except:
             print(f'error parsing min_points input, setting to {EPS_DEFAULT}')
             eps = EPS_DEFAULT
-        eps = float(user_input or 1)
+        eps = float(user_input or EPS_DEFAULT)
 
         user_input = input(f"min_points? (default={min_points})").strip().lower()
         try:
@@ -229,15 +230,20 @@ def user_cluster(pcd, src_pcd, eps=EPS_DEFAULT, min_points=MIN_POINTS_DEFAULT, f
             continue
         new_pcd, orig_colors = cluster_color(pcd,labels)
         new_pcd = new_pcd.select_by_index(non_cluster_idxs, invert=True)
-        draw_view([new_pcd])
-        draw_view([new_pcd, src_pcd])
+        draw([new_pcd])
+        if src_pcd is not None:
+            draw([new_pcd, src_pcd])
         # Finalize
         user_input = 'draw_again'
         while user_input == 'draw_again':
             user_input = input("Accept? (default=draw_again)").strip().lower()
         if user_input == 'y':
             choosing_inputs = False
-    return labels, eps, min_points
+    if return_pcds:
+        label_to_cluster = {ulabel: pcd.select_by_index(np.where(labels == ulabel)[0]) for ulabel in unique_labels}
+        return label_to_cluster, eps, min_points
+    else:
+        return labels, eps, min_points
 
 def loop_and_ask(src_lbl,src_pts, labeled_clusters, 
                 save_file=False, return_chosen_pts=False,
