@@ -76,39 +76,41 @@ def get_attrs_las(las_file, header=None):
     blue = las_file.blue
     green = las_file.green
     points = np.vstack((x, y, z)).T
-    colors = np.vstack((red, blue, green)).T
+    colors = np.vstack((red, green, blue)).T
     intensity = las_file.intensity
     data = np.hstack([points,colors, np.arange(len(x))[:,np.newaxis]])
     return data
 
-def convert_las(file_name, file_dir='', ext='las'):
+def convert_las(file_name, file_dir='', ext='pcd'):
     import laspy
+    orig_ext = file_name.split('.')[-1]
     # file_name = 'EpiphytusTV4.pts'
     # # file_dir = 'data/epip/inputs'
     # # file_name = 'cleaned_ds10_epip.pcd'
     file = f'{file_dir}/{file_name}' if file_dir != '' else file_name
     las = laspy.read(file)
     data = get_attrs_las(las)
-    breakpoint()
 
     if ext == 'las':
         return data
-
     if ext == 'pcd':
         pts = data[:, :3]
         colors = data[:, 3:6]/65280
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts)
         pcd.colors = o3d.utility.Vector3dVector(colors)
-        o3d.io.write_point_cloud(f'/{file_name.replace('.pts','.pcd')}', pcd)
+        o3d.io.write_point_cloud(f'/{file_name.replace(orig_ext,'.pcd')}', pcd)
         return pcd
     elif ext == 'npy':
-        np.save(f'/{file_name.replace('.pts','.npy')}', np.hstack([pts, colors]))
+        data = np.hstack([pts, colors])
+        np.save(f'/{file_name.replace(orig_ext,'.npy')}', data)
+        return data
     elif ext == 'npz':
-        np.savez(f'/{file_name.replace('.pts','.npz')}', points=pts, colors=colors)
+        data = np.hstack([pts, colors])
+        np.savez_compressed(f'/{file_name.replace(orig_ext,'.npz')}', data)
+        return data
     else:
         raise ValueError(f'Invalid extension {ext}')
-    breakpoint()s
 
 def np_to_o3d(npz_file):
     data = np.load(npz_file)
@@ -119,7 +121,7 @@ def np_to_o3d(npz_file):
         pcd.colors = o3d.utility.Vector3dVector(data['colors']/255)
     return pcd
 
-def to_o3d(coords=None, colors=None, labels=None, las=None):
+def to_o3d(coords=None, colors=None, las=None):
     if las is not None:
         las = np.asarray(las)
         coords = las[:, :3]
@@ -131,8 +133,6 @@ def to_o3d(coords=None, colors=None, labels=None, las=None):
     pcd.points = o3d.utility.Vector3dVector(coords)
     if colors is not None:
         pcd.colors = o3d.utility.Vector3dVector(np.asarray(colors))
-    elif labels is not None:
-        pcd, _ = color_continuous_map(pcd,labels)
     # labels = labels.astype(np.int32)
     return pcd
 

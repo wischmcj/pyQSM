@@ -47,17 +47,13 @@ from viz.color import (
     segment_hues,
     saturate_colors
 )
-from utils.lib_integration import convert_las
+from utils.algo import smooth_feature
+from utils.io import convert_las
 from geometry.surf_recon import meshfix
 from sklearn.cluster import KMeans
 from geometry.point_cloud_processing import cluster_plus
 from cluster_joining import user_cluster
-
-def list_if(x):
-    if isinstance(x,list):
-        return x
-    else:
-        return [x]
+from general import list_if
 
 color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,
                'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,
@@ -69,56 +65,59 @@ color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]
 rot_90_x = np.array([[1,0,0],[0,0,-1],[0,1,0]])
 
 def get_shift(file_content,
-              initial_shift = True, contraction=1, attraction=.6, iters=1, 
+              initial_shift = True, contraction=3, attraction=.8, iters=1, 
               debug=False, vox=None, ds=None, use_scs = True):
     """
         Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 
         Determines what files (e.g. information) is missing for the case passed and 
             calculates what is needed 
     """
-    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
+    seed, src_file, clean_pcd, shift_one = file_content['seed'], file_content['src_file'], file_content['clean_pcd'], file_content['shift_one']
     trunk = None
     pcd_branch = None
-    file_base = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/shifts/{seed}_'
+    src_dir = os.path.dirname(src_file)
+    target_dir = os.path.join(src_dir, 'shifts')
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+    file_base = os.path.join(target_dir, f'{seed}_')
     # skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
     log.info(f'getting shift for {seed}')
     if shift_one is None:
         log.warning(f'no shift found for {seed}')
         return None
-    skel_res = extract_skeleton(clean_pcd, max_iter = iters, debug=False, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
-    # else:
-    #     try:
-            # lbc = pcs.LBC(point_cloud=test, filter_nb_neighbors = config['skeletonize']['n_neighbors'], max_iteration_steps= config['skeletonize']['max_iter'], debug = False, termination_ratio=config['skeletonize']['termination_ratio'], step_wise_contraction_amplification = config['skeletonize']['init_contraction'], max_contraction = config['skeletonize']['max_contraction'], max_attraction = config['skeletonize']['max_attraction'])
-            # lbc = pcs.LBC(point_cloud=clean_pcd,
-            #         filter_nb_neighbors = config['skeletonize']['n_neighbors'],
-            #         max_iteration_steps=20,
-            #         debug = False,
-            #         down_sample = 0.0001,
-            #         termination_ratio=config['skeletonize']['termination_ratio'],
-            #         step_wise_contraction_amplification = config['skeletonize']['init_contraction'],
-            #         max_contraction = config['skeletonize']['max_contraction'],
-            #         max_attraction = config['skeletonize']['max_attraction'])
-            # lbc.extract_skeleton()
-            # # Debug/Visualization
-            # # lbc.visualize()
-            # contracted = lbc.contracted_point_cloud
-            # lbc_pcd = lbc.pcd
-            # total_shift = arr(lbc_pcd.points)-arr(contracted.points)
-            # save(f'{file_base}_total_shift.pkl',total_shift)
-            # write_pcd(f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/shifts/{file_base}_contracted.pcd',contracted)
+    skel_res = extract_skeleton(clean_pcd, max_iter = iters, debug=True, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
+    breakpoint()
+    cmag = np.array([np.linalg.norm(x) for x in skel_res[1]])
+    color_continuous_map(clean_pcd, cmag)
+    draw([clean_pcd])
+    return skel_res
 
-            # topo=extract_topology(lbc.contracted_point_cloud)
-            # save_line_set(topo[0],file_base)
-            # import pickle 
-            # try:
-            #     with open(f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/shifts/{file_base}_topo_graph.pkl','rb') as f:
-            #         pickle.dump(topo[1],f)
-            # except Exception as e:
-            #     log.info(f'error saving topo {e}')
 
-        # except Exception as e:
-        #     log.info(f'error getting lbc {e}')
-    # return lbc, topo
+def get_skeleton(file_content,
+              initial_shift = True, contraction=5, attraction=.5, iters=1, 
+              debug=False, vox=None, ds=None, use_scs = True):
+    """
+        Orig. run with contraction_factor 3, attraction .6, max contraction 2080 max attraction 
+        Determines what files (e.g. information) is missing for the case passed and 
+            calculates what is needed 
+    """
+    seed, src_file, clean_pcd, shift_one = file_content['seed'], file_content['src_file'], file_content['clean_pcd'], file_content['shift_one']
+    trunk = None
+    pcd_branch = None
+    src_dir = os.path.dirname(src_file)
+    target_dir = os.path.join(src_dir, 'shifts')
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+    file_base = os.path.join(target_dir, f'{seed}_')
+    # skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}_vox{vox or 0}_ds{ds or 0}'
+    log.info(f'getting shift for {seed}')
+    if shift_one is None:
+        log.warning(f'no shift found for {seed}')
+        return None
+    skel_res = extract_skeleton(clean_pcd, max_iter = iters, debug=True, cmag_save_file=file_base, contraction_factor=contraction, attraction_factor=attraction)
+    breakpoint()
+    return skel_res
+
 
 def contract(in_pcd,shift, invert=False):
     "Translates the points by the magnitude and direction indicated by the shift vector"
@@ -135,8 +134,13 @@ def contract(in_pcd,shift, invert=False):
 def get_downsample(file = None, pcd = None):
     if file: pcd = read_pcd(file)
     log.info('Down sampling pcd')
-    voxed_down = pcd.voxel_down_sample(voxel_size=.05)
-    clean_pcd = voxed_down.uniform_down_sample(3)
+    from open3d.visualization import draw_geometries_with_editing as edit
+    edit([pcd])
+    breakpoint()
+    voxed_down = pcd.voxel_down_sample(voxel_size=.15)
+    clean_pcd = voxed_down.uniform_down_sample(5)
+    breakpoint()
+    print(f'clean version has {len(clean_pcd.points)} points')
     return clean_pcd
 
 def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
@@ -156,23 +160,7 @@ def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
     final_data = np.array(final_data)
     full_detail_feats['features'] = final_data
     return full_detail_feats
-    # breakpoint()    
-
-def smooth_feature( points, values, query_pts=None,
-                    n_nbrs = 25,
-                    nbr_func=np.mean):
-    log.info(f'fitting nearest neighbors...')
-    nbrs = NearestNeighbors(n_neighbors=n_nbrs, algorithm='auto').fit(points)
-    smoothed_feature = []
-    query_pts = query_pts if query_pts is not None else points
-    split = np.array_split(query_pts, 100000)
-    log.info(f'smoothing feature...')
-    def get_nbr_summary(idx, pts):
-        # Could also cluster nbrs and set equal to avg of largest cluster 
-        return nbr_func(values[nbrs.kneighbors(pts)[1]], axis=1)
-    results = Parallel(n_jobs=7)(delayed(get_nbr_summary)(idx, pts) for idx, pts in enumerate(split))
-    smoothed_feature = np.hstack(results)
-    return smoothed_feature
+     
 
 def segment_feature(file_content, 
                     feature_name='intensity',):
@@ -238,40 +226,7 @@ def segment_feature(file_content,
         # # breakpoint()
 
     # return smoothed_features
-        
-def project_in_slices(pcd,seed, name='', off_screen = True):
-    points=arr(pcd.points)
-    z_vals = np.array([x[2] for x in points])
-    z_vals_sorted = np.sort(z_vals)
-    # Break 'points' into chunks by z value percentile (slices)
-    slices = {}
-    percentiles = [0, 20, 40, 60, 80, 100]
-    # percentiles = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    z_percentile_edges = np.percentile(z_vals, percentiles)
-    for i in range(len(percentiles)-1):
-        z_lo = z_percentile_edges[i]
-        z_hi = z_percentile_edges[i+1]
-        # get indices in this z interval
-        in_slice = np.where((z_vals >= z_lo) & (z_vals < z_hi))[0] if i < len(percentiles)-2 else np.where((z_vals >= z_lo) & (z_vals <= z_hi))[0]
-        slices[f'slice_{percentiles[i]}_{percentiles[i+1]}'] = points[in_slice]
 
-    metrics = {}
-    for slice_name, slice_points in slices.items():
-        mesh = project_pcd(pts=slice_points, alpha=.2, plot=True, seed=seed, name=name, sub_name=slice_name, off_screen=off_screen)
-        # geo = mesh.extract_geometry()
-        metrics[slice_name] ={'mesh': mesh, 'mesh_area': mesh.area }
-    metrics['total_area'] = np.sum([x['mesh_area'] for x in metrics.values()])
-    log.info(f'{name} total area: {metrics["total_area"]}')
-    return metrics
-
-def cluster_color(pcd,labels):
-    import matplotlib.pyplot as plt
-    max_label = labels.max()
-    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    colors[labels < 0] = 0
-    orig_colors = np.array(pcd.colors)
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    return pcd, orig_colors
 
 def crop_with_box(pcd, center=None, extent=None):
     bb = pcd.get_oriented_bounding_box()
@@ -353,48 +308,118 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
         width = float(user_input)
     return {'seed':seed, 'width':width, 'bounds':bounds}
 
-def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True):
+def project_in_slices(pcd,seed, name='', off_screen = True,alpha=70,target_dir='data/projection'):
+    pcd = pcd.uniform_down_sample(5)
+    points=arr(pcd.points)
+    z_vals = np.array([x[2] for x in points])
+    z_vals_sorted = np.sort(z_vals)
+    # Break 'points' into chunks by z value percentile (slices)
+    slices = {}
+    percentiles = [0, 20, 40, 60, 80, 100]
+    # percentiles = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    z_percentile_edges = np.percentile(z_vals, percentiles)
+    for i in range(len(percentiles)-1):
+        z_lo = z_percentile_edges[i]
+        z_hi = z_percentile_edges[i+1]
+        # get indices in this z interval
+        in_slice = np.where((z_vals >= z_lo) & (z_vals < z_hi))[0] if i < len(percentiles)-2 else np.where((z_vals >= z_lo) & (z_vals <= z_hi))[0]
+        slices[f'slice_{percentiles[i]}_{percentiles[i+1]}'] = points[in_slice]
+
+    metrics = {}
+    for slice_name, slice_points in slices.items():
+        mesh = project_pcd(pts=slice_points, alpha=alpha, plot=True, seed=seed, name=name, sub_name=slice_name, off_screen=off_screen, screen_shots=[[-10,0,0]], 
+        target_dir=target_dir)
+        # geo = mesh.extract_geometry()
+        metrics[slice_name] ={'mesh': mesh, 'mesh_area': mesh.area }
+    metrics['total_area'] = np.sum([x['mesh_area'] for x in metrics.values()])
+    log.info(f'{name} total area: {metrics["total_area"]}')
+    return metrics
+
+def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True, target_dir='data/projection'):
     metrics={}
-    metrics['epis'] = project_in_slices(epis,seed, name='epis', off_screen=off_screen)
-    metrics['leaves'] = project_in_slices(leaves,seed, name='leaves', off_screen=off_screen)
-    metrics['wood'] = project_in_slices(wood,seed, name='wood', off_screen=off_screen)
+    # metrics['epis'] = project_in_slices(epis,seed, name='epis', off_screen=off_screen)
+    metrics['leaves'] = project_in_slices(leaves,seed, name='leaves', off_screen=off_screen, target_dir=target_dir)
+    metrics['wood'] = project_in_slices(wood,seed, name='wood', off_screen=off_screen, target_dir=target_dir)
     
     fin_metrics = {}
     total_area = 0
     for metric_name, metric_dict in metrics.items():
+        print(f'{metric_name=}')
         fin_metrics[metric_name] = metric_dict.pop('total_area')
+        print(fin_metrics[metric_name])
         total_area += fin_metrics[metric_name]
         fin_metrics[f'{metric_name}_slices'] = [x['mesh_area'] for x in metric_dict.values()]
     fin_metrics['total_area'] = total_area
 
-    mesh = project_pcd(pts=arr(clean_pcd.points), plot=True, seed=seed, name='whole', off_screen=off_screen)
+    mesh = project_pcd(pts=arr(clean_pcd.points), plot=False, seed=seed, name='whole', off_screen=off_screen, target_dir=target_dir)
     fin_metrics['whole'] = mesh.area
-    mesh = project_pcd(pts=arr(wood.points), plot=True, seed=seed, name='wood_singular', off_screen=off_screen)
-    fin_metrics['wood_singular'] = mesh.area
+    print(f'{fin_metrics["whole"]=}')
+    # mesh = project_pcd(pts=arr(wood.points), plot=False, seed=seed, name='wood_singular', off_screen=off_screen, target_dir=target_dir)
+    # fin_metrics['wood_singular'] = mesh.area
 
     import pickle
-    with open(f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas/{seed}/all_metrics_split5.pkl', 'wb') as f: 
+    with open(f'/media/penguaman/data/kevin_holden/projection/slice_metrics_{seed}.pkl', 'wb') as f: 
         pickle.dump(fin_metrics, f)
     log.info(f'{seed}, {fin_metrics=}')
 
-def project_components_in_clusters(src_pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True):
+def project_components_in_clusters(in_pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True,
+                                    voxel_size=25, eps=120, min_points=30, target_dir='data/projection'):
     metrics=defaultdict(dict)
-
+    from geometry.point_cloud_processing import cluster_plus
+    import pickle
     for case in [
-                #(epis, 'epi_clusters'), (leaves, 'leaf_clusters'), 
+                #(epis, 'epi_clusters'), 
+                (leaves, 'leaf_clusters'), 
                 (wood, 'wood_clusters')]:
-        pcd, case_name = case
+        case_pcd, case_name = case
+        case_pcd = case_pcd.voxel_down_sample(voxel_size)
+        # draw([case_pcd])
+        # case_pcd,_ = case_pcd.remove_statistical_outlier(nb_neighbors=15, std_ratio=.95)
+        # draw([case_pcd])
+        # breakpoint()
         print(f'clustering {case_name}')
-        label_to_cluster, eps, min_points = user_cluster(pcd, return_pcds=True)
-        # labels =  np.array( pcd.cluster_dbscan(eps=0.5, min_points=100,print_progress=True))
-        # unique_labels = np.unique(labels)
-        # label_to_cluster = {ulabel: pcd.select_by_index(np.where(labels == ulabel)[0]) for ulabel in unique_labels}
-        print('got clusters')
-        total_area = 0
-        for cluster_idx, cluster_pcd in label_to_cluster.items():
+        # label_to_cluster_orig, eps, min_points = user_cluster(case_pcd, return_pcds=True)
+        # label_to_cluster =  cluster_plus(np.array(case_pcd.points), eps=eps, min_points=min_points, return_pcds=False)
+        features = np.array(case_pcd.points)[:,:3]
+        kmeans = KMeans(n_clusters=20, random_state=0, n_init="auto").fit(features)
+        unique_vals, counts = np.unique(kmeans.labels_, return_counts=True)
+        log.info(f'{unique_vals=} {counts=}')
+        cluster_idxs = [np.where(kmeans.labels_==val)[0] for val in unique_vals]
+        label_to_cluster = [case_pcd.select_by_index(idxs) for idxs in cluster_idxs]
+        label_to_cluster_orig = {val: case_pcd.select_by_index(idxs) for val, idxs in zip(unique_vals, cluster_idxs)}
+        
+        num_good_clusters = len(label_to_cluster_orig)
+        # Recluster points in cluster 0 using a larger eps
+        # if -1 in label_to_cluster_orig:
+        #     cluster0_pcd = label_to_cluster_orig[-1]
+        #     cluster0_points = np.array(cluster0_pcd.points)
+        #     if len(cluster0_points) > 0:
+        #         # Choose a larger eps (e.g. double the original value)
+        #         recluster_eps = eps * 3
+        #         min_points = min_points*2
+        #         new_label_to_cluster = cluster_plus(cluster0_points, eps=recluster_eps, min_points=min_points, return_pcds=False)
+        #         unique_new_labels = np.unique([k for k,v in new_label_to_cluster.items()])
+        #         reclustered_clusters = {ulabel: cluster0_pcd.select_by_index(new_label_to_cluster[ulabel]) for ulabel in unique_new_labels}
+        #         print(f'Reclustered cluster 0 with eps={recluster_eps}: {len(reclustered_clusters)} clusters')
+        #         for ulabel, cluster in reclustered_clusters.items():
+        #             if ulabel == -1:
+        #                 continue
+        #             label_to_cluster_orig[ulabel+num_good_clusters+1] = cluster
+        # label_to_cluster_orig.pop(-1)
+
+        total_area=0
+        label_to_cluster = label_to_cluster_orig
+        for cluster_idx, cluster_pcd in tqdm(label_to_cluster.items()):
+            # if cluster_idx <= 0:
+            #     breakpoint()
+            #     continue
+            print(f'{len(cluster_pcd.points)}')
             print(f'projecting cluster {cluster_idx}')
-            mesh = project_pcd(pts=np.array(cluster_pcd.points), alpha=.2, plot=False, seed=seed, name=case_name, sub_name=f'{cluster_idx}', off_screen=True)
-            # geo = mesh.extract_geometry()
+            clean_cluster_pcd = cluster_pcd.uniform_down_sample(4)
+            print(f'{len(clean_cluster_pcd.points)} after downsampling')
+            alpha=50
+            mesh = project_pcd(pts=np.array(clean_cluster_pcd.points), alpha=alpha, plot=True, seed=seed, name=case_name, sub_name=f'{cluster_idx}', off_screen=True, screen_shots=[[-10,0,0]], target_dir=target_dir)
+            print(f'{alpha=}, {mesh.area=}')
             metrics[case_name][f'{cluster_idx}'] ={'mesh_area': mesh.area }
             total_area += mesh.area
         print(f'summing cluster areas for {case_name}')
@@ -403,7 +428,8 @@ def project_components_in_clusters(src_pcd, clean_pcd, epis, leaves, wood ,seed,
     
 
     import pickle
-    with open(f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas_clusters/all_metrics_split5.pkl', 'wb') as f: 
+    # f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas_clusters/all_metrics_split5.pkl'
+    with open(f'/media/penguaman/data/kevin_holden/projection/metrics_{seed}.pkl', 'wb') as f: 
         pickle.dump(metrics, f)
     log.info(f'{seed}, {metrics=}')
     return {seed: metrics}
@@ -552,7 +578,7 @@ def loop_over_files(func,args = [], kwargs =[],
                             if ((requested_seeds==[] or seed in requested_seeds)
                               and seed not in skip_seeds)}
 
-    if args ==[]: args = ['']*len(kwargs)
+    if args ==[]: args = [None]*len(kwargs)
     inputs = [(arg,kwarg) for arg,kwarg in zip(list_if(args),list_if(kwargs))]
     if inputs == []:
         to_run = product(files_by_seed.items(), [([''],{})])
@@ -606,7 +632,7 @@ def loop_over_files(func,args = [], kwargs =[],
     log.info('loop over files done')
 
 
-def get_features(file, step_through=True):#comp_pcd, base_dir, comp_file_name = ''):
+def get_features(file, step_through=True):
     all_nbrs= {}
     # Get files to add features to
     # base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/'
@@ -719,12 +745,6 @@ def get_nbrs_voxel_grid(comp_pcd,
         else:
             all_data[datum_name] = np.vstack(datum)
 
-    # some_feats = [all_data[ffile] for ffile in all_data.keys() if ffile not in ['color','points']]
-    # feats = np.hstack([x[:,np.newaxis] for x in some_feats])
-    # kmeans = KMeans(n_clusters=3, random_state=0, n_init="auto").fit(feats)
-    # unique_vals, counts = np.unique(kmeans.labels_, return_counts=True)
-    # log.info(f'{unique_vals=} {counts=}')
-    # cluster_idxs = [np.where(kmeans.labels_==val)[0] for val in unique_vals]
 
     np.savez_compressed(f'{out_folder}/{comp_file_name}.npz', **all_data)
     # # breakpoint()
@@ -936,13 +956,13 @@ def compare_dirs(dir1, dir2,
 def crop_and_remove():
     from open3d.visualization import draw_geometries_with_editing as edit
     
-    # files = glob(f'*ep_bs*.ply')
-    # # pcds = [read_pcd(file) for file in files]
-    # out_pcd = o3d.geometry.PointCloud()
-    # for file in files:
-    #     pcd = read_pcd(file)
-    #     o3d.io.write_point_cloud(file.replace('.ply', '.pcd'), pcd)
-    # breakpoint()
+    files = glob(f'fave*.ply')
+    # pcds = [read_pcd(file) for file in files]
+    out_pcd = o3d.geometry.PointCloud()
+    for file in files:
+        pcd = read_pcd(file)
+        o3d.io.write_point_cloud(file.replace('.ply', '.pcd'), pcd)
+    breakpoint()
 
     # pcd =  read_pcd('/media/penguaman/backupSpace/lidar_sync/pyqsm/epip/ep_branch_mass_connector.ply') + read_pcd('ep_lower_trunk.ply')
 
@@ -998,34 +1018,9 @@ def crop_and_remove():
     # breakpoint()
     # print('asdf')
 
-def kevin_holden():
-    base_dir = '/media/penguaman/data/kevin_holden/'
-    loop_over_files(
-                    get_shift,
-                    # requested_seeds=requested_seeds,
-                    parallel = False,
-                    base_dir=base_dir,
-                    data_file_config={ 
-                        'src': {
-                                'folder': 'orig/',
-                                'file_pattern': f'*.las',
-                                'load_func': read_and_downsample, 
-                            },
-                        # 'shift_one': {
-                        #         'folder': 'shifts',
-                        #         'file_pattern': 'skio_*_tl_*_shift.pkl',
-                        #         'load_func': lambda x, root_dir: load(x,root_dir)[0], 
-                        #         'kwargs': {'root_dir': '/'},
-                        #     },
-                    },
-                    seed_pat = re.compile('.*')
-                    )
 
-if __name__ =="__main__":
-    kevin_holden()
-    breakpoint()
-    crop_and_remove()
-    # files = glob('/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/to_get_detail/*tl_1_custom.npz')
+if __name__ == "__main__":
+        # files = glob('/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/to_get_detail/*tl_1_custom.npz')
     # for idf, file in enumerate(files):
     #     if idf>1:
     #         pcd_data = np.load(file)
