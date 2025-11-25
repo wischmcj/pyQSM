@@ -31,6 +31,37 @@ from glob import glob
 import os
 from scipy import spatial as sps
 
+from geometry.surf_recon import get_mesh
+from set_config import config, log
+from geometry.general import center_and_rotate
+from geometry.reconstruction import get_neighbors_kdtree
+from geometry.skeletonize import extract_skeleton, extract_topology
+from geometry.point_cloud_processing import (
+    clean_cloud,
+    join_pcds,
+    join_pcd_files
+)
+from utils.lib_integration import get_pairs
+from utils.io import load, load_line_set,save_line_set, create_table
+from viz.ray_casting import project_pcd
+from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
+from viz.color import (
+    remove_color_pts, 
+    get_green_surfaces,
+    split_on_percentile,
+    segment_hues,
+    saturate_colors
+)
+import pyvista as pv
+import pc_skeletor as pcs
+
+import tensorflow as tf
+from open3d.visualization.tensorboard_plugin import summary
+# Utility function to convert Open3D geometry to a dictionary format
+from open3d.visualization.tensorboard_plugin.util import to_dict_batch
+
+from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
+
 from set_config import config, log
 from geometry.general import center_and_rotate
 from geometry.reconstruction import get_neighbors_kdtree
@@ -143,6 +174,58 @@ def get_downsample(file = None, pcd = None):
     print(f'clean version has {len(clean_pcd.points)} points')
     return clean_pcd
 
+def contraction_analysis(file, pcd, shift):
+
+    green = get_green_surfaces(pcd)
+    not_green = get_green_surfaces(pcd,True)
+    # draw(lowc_pcd)
+    draw(green)
+    draw(not_green)
+
+    c_mag = np.array([np.linalg.norm(x) for x in shift])
+    z_mag = np.array([x[2] for x in shift])
+
+    highc_idxs, highc, lowc = color_on_percentile(pcd,c_mag,70)
+
+    z_cutoff = np.percentile(z_mag,80)
+    log.info(f'{z_cutoff=}')
+    low_idxs = np.where(z_mag<=z_cutoff)[0]
+    lowc = clean_pcd.select_by_index(low_idxs)
+    ztrimmed_shift = shift[low_idxs]
+    ztrimmed_cmag = c_mag[low_idxs]
+    draw(lowc)
+    highc_idxs, highc, lowc = color_on_percentile(lowc,c_mag,70)
+
+    # color_continuous_map(test,c_mag)
+    highc_idxs = np.where(c_mag>np.percentile(c_mag,70))[0]
+    highc_pcd = test.select_by_index(highc_idxs)
+    lowc_pcd = test.select_by_index(highc_idxs,invert=True)
+    draw([lowc_pcd])
+    draw([highc_pcd])
+
+    breakpoint()
+    
+    lowc_detail = get_neighbors_kdtree(pcd,lowc_pcd)
+    draw(lowc_detail)
+    breakpoint()
+
+def split_on_pct(pcd,pct,cmag=None, shift=None):
+    if shift is not None:   
+        cmag = np.array([np.linalg.norm(x) for x in shift])
+    highc_idxs = np.where(cmag>np.percentile(cmag,pct))[0]
+    lowc = pcd.select_by_index(highc_idxs, invert=True)
+    highc = pcd.select_by_index(highc_idxs)
+    return lowc,highc
+
+def get_trunk(file_content):
+    breakpoint()
+    seed, pcd, clean_pcd, shift_one = file_content
+    # file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}' #_vox{vox}_ds{ds}'0
+    lowc,highc = split_on_pct(clean_pcd,70,shift=shift_one)
+    draw([lowc])
+    breakpoint()
+    stem_pcd = get_stem_pcd(pcd=lowc)
+    breakpoint()
 def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
     # # get neighbors of comp_pcd in the extracted feat pcd
     dists, nbrs = get_neighbors_kdtree(nbr_pcd, orig_pcd, return_pcd=False)
@@ -161,6 +244,22 @@ def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
     full_detail_feats['features'] = final_data
     return full_detail_feats
      
+
+def smooth_feature( points, values, query_pts=None,
+                    n_nbrs = 25,
+                    nbr_func=np.mean):
+    log.info(f'fitting nearest neighbors...')
+    nbrs = NearestNeighbors(n_neighbors=n_nbrs, algorithm='auto').fit(points)
+    smoothed_feature = []
+    query_pts = query_pts if query_pts is not None else points
+    split = np.array_split(query_pts, 100000)
+    log.info(f'smoothing feature...')
+    def get_nbr_summary(idx, pts):
+        # Could also cluster nbrs and set equal to avg of largest cluster 
+        return nbr_func(values[nbrs.kneighbors(pts)[1]], axis=1)
+    results = Parallel(n_jobs=7)(delayed(get_nbr_summary)(idx, pts) for idx, pts in enumerate(split))
+    smoothed_feature = np.hstack(results)
+    return smoothed_feature
 
 def segment_feature(file_content, 
                     feature_name='intensity',):
@@ -227,6 +326,14 @@ def segment_feature(file_content,
 
     # return smoothed_features
 
+def cluster_color(pcd,labels):
+    import matplotlib.pyplot as plt
+    max_label = labels.max()
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    orig_colors = np.array(pcd.colors)
+    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    return pcd, orig_colors
 
 def crop_with_box(pcd, center=None, extent=None):
     bb = pcd.get_oriented_bounding_box()
@@ -249,6 +356,21 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
     # user_input = 65
     # while user_input is not None:
     seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
+    logdir = "/media/penguaman/writable/lidar_sync/py_qsm/tensor_board/id_epi"
+    writer = tf.summary.create_file_writer(logdir)
+    params = [(lambda sc: sc + (1-sc)/3, 1, '33 inc, 1x'), 
+                (lambda sc: sc + (1-sc)/2, 1, '50 inc, 1x'),
+                (lambda sc: sc + (1-sc)/3, 1.5, '33 inc, 1.5x'), 
+                (lambda sc: sc + (1-sc)/2, 1.5, '50 inc, 1.5x'),
+                (lambda sc: sc + (1-sc)/3, .5, '33 inc, .5x'), 
+                (lambda sc: sc + (1-sc)/2, .5, '50 inc, .5x')
+                ]
+
+    with writer.as_default():
+        for sat_func, sat_cutoff, case_name in params:
+            sat_pcd, sat_orig_colors = saturate_colors(pcd, cutoff=sat_cutoff, sc_func=sat_func)
+            step+=1
+            summary.add_3d('sat_test', to_dict_batch([sat_pcd]), step=step, logdir=logdir)
     
     import numpy as np
     height = 2.8
