@@ -2,6 +2,14 @@ import os
 import numpy as np
 import open3d as o3d
 
+import pickle
+from collections import defaultdict
+from itertools import chain
+import re
+from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
 from canopy_metrics import project_components_in_clusters, sps
 from open3d.visualization import draw_geometries as draw, draw_geometries_with_editing as edit
 
