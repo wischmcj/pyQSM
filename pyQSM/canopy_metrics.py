@@ -47,17 +47,13 @@ from viz.color import (
     segment_hues,
     saturate_colors
 )
+from utils.algo import smooth_feature
 from utils.io import convert_las
 from geometry.surf_recon import meshfix
 from sklearn.cluster import KMeans
 from geometry.point_cloud_processing import cluster_plus
 from cluster_joining import user_cluster
-
-def list_if(x):
-    if isinstance(x,list):
-        return x
-    else:
-        return [x]
+from general import list_if
 
 color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,
                'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,
@@ -166,22 +162,6 @@ def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
     return full_detail_feats
      
 
-def smooth_feature( points, values, query_pts=None,
-                    n_nbrs = 25,
-                    nbr_func=np.mean):
-    log.info(f'fitting nearest neighbors...')
-    nbrs = NearestNeighbors(n_neighbors=n_nbrs, algorithm='auto').fit(points)
-    smoothed_feature = []
-    query_pts = query_pts if query_pts is not None else points
-    split = np.array_split(query_pts, 100000)
-    log.info(f'smoothing feature...')
-    def get_nbr_summary(idx, pts):
-        # Could also cluster nbrs and set equal to avg of largest cluster 
-        return nbr_func(values[nbrs.kneighbors(pts)[1]], axis=1)
-    results = Parallel(n_jobs=7)(delayed(get_nbr_summary)(idx, pts) for idx, pts in enumerate(split))
-    smoothed_feature = np.hstack(results)
-    return smoothed_feature
-
 def segment_feature(file_content, 
                     feature_name='intensity',):
     seed, src_file, pcd = file_content['seed'], file_content['src_file'], file_content['src']
@@ -247,14 +227,6 @@ def segment_feature(file_content,
 
     # return smoothed_features
 
-def cluster_color(pcd,labels):
-    import matplotlib.pyplot as plt
-    max_label = labels.max()
-    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    colors[labels < 0] = 0
-    orig_colors = np.array(pcd.colors)
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    return pcd, orig_colors
 
 def crop_with_box(pcd, center=None, extent=None):
     bb = pcd.get_oriented_bounding_box()
@@ -336,7 +308,7 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
         width = float(user_input)
     return {'seed':seed, 'width':width, 'bounds':bounds}
 
-def project_in_slices(pcd,seed, name='', off_screen = True,alpha=70):
+def project_in_slices(pcd,seed, name='', off_screen = True,alpha=70,target_dir='data/projection'):
     pcd = pcd.uniform_down_sample(5)
     points=arr(pcd.points)
     z_vals = np.array([x[2] for x in points])
@@ -355,18 +327,19 @@ def project_in_slices(pcd,seed, name='', off_screen = True,alpha=70):
 
     metrics = {}
     for slice_name, slice_points in slices.items():
-        mesh = project_pcd(pts=slice_points, alpha=alpha, plot=True, seed=seed, name=name, sub_name=slice_name, off_screen=off_screen, screen_shots=[[-10,0,0]])
+        mesh = project_pcd(pts=slice_points, alpha=alpha, plot=True, seed=seed, name=name, sub_name=slice_name, off_screen=off_screen, screen_shots=[[-10,0,0]], 
+        target_dir=target_dir)
         # geo = mesh.extract_geometry()
         metrics[slice_name] ={'mesh': mesh, 'mesh_area': mesh.area }
     metrics['total_area'] = np.sum([x['mesh_area'] for x in metrics.values()])
     log.info(f'{name} total area: {metrics["total_area"]}')
     return metrics
 
-def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True):
+def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True, target_dir='data/projection'):
     metrics={}
     # metrics['epis'] = project_in_slices(epis,seed, name='epis', off_screen=off_screen)
-    metrics['leaves'] = project_in_slices(leaves,seed, name='leaves', off_screen=off_screen)
-    metrics['wood'] = project_in_slices(wood,seed, name='wood', off_screen=off_screen)
+    metrics['leaves'] = project_in_slices(leaves,seed, name='leaves', off_screen=off_screen, target_dir=target_dir)
+    metrics['wood'] = project_in_slices(wood,seed, name='wood', off_screen=off_screen, target_dir=target_dir)
     
     fin_metrics = {}
     total_area = 0
@@ -378,10 +351,10 @@ def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name=
         fin_metrics[f'{metric_name}_slices'] = [x['mesh_area'] for x in metric_dict.values()]
     fin_metrics['total_area'] = total_area
 
-    mesh = project_pcd(pts=arr(clean_pcd.points), plot=False, seed=seed, name='whole', off_screen=off_screen)
+    mesh = project_pcd(pts=arr(clean_pcd.points), plot=False, seed=seed, name='whole', off_screen=off_screen, target_dir=target_dir)
     fin_metrics['whole'] = mesh.area
     print(f'{fin_metrics["whole"]=}')
-    # mesh = project_pcd(pts=arr(wood.points), plot=False, seed=seed, name='wood_singular', off_screen=off_screen)
+    # mesh = project_pcd(pts=arr(wood.points), plot=False, seed=seed, name='wood_singular', off_screen=off_screen, target_dir=target_dir)
     # fin_metrics['wood_singular'] = mesh.area
 
     import pickle
@@ -390,7 +363,7 @@ def project_components_in_slices(pcd, clean_pcd, epis, leaves, wood ,seed, name=
     log.info(f'{seed}, {fin_metrics=}')
 
 def project_components_in_clusters(in_pcd, clean_pcd, epis, leaves, wood ,seed, name='', off_screen = True,
-                                    voxel_size=25, eps=120, min_points=30):
+                                    voxel_size=25, eps=120, min_points=30, target_dir='data/projection'):
     metrics=defaultdict(dict)
     from geometry.point_cloud_processing import cluster_plus
     import pickle
@@ -445,7 +418,7 @@ def project_components_in_clusters(in_pcd, clean_pcd, epis, leaves, wood ,seed, 
             clean_cluster_pcd = cluster_pcd.uniform_down_sample(4)
             print(f'{len(clean_cluster_pcd.points)} after downsampling')
             alpha=50
-            mesh = project_pcd(pts=np.array(clean_cluster_pcd.points), alpha=alpha, plot=True, seed=seed, name=case_name, sub_name=f'{cluster_idx}', off_screen=True, screen_shots=[[-10,0,0]])
+            mesh = project_pcd(pts=np.array(clean_cluster_pcd.points), alpha=alpha, plot=True, seed=seed, name=case_name, sub_name=f'{cluster_idx}', off_screen=True, screen_shots=[[-10,0,0]], target_dir=target_dir)
             print(f'{alpha=}, {mesh.area=}')
             metrics[case_name][f'{cluster_idx}'] ={'mesh_area': mesh.area }
             total_area += mesh.area

@@ -2,14 +2,6 @@ import os
 import numpy as np
 import open3d as o3d
 
-import pickle
-from collections import defaultdict
-from itertools import chain
-import re
-from sklearn.cluster import KMeans
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
 from canopy_metrics import project_components_in_clusters, sps
 from open3d.visualization import draw_geometries as draw, draw_geometries_with_editing as edit
 
@@ -112,8 +104,8 @@ def get_kevin_holden_data():
     group_labels, unlabeled_idxs, labeled_pcds, unlabeled_pcd = get_pcds_from_lbls(pcd.points, pcd.colors, lbl_idxs, grped_lbls)
     breakpoint()  
     clean_pcd = pcd.uniform_down_sample(15)
-    res = project_components_in_clusters(pcd, clean_pcd, labeled_pcds[0], labeled_pcds[1], labeled_pcds[-1], seed='kh_holden',)
-    # res = project_components_in_slices(pcd, clean_pcd, labeled_pcds[0], labeled_pcds[1], labeled_pcds[0], seed='kh_holden',)
+    res = project_components_in_clusters(pcd, clean_pcd, labeled_pcds[0], labeled_pcds[1], labeled_pcds[-1], seed='kh_holden', target_dir='/media/penguaman/data/kevin_holden/projection')
+    # res = project_components_in_slices(pcd, clean_pcd, labeled_pcds[0], labeled_pcds[1], labeled_pcds[0], seed='kh_holden', target_dir='/media/penguaman/data/kevin_holden/projection')
     breakpoint()
     print(res)
 
