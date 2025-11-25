@@ -462,8 +462,7 @@ def random_forest_classification(model_feat_names_options:list[str],
                                   smoothed_feats, 
                                   all_labeled_idxs, 
                                   unlabeled_idxs, 
-                                  label_groups, 
-                                  grped_idxs,
+                                  group_labels,
                                   file_name,
                                   num_trees=[200],
                                   train_size=.8):
@@ -475,15 +474,6 @@ def random_forest_classification(model_feat_names_options:list[str],
         all_feats = np.stack(stacked_feats, axis=1)
         labeled_feats = all_feats[all_labeled_idxs]
         unlabeled_feats = all_feats[unlabeled_idxs]
-    
-        # Assign integer labels for each group
-        group_labels = []
-        for i, group_name in enumerate(label_groups.keys()):
-            group_indices = np.concatenate(grped_idxs[group_name])
-            group_labels.append(np.full_like(group_indices, i, dtype=int))
-        group_labels = np.concatenate(group_labels)
-
-        # Split the labeled data randomly into train and test sets
         # Use stratify for balanced class splits
         X_train, X_test, y_train, y_test, train_idxs, test_idxs = train_test_split(
             labeled_feats, group_labels, all_labeled_idxs,
