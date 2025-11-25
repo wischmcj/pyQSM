@@ -602,6 +602,7 @@ if __name__ == "__main__":
     root_dir = '/media/penguaman/code/ActualCode/Research/pyQSM/'
     inputs = 'data/skeletor/inputs'
     from viz.ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd
+    meshfix
 
     trim = read_point_cloud(f'{inputs}/trim/skeletor_full_ds2.pcd')
     pcd = trim.uniform_down_sample(15)
