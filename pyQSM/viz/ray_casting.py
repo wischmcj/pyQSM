@@ -6,10 +6,7 @@ import re
 import random
 
 from open3d.t.geometry import RaycastingScene as rcs
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 import open3d as o3d
-
-from collections import defaultdict
 
 import numpy as np
 from numpy import asarray as arr
@@ -17,42 +14,8 @@ from numpy import asarray as arr
 import matplotlib.pyplot as plt
 
 from set_config import config, log
-from geometry.reconstruction import get_neighbors_kdtree
-from math_utils.general import (
-    get_center,
-    generate_grid
-)
-from math_utils.fit import kmeans,cluster_DBSCAN
-from geometry.skeletonize import extract_skeleton, extract_topology
-from geometry.point_cloud_processing import ( filter_by_norm,
-    clean_cloud,
-    crop, get_shape,
-    orientation_from_norms,
-    filter_by_norm,
-    get_ball_mesh,
-    crop_by_percentile,
-    cluster_plus
-)
-from geometry.mesh_processing import ( 
-    check_properties
-)
-from utils.io import load, load_line_set,save_line_set
-from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
+from viz.viz_utils import color_continuous_map, draw,
 from viz.color import *
-
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-from matplotlib import colors   
-import cv2
-from math import floor
-from matplotlib.colors import hsv_to_rgb
-from matplotlib.colors import rgb_to_hsv
-
-from viz.color import remove_color_pts, get_green_surfaces
-
-from geometry.mesh_processing import get_surface_clusters
-from geometry.reconstruction import recover_original_details
-
 from viz.viz_utils import color_continuous_map
 
 import pyvista as pv
@@ -98,7 +61,8 @@ def project_pcd(point_cloud = None,
                 screen_shots = [#[20,-60,30],[20,-60,60],[-20,-60,-10],[-20,60,30],
                 # [-20,60,60]
                 ],
-                off_screen = False):
+                off_screen = False,
+                target_dir = 'data/projection'):
     # num_points = 100
     # rng = np.random.default_rng(seed=0)  # Seed rng for reproducibility
     # point_cloud = rng.random((num_points, 3))
@@ -133,29 +97,29 @@ def project_pcd(point_cloud = None,
     if plot:
         log.info(f'Plotting...')
         import os
-        base_dir = f'/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/projected_areas_clusters/{seed}/{name}'
+        base_dir = f'{target_dir}/{seed}/{name}'
         os.makedirs(base_dir, exist_ok=True)
         try:
             for pos in screen_shots:
                 pl = pv.Plotter(off_screen=off_screen)
                 pl.add_mesh(mesh)
-                pl.add_mesh( points,    color='red',    
-                            render_points_as_spheres=True,    
-                            point_size=2,    label='Points to project',)
+                pl.add_mesh( points,    color='red',    render_points_as_spheres=True,    point_size=2,    label='Points to project',)
                 # pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
                 pl.camera.position = (polydata.center[0]+pos[0],polydata.center[1]+pos[1],polydata.center[2]+pos[2])
                 pl.camera.focal_point = polydata.center
-                file = f'{base_dir}/{sub_name}_{pos[0]}_{pos[1]}_{pos[2]}.png'
+                pl.camera.zoom('tight')
+                file = f'{base_dir}/{sub_name}_{alpha}_{pos[0]}_{pos[1]}_{pos[2]}.png'
                 pl.show(screenshot =file)
                 log.info(f'saved {file}')
 
-            proj = mesh.extract_geometry()
-            # Screen Shotting Geometry
-            pl = pv.Plotter(off_screen=off_screen)
-            pl.add_mesh(proj)
-            pl.camera.position = (proj.center[0]+15,proj.center[1],proj.center[2]+50)
-            pl.camera.focal_point = proj.center
-            pl.show(screenshot =f'{base_dir}/{sub_name}_shape.png')
+            # proj = mesh.extract_geometry()
+            # # Screen Shotting Geometry
+            # pl = pv.Plotter(off_screen=off_screen)
+            # pl.add_mesh(proj)
+            # pl.camera.position = (proj.center[0]+15,proj.center[1],proj.center[2]+50)
+            # pl.camera.focal_point = proj.center
+            # pl.camera.zoom('tight')
+            # pl.show(screenshot =f'{base_dir}/{sub_name}_{alpha}_shape.png')
         
         except Exception as e:
             log.error(f'Error projecting points: {e}')
