@@ -4,10 +4,10 @@ from glob import glob
 from joblib import Parallel, delayed
 from set_config import log
 from collections import defaultdict
-from pyQSM.io import read_pcd, convert_las, np_to_o3d
-from pyQSM.canopy_metrics import get_downsample
-from pyQSM.utils.io import load
-from pyQSM.utils.general import list_if
+from open3d.io import read_point_cloud as read_pcd
+from utils.io import convert_las, np_to_o3d, load
+from canopy_metrics import get_downsample
+from utils.general import list_if
 from itertools import product
 from typing import Any
 

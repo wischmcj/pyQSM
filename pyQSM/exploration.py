@@ -10,9 +10,8 @@ from joblib import Parallel, delayed
 from jakteristics import compute_features as compute_features_j
 from sklearn.neighbors import NearestNeighbors
 from set_config import log
-from viz.viz_utils import color_continuous_map
+from viz.viz_utils import color_continuous_map, draw
 from viz.plotting import histogram
-from pyQSM.viz.viz_utils import draw
 from string import Template
 
 from sklearn.ensemble import RandomForestClassifier

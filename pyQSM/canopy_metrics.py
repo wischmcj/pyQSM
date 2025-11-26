@@ -33,6 +33,7 @@ from viz.color import (
 )
 import pyvista as pv
 import pc_skeletor as pcs
+from sklearn.cluster import KMeans
 
 from set_config import config, log
 from geometry.reconstruction import get_neighbors_kdtree
@@ -43,10 +44,8 @@ from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
 from viz.plotting import  histogram
 from viz.color import (
     split_on_percentile,
-    segment_hues,
-    saturate_colors
 )
-from math_utils.interpolation import smooth_feature
+from utils.io import np_to_o3d
 from pipeline import loop_over_files
 
 color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,
@@ -510,7 +509,8 @@ def script_for_extracting_epis_and_labeling_orig_detail():
 
     # Getting orig detail for epis and not epis 
     src_pcd = read_pcd(f'{base_dir}/joined_epis.pcd')
-    get_and_label_neighbors(src_pcd, base_dir, 'epi', non_nbr_label='wood')
+    # Note, this function has been moved to the scripts directoru
+    # get_and_label_neighbors from scripts/result_related/canopy_metrics_tf or move it to a proper module
 
     # Joining extracted epiphytes
     _ = join_pcd_files(f'{base_dir}/detail/', pattern = '*nbrs.pcd')
@@ -621,12 +621,6 @@ def crop_and_remove():
     new_data = { 'points': to_filter_data['points'], 'colors': to_filter_data['colors'], 'intensity': to_filter_data['intensity'] }
     np.savez_compressed('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4color_int_treeiso.npz', **new_data)
     breakpoint()
-    # comp_pcd = np_to_o3d('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4color_int_0.npz')
-    # comp_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(mask_pcd,voxel_size=1)
-    # queries = np.array(comp_pcd.points)
-    # in_occupied_voxel_mask= mask_voxel_grid.check_if_included(o3d.utility.Vector3dVector(queries))
-    # breakpoint()
-
 
 
 if __name__ == "__main__":
@@ -643,35 +637,9 @@ if __name__ == "__main__":
     #                         tile_dir = '/media/penguaman/backupSpace/lidar_sync/tls_lidar/SKIO/',
     #                         tile_pattern = 'SKIO-RaffaiEtAlcolor_int_*.npz', invert=False,
     #                         out_folder='/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/detail')
-                    
-    # base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining/'
-    # remaining_files, remaining_keys = compare_dirs(base_dir + 'detail/', base_dir + 'shifts/',
-    #                             file_pat1 = 'skio_*_tl_*.npz', file_pat2 = 'skio_*_tl_*_shift.pkl',
-    #                             key_pat1 = '(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*', key_pat2 = '(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
-    # remaining_keys = list(set(remaining_keys) - set(skip_seeds))
-    # print(f'{remaining_keys=}')
+    requested_seeds = ['190']
     base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/cluster_joining'
-    ######## 138, 193 partial trees
-    # loop_over_files(
-    #                 get_shift,
-    #                 requested_seeds=requested_seeds,
-    #                 parallel = False,
-    #                 base_dir=base_dir,
-    #                 data_file_config={ 
-    #                     'src': {
-    #                             'folder': 'detail/',
-    #                             'file_pattern': f'*.npz',
-    #                             'load_func': read_and_downsample, 
-    #                         },
-    #                     # 'shift_one': {
-    #                     #         'folder': 'shifts',
-    #                     #         'file_pattern': 'skio_*_tl_*_shift.pkl',
-    #                     #         'load_func': lambda x, root_dir: load(x,root_dir)[0], 
-    #                     #         'kwargs': {'root_dir': '/'},
-    #                     #     },
-    #                 },
-    #                 seed_pat = re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
-    #                 )
+
     loop_over_files(
                     identify_epiphytes,
                     requested_seeds=requested_seeds,
@@ -681,7 +649,7 @@ if __name__ == "__main__":
                         'src': {
                                 'folder': 'detail/',
                                 'file_pattern': f'*.npz',
-                                'load_func': read_and_downsample, 
+                                'load_func': np_to_o3d, 
                             },
                         'shift_one': {
                                 'folder': 'shifts',
