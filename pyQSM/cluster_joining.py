@@ -9,6 +9,8 @@ from open3d.visualization import draw_geometries as draw
 from scipy.spatial import cKDTree
 from viz.viz_utils import color_continuous_map
 
+from viz.color import cluster_color
+
 ROT_STEP = 10
 def draw_view(pcds=None,front=[0.4257, -0.2125, -0.8795], lookat=[2.6172, 2.0475, 1.532], up=[-0.0694, -0.9768, 0.2024]):
     o3d.visualization.draw_geometries(pcds)
@@ -160,15 +162,6 @@ def determine_adjacency(label_list, kdtrees=None, threshold=0.35, case_name = ''
     with open(f'{data_dir}/cluster_joining/adjacency/{file_name}', 'wb') as f:
         pickle.dump(adjacency_dict, f)
     return adjacency_dict
-    
-def cluster_color(pcd,labels):
-    import matplotlib.pyplot as plt
-    max_label = labels.max()
-    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    colors[labels < 0] = 0
-    orig_colors = np.array(pcd.colors)
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    return pcd, orig_colors
 
 def get_clusters_joined_from_input_files(requested_labels:list[int]=[]):
     adj = load_adjacency_dict()
