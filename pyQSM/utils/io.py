@@ -55,26 +55,110 @@ def save(file, to_write, root_dir = data_root):
 def load(file, root_dir = data_root):
     # be_root()
     if '.pkl' not in file: file=f'{file}.pkl'
+    if root_dir[-1] != '/': root_dir += '/'
     fqp = f'{root_dir}{file}'
 
     with open(fqp,'rb') as f:
         ret = pickle.load(f)
     return ret
 
+## Reading in various file types 
+
+def get_attrs_las(las_file, header=None):
+    try:
+        x = las_file.X * header.scales[0] + header.offsets[0]
+        y = las_file.Y * header.scales[1] + header.offsets[1]
+        z = las_file.Z * header.scales[2] + header.offsets[2]
+    except AttributeError as e:
+        log.info(f'No scale attributes found, using coordinates directly')
+        x,y,z = las_file.X, las_file.Y, las_file.Z
+    red = las_file.red
+    blue = las_file.blue
+    green = las_file.green
+    points = np.vstack((x, y, z)).T
+    colors = np.vstack((red, green, blue)).T
+    intensity = las_file.intensity
+    data = np.hstack([points,colors, np.arange(len(x))[:,np.newaxis]])
+    return data
+
+def convert_las(file_name, file_dir='', ext='pcd'):
+    import laspy
+    orig_ext = file_name.split('.')[-1]
+    # file_name = 'EpiphytusTV4.pts'
+    # # file_dir = 'data/epip/inputs'
+    # # file_name = 'cleaned_ds10_epip.pcd'
+    file = f'{file_dir}/{file_name}' if file_dir != '' else file_name
+    las = laspy.read(file)
+    data = get_attrs_las(las)
+
+    if ext == 'las':
+        return data
+    if ext == 'pcd':
+        pts = data[:, :3]
+        colors = data[:, 3:6]/65280
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        o3d.io.write_point_cloud(f'/{file_name.replace(orig_ext,'.pcd')}', pcd)
+        return pcd
+    elif ext == 'npy':
+        data = np.hstack([pts, colors])
+        np.save(f'/{file_name.replace(orig_ext,'.npy')}', data)
+        return data
+    elif ext == 'npz':
+        data = np.hstack([pts, colors])
+        np.savez_compressed(f'/{file_name.replace(orig_ext,'.npz')}', data)
+        return data
+    else:
+        raise ValueError(f'Invalid extension {ext}')
+
+def np_to_o3d(npz_file):
+    data = np.load(npz_file)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(data['points'])
+    log.info('warning: dividing colors by 255')
+    if 'colors' in data.files:
+        pcd.colors = o3d.utility.Vector3dVector(data['colors']/255)
+    return pcd
+
+def to_o3d(coords=None, colors=None, las=None):
+    if las is not None:
+        las = np.asarray(las)
+        coords = las[:, :3]
+        if las.shape[1]>3:
+            labels = las[:, 3]
+        if las.shape[1]>4:
+            colors = las[:, 4:7]       
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(coords)
+    if colors is not None:
+        pcd.colors = o3d.utility.Vector3dVector(np.asarray(colors))
+    # labels = labels.astype(np.int32)
+    return pcd
+
 def create_table(
                 results:list[dict] | list[tuple[str,dict[str,dict]]] | dict[str,dict[str,dict]]
                  ,cols=None,sub_cols=None,ids=None):
     if cols is None:
-        cols = [x for x in results[0].keys()]
-    if sub_cols is None:
-        try:
-            sub_cols = results[0][cols[0]].keys()
-        except:
-            log.info(f'no sub_cols found for {cols[0]}')
-            sub_cols = results[0].keys()
-    all_cols =list([x for x in product(cols, sub_cols)])
+        if isinstance(results,dict):
+            cols = [x for x in results.keys()]
+        else:
+            row1 = results[0]
+            if isinstance(row1,tuple):
+                cols = list(row1[1].keys())
+            elif isinstance(row1,dict):
+                cols = list(row1.keys())
+            else:
+                cols = []
+        print(f'{cols=}')
 
-    col_names = [f'{col}_{sub_col}' for col, sub_col in all_cols]
+    if sub_cols is not None:
+        all_cols =list([x for x in product(cols, sub_cols)])
+        col_names = [f'{col}_{sub_col}' for col, sub_col in all_cols]
+    else:
+        col_names = cols
+    print(f'{col_names=}')
+    
     fin_cols = ['ID'] + col_names
     myTable = PrettyTable(fin_cols)
 
@@ -88,7 +172,7 @@ def create_table(
         elif isinstance(results,list):
             results = dict([(idx,x) for idx,x in enumerate(results)])
 
-    for row_id, row_data in results.items():
+    for row_id, row_data in results:
         row = [row_data[col] for col in col_names]
         if sub_cols is not None:
             row = [row[col] for col in sub_cols]

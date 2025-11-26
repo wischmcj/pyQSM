@@ -126,8 +126,8 @@ def get_stem_pcd(pcd=None, source_file=None
         pcd_tree = o3d.geometry.KDTreeFlann(stem_cloud)
         [k, idx, _] = pcd_tree.search_radius_vector_3d(pcd.points[50000], normals_radius)
         np.asarray(pcd.colors)[idx[1:], :] = [0, 1, 0]
-        o3d.visualization.draw([stem_cloud])
-        o3d.visualization.draw([pcd,sp])
+        draw([stem_cloud])
+        draw([pcd,sp])
         breakpoint()
     except Exception as e:
         breakpoint()
@@ -378,7 +378,8 @@ def find_low_order_branches(start = 'initial_clean',
             stat_down = read_point_cloud(file, print_progress=True)
             started = True
         # "data/results/saves/27_vox_pt02_sta_6-4-3.pcd" # < ---  post-clean pre-stem
-        stem_cloud = get_stem_pcd(stat_down)
+        # stem_cloud = get_stem_pcd(stat_down)
+        stem_cloud = get_stem_pcd(stat_down, normals_radius=0.05, normals_nn=30)
         if debug:
             draw(stem_cloud)
         breakpoint()
@@ -588,9 +589,16 @@ def exclude_dense_areas(pcd, radius=.05):
     branches, _, analouge_idxs = get_neighbors_kdtree(trim, query_pts=new_pts,k=200, dist=.01)
     draw(branches)
 
+def get_epip_branches():
+    file = '/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4_treeiso.pcd'
+    find_low_order_branches(file=file)
+    
+    # epip_pcd = read_pcd('/media/penguaman/backupSpace/lidar_sync/tls_lidar/MonteVerde/EpiphytusTV4_treeiso.pcd')
+
 
 if __name__ == "__main__":
-
+    get_epip_branches()
+    breakpoint()
     root_dir = '/media/penguaman/code/ActualCode/Research/pyQSM/'
     inputs = 'data/skeletor/inputs'
     from viz.ray_casting import sparse_cast_w_intersections, project_to_image,mri,cast_rays, project_pcd

@@ -9,7 +9,7 @@ import scipy.cluster as spc
 from sklearn.metrics import silhouette_score
 # from sklearn.metrics import calinski_harabasz_score
 # from sklearn.metrics import davies_bouldin_score
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, KMeans
 import pyransac3d as pyrsc
 from matplotlib import pyplot as plt
 
@@ -43,6 +43,17 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
     mesh_pts.paint_uniform_color([0, 1.0, 0])
     mesh_pts.rotate(R_from_z)
     return mesh, _, inliers, fit_radius, _
+
+def cluster_2d(pcd,axis,eps,min_points):
+    import copy
+    pcd_pts = np.array( pcd.points)
+    new_pcd_pts = copy.deepcopy(pcd_pts) 
+    new_pcd_pts[:,axis] = np.zeros_like(pcd_pts[:,axis])
+    pcd.points = o3d.utility.Vector3dVector(new_pcd_pts)
+    labels = cluster_and_draw(pcd, eps=eps, min_points=min_points)
+    pcd.points = o3d.utility.Vector3dVector(pcd_pts)
+    draw([pcd])
+    return labels
 
 def choose_and_cluster(new_neighbors, main_pts, cluster_type, debug=False):
     """
@@ -145,6 +156,14 @@ def z_align_and_fit(pcd, axis_guess, **kwargs):
 #             min_pts=config['dbscan']["min_neighbors"],
 #         )
 #     return labels, returned_clusters
+
+def kmeans_feature(smoothed_feature, pcd= None):
+    kmeans = KMeans(n_clusters=2, random_state=0, n_init="auto").fit(smoothed_feature[:,np.newaxis])
+    unique_vals, counts = np.unique(kmeans.labels_, return_counts=True)
+    log.info(f'{unique_vals=} {counts=}')
+    cluster_idxs = [np.where(kmeans.labels_==val)[0] for val in unique_vals]
+    cluster_features = [smoothed_feature[idxs] for idxs in cluster_idxs]
+    return cluster_idxs, cluster_features
 
 def kmeans(points, min_clusters):
     """

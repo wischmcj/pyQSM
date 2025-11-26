@@ -6,7 +6,6 @@ data/skeletor*
 backed_up*
 # *.pkl
 *test/tmp/*
-data/*
 newvenv/*
 
 #Dev
@@ -112,7 +111,6 @@ copy_of_fragment.pcd
 
 
 sho/*
-data/bark_texture/*
 scripts/untracked/*
 scripts/to_share/*
 scripts/gui/*
@@ -122,13 +120,13 @@ ml/logs/*
 src/logs/*
 src/ml/*
 
-data/notes/*
-
 src/gui/*
 
 meshes/*
 /data/in_process/*
 *data/results/*
+data/bark_texture/*
+data/viz_configs/*
 
 
 new_lowc_refined_clusters.pkl
@@ -141,3 +139,4 @@ data/results/protoQSM/high_contraction_iter1_top60_ids.py
 imgs/trunk_and_sphere.jpeg
 sho/skeletor_trunk_density_map.jpg
 sho/trunk_and_sphere.jpeg
+pyQSM/utils/tiles.py

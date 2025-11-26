@@ -6,10 +6,7 @@ import re
 import random
 
 from open3d.t.geometry import RaycastingScene as rcs
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
 import open3d as o3d
-
-from collections import defaultdict
 
 import numpy as np
 from numpy import asarray as arr
@@ -39,20 +36,6 @@ from geometry.mesh_processing import (
 from utils.io import load, load_line_set,save_line_set
 from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
 from viz.color import *
-
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-from matplotlib import colors   
-import cv2
-from math import floor
-from matplotlib.colors import hsv_to_rgb
-from matplotlib.colors import rgb_to_hsv
-
-from viz.color import remove_color_pts, get_green_surfaces
-
-from geometry.mesh_processing import get_surface_clusters
-from geometry.reconstruction import recover_original_details
-
 from viz.viz_utils import color_continuous_map
 
 import pyvista as pv
@@ -93,8 +76,13 @@ def project_pcd(point_cloud = None,
                 alpha=.1,
                 plot=True,
                 name='',
+                sub_name='',
                 seed='default',
-                screen_shots = [[20,-60,30],[20,-60,60],[-20,-60,-10],[-20,60,30],[-20,60,60]]):
+                screen_shots = [#[20,-60,30],[20,-60,60],[-20,-60,-10],[-20,60,30],
+                # [-20,60,60]
+                ],
+                off_screen = False,
+                target_dir = 'data/projection'):
     # num_points = 100
     # rng = np.random.default_rng(seed=0)  # Seed rng for reproducibility
     # point_cloud = rng.random((num_points, 3))
@@ -125,29 +113,36 @@ def project_pcd(point_cloud = None,
 
     # Mesh using delaunay_2d and pyvista
     mesh = polydata.delaunay_2d(alpha=alpha)
-    log.info(f'Plotting...')
     # plane_vis = pv.Plane(center=origin,direction=normal,i_size=.5,j_size=.5,i_resolution=10,j_resolution=10,)
     if plot:
-        for pos in screen_shots:
-            pl = pv.Plotter(off_screen=True)
-            pl.add_mesh(mesh)
-            pl.add_mesh( points,    color='red',    
-                        render_points_as_spheres=True,    
-                        point_size=2,    label='Points to project',)
-            # pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
-            pl.camera.position = (polydata.center[0]+pos[0],polydata.center[1]+pos[1],polydata.center[2]+pos[2])
-            pl.camera.focal_point = polydata.center
-            file = f'data/skio/projection/{seed}_{name}_{pos[0]}_{pos[1]}_{pos[2]}.png'
-            pl.show(screenshot =file)
-            log.info(f'saved {file}')
+        log.info(f'Plotting...')
+        import os
+        base_dir = f'{target_dir}/{seed}/{name}'
+        os.makedirs(base_dir, exist_ok=True)
+        try:
+            for pos in screen_shots:
+                pl = pv.Plotter(off_screen=off_screen)
+                pl.add_mesh(mesh)
+                pl.add_mesh( points,    color='red',    render_points_as_spheres=True,    point_size=2,    label='Points to project',)
+                # pl.add_mesh(plane_vis, color='blue', opacity=0.1, label='Projection Plane')
+                pl.camera.position = (polydata.center[0]+pos[0],polydata.center[1]+pos[1],polydata.center[2]+pos[2])
+                pl.camera.focal_point = polydata.center
+                pl.camera.zoom('tight')
+                file = f'{base_dir}/{sub_name}_{alpha}_{pos[0]}_{pos[1]}_{pos[2]}.png'
+                pl.show(screenshot =file)
+                log.info(f'saved {file}')
 
-        proj = mesh.extract_geometry()
-        # Screen Shotting Geometry
-        pl = pv.Plotter(off_screen=True)
-        pl.add_mesh(proj)
-        pl.camera.position = (proj.center[0]+15,proj.center[1],proj.center[2]+50)
-        pl.camera.focal_point = proj.center
-        pl.show(screenshot =f'data/skio/projection/{seed}_{name}_shape.png')
+            # proj = mesh.extract_geometry()
+            # # Screen Shotting Geometry
+            # pl = pv.Plotter(off_screen=off_screen)
+            # pl.add_mesh(proj)
+            # pl.camera.position = (proj.center[0]+15,proj.center[1],proj.center[2]+50)
+            # pl.camera.focal_point = proj.center
+            # pl.camera.zoom('tight')
+            # pl.show(screenshot =f'{base_dir}/{sub_name}_{alpha}_shape.png')
+        
+        except Exception as e:
+            log.error(f'Error projecting points: {e}')
         # pl.show()
     # mesh.save(f'data/skio/projection/{{seed}_{name}_{pos[0]}_{pos[1]}_{pos[2]}.ply')
     return mesh

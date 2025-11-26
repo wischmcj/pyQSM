@@ -1,5 +1,19 @@
     
- ########### Notes ##############
+ ########### Method ##############
+    ### Getting pepi shift 
+    # seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
+    # file = f'new_seed{seed}_rf_voxpt05_uni3_shift'
+    # skel_res = extract_skeleton(clean_pcd, max_iter = iters, cmag_save_file=file)
+ 
+ # Boundaries to exclude
+        # if get_labels:(100, 374,5.7)], # main building
+                #                                 [(0, 350, 0), (70, 374, 5.7)] # second building (inc in left side)
+                                                # [(0, 300, -2), (70, 460, 5.7)], # left side of yard
+                                                # [(0, 430, -2), (300, 460, 30)], # front of yard
+                                                # [(155, 300, -20), (300, 460, 30)], # right side of yard
+                                                # [(0, 285, -2), (300, 325, 30)], # back of yard
+                                                # ],
+########### Notes ##############
     ### TO-DO: 
     ###   - extend cluster 189 within full collective set
     ###

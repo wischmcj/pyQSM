@@ -243,7 +243,7 @@ def recover_original_details(cluster_pcds,
 
     # return detailed_pcd
 
-def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None, dist=0.05, k=750, return_pcd = True):
+def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None, dist=0.05, k=500, return_pcd = True):
     
     if query_pcd: query_pts = arr(query_pcd.points)
     src_pts = arr(src_pcd.points)
@@ -251,15 +251,21 @@ def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None,
         kd_tree = sps.KDTree(src_pts)
     print('Finding neighbors in vicinity') 
     dists,nbrs = kd_tree.query(query_pts, k=k, distance_upper_bound= dist) 
-    print('concatenating neighbors') 
 
     if return_pcd:
+        print('concatenating neighbors') 
         chained_nbrs = [x for x in set(itertools.chain.from_iterable(nbrs)) if x< len(src_pts)]
+        if len(chained_nbrs)==0:
+            return None, None, None
         # nbr_pts = arr(vicinity_pts)[nbrs]
         print('selecting unique neighbors') 
         uniques = np.unique(chained_nbrs)
         print('building pcd') 
-        pts = src_pts[uniques]
+        try:
+            pts = src_pts[uniques]
+        except Exception as e:
+            print(f'error {e} when selecting unique neighbors')
+            return None, None, None
         colors = arr(src_pcd.colors)[uniques]
 
         pcd = o3d.geometry.PointCloud() 

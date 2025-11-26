@@ -177,7 +177,6 @@ def cluster_plus(pcd,
     if from_points:
         pts=pcd
         pcd = o3d.geometry.PointCloud()
-        breakpoint()
         pcd.points = o3d.utility.Vector3dVector(arr(pts))
     
     if ransac:
