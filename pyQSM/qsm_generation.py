@@ -100,21 +100,6 @@ def get_stem_pcd(pcd=None, source_file=None
     if post_id_stat_down:
         _, ind = test.remove_statistical_outlier(nb_neighbors= nb_neighbors, std_ratio=std_ratio)
         test = test.select_by_index(ind)
-    # recluster and remove all branch starts. Then fill in w detail from pcd
-    # clustering result to isolate trunk
-    # works well at eps .35,.45 and min pts 80-110
-    # clusters = cluster_plus(stem_cloud,eps=.05*7, min_points=80,return_pcds=True,from_points=False)
-    # for i in range(1,10): 
-    #     cluster_plus(test,eps=.05*7, min_points=90,return_pcds=True,from_points=False)
-    # write_point_cloud(f'{inputs}/skeletor_dtrunk.pcd',dt4)
-
-    #  pcd.detect_planar_patches(
-    # normal_variance_threshold_deg=60,
-    # coplanarity_deg=75,
-    # outlier_ratio=0.75,
-    # min_plane_edge_length=0,
-    # min_num_points=0,
-    # search_param=o3d.geometry.KDTreeSearchParamKNN(knn=30))
 
 
     try:

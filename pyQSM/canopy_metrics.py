@@ -798,18 +798,6 @@ def get_smoothed_features(all_data,
     except Exception as e:
         log.info(f'error {e} when getting detail features')
 
-
-    # if save_file is not None:
-    #     np.savez_compressed(smoothed_data_file, **smoothed_data)
-    # if step_through:
-    #     # breakpoint()
-    #     plot_labels = ['planarity', 'intensity', 'linearity']
-    #     try:
-    #         plot_3d([all_data[x] for x in plot_labels], plot_labels)
-    #     except Exception as e:
-    #         log.info(f'error {e} when plotting {plot_labels}')
-    # # return idxs
-
 def compare_dirs(dir1, dir2, 
                 file_pat1 ='', file_pat2 ='',
                 key_pat1 ='', key_pat2 =''):
