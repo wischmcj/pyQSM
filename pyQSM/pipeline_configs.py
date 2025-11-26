@@ -1,12 +1,10 @@
-from pyQSM.canopy_metrics import (
-    loop_over_files, np_feature,  width_at_height, np_to_o3d, read_pcd
-
+from canopy_metrics import (
+    np_feature,  width_at_height
 )
-
-from pyQSM.io import read_pcd
+from pipeline import loop_over_files
+from open3d.io import read_point_cloud as read_pcd
+from utils.io import np_to_o3d, load
 import re
-
-from pyQSM.utils.io import load
 
 if __name__ =="__main__":
     ##### Orig SKIO ext

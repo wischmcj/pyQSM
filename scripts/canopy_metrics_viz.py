@@ -151,3 +151,75 @@ def read_shift_results(file_content, contraction=1, attraction=1, vox=0, ds=0):
     breakpoint()
     
     return results
+
+
+def identify_epiphytes(file_content, save_gif=False, out_path = 'data/results/gif/'):
+    logdir = "src/logs/id_epi"
+    writer = tf.summary.create_file_writer(logdir)
+    step=0
+    with writer.as_default():
+        seed, pcd, clean_pcd, shift_one = file_content
+        log.info('Calculating/drawing contraction')
+        step+=1
+        summary.add_3d('id_epi_low', to_dict_batch([clean_pcd]), step=step, logdir=logdir)
+        summary.add_3d('id_epi_high', to_dict_batch([clean_pcd]), step=step, logdir=logdir)
+        
+        orig_colors = deepcopy(arr(clean_pcd.colors))
+        highc, lowc, highc_idxs = draw_shift(clean_pcd,seed,shift_one,save_gif=save_gif)
+        clean_pcd.colors = o3d.utility.Vector3dVector(orig_colors)
+        lowc = clean_pcd.select_by_index(highc_idxs, invert=True)
+        highc = clean_pcd.select_by_index(highc_idxs, invert=False)
+        step+=1
+        summary.add_3d('id_epi_low', to_dict_batch([lowc]), step=step, logdir=logdir)
+        summary.add_3d('removed', to_dict_batch([highc]), step=step, logdir=logdir)
+        # draw(lowc)
+        # draw(highc)
+
+        high_shift = shift_one[highc_idxs]
+        z_mag = np.array([x[2] for x in high_shift])
+        leaves_idxs, leaves, epis = color_on_percentile(highc,z_mag,60)
+        pcd_no_epi = join_pcds([highc,leaves])
+        step+=1
+        summary.add_3d('removed', to_dict_batch([epis]), step=step, logdir=logdir)
+        summary.add_3d('id_epi_low', to_dict_batch([pcd_no_epi]), step=step, logdir=logdir)
+        # draw(leaves)
+        # draw(epis)
+        # breakpoint()
+        # log.info('Extrapoloating contraction to original pcd')
+        # proped_cmag = propogate_shift(pcd,clean_pcd,shift_one)
+
+        log.info('Orienting, extracting hues')
+        # center_and_rotate(lowc) 
+        hue_pcds,no_hue_pcds =segment_hues(lowc,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
+        no_hue_pcds = [x for x in no_hue_pcds if x is not None]
+        target = no_hue_pcds[len(no_hue_pcds)-1]
+        # draw(target)
+        # epis_hue_pcds,epis_no_hue_pcds =segment_hues(epis,seed,hues=['white','blues','pink'],draw_gif=False, save_gif=save_gif)
+        # epis_no_hue_pcds = [x for x in epis_no_hue_pcds if x is not None]
+        # stripped_epis = epis_no_hue_pcds[len(epis_no_hue_pcds)-1]
+
+        step+=1
+        # summary.add_3d('epis', to_dict_batch([stripped_epis]), step=step, logdir=logdir)
+        summary.add_3d('id_epi_low', to_dict_batch([target]), step=step, logdir=logdir)
+        summary.add_3d('removed', to_dict_batch([hue_pcds[len(hue_pcds)-1]]), step=step, logdir=logdir)
+
+    return []
+    # log.info('creating alpha shapes')
+
+    # metrics = {}
+    # # get_mesh(pcd,lowc,target)
+    # to_project = [('whole',pcd),('lowc',lowc),('highc',highc),('target',target),('leaves',leaves),('epis',epis)]
+    # for name, tp_pcd in to_project:
+    #     try:
+    #         mesh = project_pcd(tp_pcd,.1,name = name,seed=f'{seed}_{name}_pcd')
+    #         metrics[name] = {'pcd_max': tp_pcd.get_max_bound(), 'pcd_min': tp_pcd.get_min_bound(), 'mesh': mesh, 'mesh_area': mesh.area }
+    #     except Exception as e:
+    #         print(f'error creating {name} mesh for {seed}: {e}')
+
+    # log.info(f'finished seed {seed}')
+    # log.info(f'{seed=}, {metrics=}')
+    # o3d.visualization.draw_geometries([test], mesh_show_back_face=True)
+    ######Ordered small to large leads to more,smaller triangles and increased coverage
+    # return metrics 
+    # mesh_out = mesh_in.filter_smooth_simple(number_of_iterations=1)
+  

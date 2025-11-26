@@ -14,9 +14,6 @@ from prettytable import PrettyTable
 use_super_user = config['io']['super_user']
 data_root = config['io']['data_root']
 
-# def read_pcd(file, root_dir = data_root):
-#     pcd = read_point_cloud
-#     return pcd
 
 def save_line_set(line_set, base_file = 'skel_stem20_topology',root_dir=data_root):
     base_file.replace('.pkl','')

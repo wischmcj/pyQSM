@@ -20,6 +20,15 @@ from matplotlib.colors import hsv_to_rgb
 from matplotlib.colors import rgb_to_hsv
 
 
+def cluster_color(pcd,labels):
+    import matplotlib.pyplot as plt
+    max_label = labels.max()
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels < 0] = 0
+    orig_colors = np.array(pcd.colors)
+    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    return pcd, orig_colors
+    
 def homog_colors(pcd):
     """
         Replaces the color of white points with the average color of their neighbors

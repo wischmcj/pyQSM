@@ -4,18 +4,10 @@ import open3d as o3d
 import scipy.spatial as sps
 import numpy as np
 from numpy import asarray as arr
-import pickle
-from copy import deepcopy
+
 import itertools
 
-
-
-
-
 from collections import defaultdict
-import logging
-from itertools import chain
-
 import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
@@ -23,15 +15,10 @@ from numpy import asarray as arr
 from open3d.io import read_point_cloud, write_point_cloud
 
 from utils.io import save,load
+from set_config import log
 
 
 from string import Template 
-
-def get_pcd(pts,colors):
-    pcd = o3d.geometry.PointCloud() 
-    pcd.points = o3d.utility.Vector3dVector(arr(pts))   
-    pcd.colors = o3d.utility.Vector3dVector(arr(colors))
-    return pcd
 
 def recover_original_details(cluster_pcds,
                             file_prefix = Template('data/input/SKIO/part_skio_raffai_$idc.pcd'),
@@ -275,3 +262,94 @@ def get_neighbors_kdtree(src_pcd, query_pcd=None,query_pts=None, kd_tree = None,
     else:
         return dists,nbrs
     
+
+def overlap_voxel_grid(src_pts, comp_voxel_grid = None, source_pcd = None, invert = False):
+    if comp_voxel_grid is None:
+        comp_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(source_pcd,voxel_size=0.2)
+
+    log.info('querying voxel grid')
+    queries = src_pts
+    in_occupied_voxel_mask= comp_voxel_grid.check_if_included(o3d.utility.Vector3dVector(queries))
+    num_in_occupied_voxel = np.sum(in_occupied_voxel_mask)
+    log.info(f'{num_in_occupied_voxel} points in occupied voxels')
+    if num_in_occupied_voxel == 0:
+        return []
+    if invert:
+        not_in_occupied_voxel_mask = np.ones_like(in_occupied_voxel_mask, dtype=bool)
+        not_in_occupied_voxel_mask[in_occupied_voxel_mask] = False
+        uniques = np.where(not_in_occupied_voxel_mask)[0]
+    # else:
+    uniques = np.where(in_occupied_voxel_mask)[0]
+
+    return uniques
+
+def get_nbrs_voxel_grid(comp_pcd, 
+                        comp_file_name,
+                        tile_dir, 
+                        tile_pattern,
+                        invert=False,
+                        out_folder='detail',
+                        out_file_prefix='detail_feats',
+                        ):
+    from glob import glob
+    import os
+    log.info('creating voxel grid')
+    comp_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(comp_pcd,voxel_size=0.1)
+    log.info('voxel grid created')
+    nbr_ids = defaultdict(list)
+    all_data =  defaultdict(list)
+    
+    # dodraw = True
+    files = glob(f'{tile_dir}/{tile_pattern}')
+    pcd=None
+    for file in files:
+        file_name = file.split('/')[-1].replace('.pcd','').replace('.npz','')
+        log.info(f'processing {file_name}')
+        if '.pcd' in file:
+            pcd = o3d.io.read_point_cloud(file)
+            data = {'points': np.array(pcd.points), 'colors': np.array(pcd.colors)}
+            data_keys = data.keys()
+        else:
+            data = np.load(file)
+            data_keys = data.files
+            log.info(f'{data_keys=}')
+
+        # Determine if the boundaries of pcd and comp_pcd intersect at all
+        # Compute bounding boxes for both point clouds and check for intersection
+        pcd_min = np.min(data['points'], axis=0)
+        pcd_max = np.max(data['points'], axis=0)
+        comp_min = np.min(np.asarray(comp_pcd.points), axis=0)
+        comp_max = np.max(np.asarray(comp_pcd.points), axis=0)
+        # Intersection exists if, on all axes, the max of the lower bounds <= min of the upper bounds
+        intersect = np.all((pcd_max >= comp_min) & (comp_max >= pcd_min))
+        log.info(f'Bounding box intersection: {intersect}')
+        if not intersect:
+            log.info("Bounding boxes do not intersect, skipping file.")
+            continue
+        else:
+            log.info("Bounding boxes intersect, processing file.")
+
+        nbr_dir = f'{tile_dir}/color_int_tree_nbrs/{file_name}'
+        uniques = overlap_voxel_grid(data['points'], comp_voxel_grid, invert=invert)
+
+        if not os.path.exists(nbr_dir):
+            os.makedirs(nbr_dir)
+        np.savez_compressed(f'{nbr_dir}/{out_file_prefix}_{comp_file_name}.npz', nbrs=uniques)
+        log.info('filtering data to neighbors') 
+        filtered_data = {zfile:data[zfile][uniques] for zfile in data_keys}
+        for datum_name, datum in filtered_data.items():
+            if len(datum.shape) == 1:
+                all_data[datum_name].append(datum)#[:,np.newaxis])
+            else:
+                all_data[datum_name].append(datum)
+
+    log.info('Saving all data')
+    for datum_name, datum in all_data.items():
+        if len(datum[0].shape) == 1:
+            all_data[datum_name] = np.hstack(datum)
+        else:
+            all_data[datum_name] = np.vstack(datum)
+
+
+    np.savez_compressed(f'{out_folder}/{comp_file_name}.npz', **all_data)
+    return all_data

@@ -1,0 +1,20 @@
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+from joblib import Parallel, delayed
+from set_config import log
+
+def smooth_feature( points, values, query_pts=None,
+                    n_nbrs = 25,
+                    nbr_func=np.mean):
+    log.info(f'fitting nearest neighbors...')
+    nbrs = NearestNeighbors(n_neighbors=n_nbrs, algorithm='auto').fit(points)
+    smoothed_feature = []
+    query_pts = query_pts if query_pts is not None else points
+    split = np.array_split(query_pts, 100000)
+    log.info(f'smoothing feature...')
+    def get_nbr_summary(idx, pts):
+        # Could also cluster nbrs and set equal to avg of largest cluster 
+        return nbr_func(values[nbrs.kneighbors(pts)[1]], axis=1)
+    results = Parallel(n_jobs=7)(delayed(get_nbr_summary)(idx, pts) for idx, pts in enumerate(split))
+    smoothed_feature = np.hstack(results)
+    return smoothed_feature    # return smoothed_features
