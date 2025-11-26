@@ -1,48 +1,27 @@
 from collections import defaultdict
 from copy import deepcopy
 from glob import glob
-from itertools import product
-import multiprocessing
 import re
-import time
-from typing import Any
-from joblib import Parallel, delayed
-
-
-from tree_isolation import extend_seed_clusters, pcds_from_extend_seed_file
-from utils.io import np_to_o3d, save
-            
 import open3d as o3d
 import numpy as np
 from numpy import asarray as arr
-import pyvista as pv
-import pc_skeletor as pcs
-
-from open3d.visualization.tensorboard_plugin import summary
 # Utility function to convert Open3D geometry to a dictionary format
 from open3d.visualization.tensorboard_plugin.util import to_dict_batch
 
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
-from sklearn.neighbors import NearestNeighbors
+from open3d.io import read_point_cloud as read_pcd
 from tqdm import tqdm
-from math_utils.fit import cluster_DBSCAN
 from matplotlib import pyplot as plt
 from glob import glob
 import os
-from scipy import spatial as sps
 
-from geometry.surf_recon import get_mesh
 from set_config import config, log
-from geometry.general import center_and_rotate
 from geometry.reconstruction import get_neighbors_kdtree
-from geometry.skeletonize import extract_skeleton, extract_topology
+from geometry.skeletonize import extract_skeleton
 from geometry.point_cloud_processing import (
     clean_cloud,
     join_pcds,
     join_pcd_files
 )
-from utils.lib_integration import get_pairs
-from utils.io import load, load_line_set,save_line_set, create_table
 from viz.ray_casting import project_pcd
 from viz.viz_utils import color_continuous_map, draw, draw_view, rotating_compare_gif
 from viz.color import (
@@ -55,39 +34,20 @@ from viz.color import (
 import pyvista as pv
 import pc_skeletor as pcs
 
-import tensorflow as tf
-from open3d.visualization.tensorboard_plugin import summary
-# Utility function to convert Open3D geometry to a dictionary format
-from open3d.visualization.tensorboard_plugin.util import to_dict_batch
-
-from open3d.io import read_point_cloud as read_pcd, write_point_cloud as write_pcd
-
 from set_config import config, log
-from geometry.general import center_and_rotate
 from geometry.reconstruction import get_neighbors_kdtree
 from geometry.skeletonize import extract_skeleton
-from geometry.point_cloud_processing import (
-    join_pcd_files
-)
 from utils.io import load
 from viz.ray_casting import project_pcd
 from viz.viz_utils import color_continuous_map, draw, rotating_compare_gif
-from viz.plotting import plot_3d, histogram
+from viz.plotting import  histogram
 from viz.color import (
     split_on_percentile,
     segment_hues,
     saturate_colors
 )
-from utils.algo import smooth_feature
-from utils.io import convert_las
-from geometry.surf_recon import meshfix
-from sklearn.cluster import KMeans
-from geometry.point_cloud_processing import cluster_plus
-from cluster_joining import user_cluster
-from general import list_if
 from math_utils.interpolation import smooth_feature
-
-from reconstruction import get_nbrs_voxel_grid, overlap_voxel_grid
+from pipeline import loop_over_files
 
 color_conds = {        'white' : lambda tup: tup[0]>.5 and tup[0]<5/6 and tup[2]>.5 ,
                'pink' : lambda tup:  tup[0]>=.7 and tup[2]>.3 ,
@@ -231,8 +191,8 @@ def get_downsample(file = None, pcd = None):
     print(f'clean version has {len(clean_pcd.points)} points')
     return clean_pcd
 
-def contraction_analysis(file, pcd, shift):
-
+def contraction_analysis(file_content, pcd, shift):
+    seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
     green = get_green_surfaces(pcd)
     not_green = get_green_surfaces(pcd,True)
     # draw(lowc_pcd)
@@ -242,7 +202,7 @@ def contraction_analysis(file, pcd, shift):
     c_mag = np.array([np.linalg.norm(x) for x in shift])
     z_mag = np.array([x[2] for x in shift])
 
-    highc_idxs, highc, lowc = color_on_percentile(pcd,c_mag,70)
+    highc_idxs, highc, lowc = split_on_percentile(pcd,c_mag,70)
 
     z_cutoff = np.percentile(z_mag,80)
     log.info(f'{z_cutoff=}')
@@ -251,12 +211,12 @@ def contraction_analysis(file, pcd, shift):
     ztrimmed_shift = shift[low_idxs]
     ztrimmed_cmag = c_mag[low_idxs]
     draw(lowc)
-    highc_idxs, highc, lowc = color_on_percentile(lowc,c_mag,70)
+    highc_idxs, highc, lowc = split_on_percentile(lowc,c_mag,70)
 
     # color_continuous_map(test,c_mag)
     highc_idxs = np.where(c_mag>np.percentile(c_mag,70))[0]
-    highc_pcd = test.select_by_index(highc_idxs)
-    lowc_pcd = test.select_by_index(highc_idxs,invert=True)
+    highc_pcd = pcd.select_by_index(highc_idxs)
+    lowc_pcd = pcd.select_by_index(highc_idxs,invert=True)
     draw([lowc_pcd])
     draw([highc_pcd])
 
@@ -296,26 +256,7 @@ def width_at_height(file_content, save_gif=False, height=1.37, tolerance=0.1, ax
     """
     Calculate the width of a point cloud at a given height above ground.
     """
-    log.info('identifying epiphytes')
-    # user_input = 65
-    # while user_input is not None:
     seed, pcd, clean_pcd, shift_one = file_content['seed'], file_content['src'], file_content['clean_pcd'], file_content['shift_one']
-    logdir = "/media/penguaman/writable/lidar_sync/py_qsm/tensor_board/id_epi"
-    writer = tf.summary.create_file_writer(logdir)
-    params = [(lambda sc: sc + (1-sc)/3, 1, '33 inc, 1x'), 
-                (lambda sc: sc + (1-sc)/2, 1, '50 inc, 1x'),
-                (lambda sc: sc + (1-sc)/3, 1.5, '33 inc, 1.5x'), 
-                (lambda sc: sc + (1-sc)/2, 1.5, '50 inc, 1.5x'),
-                (lambda sc: sc + (1-sc)/3, .5, '33 inc, .5x'), 
-                (lambda sc: sc + (1-sc)/2, .5, '50 inc, .5x')
-                ]
-
-    with writer.as_default():
-        for sat_func, sat_cutoff, case_name in params:
-            sat_pcd, sat_orig_colors = saturate_colors(pcd, cutoff=sat_cutoff, sc_func=sat_func)
-            step+=1
-            summary.add_3d('sat_test', to_dict_batch([sat_pcd]), step=step, logdir=logdir)
-    
     import numpy as np
     height = 2.8
     # Get a 'slice' of the pointcloud at the given height
