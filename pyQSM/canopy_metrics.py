@@ -123,7 +123,8 @@ def identify_epiphytes(file_content, save_gif=False, out_path = '/media/penguama
     # draw([lowc, leaves,epis])
     # draw([epis])
     project_components_in_clusters(pcd, clean_pcd, epis, leaves, lowc, seed)
-
+    
+    # The below is an attempt to make a good mesh for the epiphytes
     # id_mesh =False
     # if id_mesh:
     #     for pcd in [epis]:
@@ -272,82 +273,6 @@ def split_on_pct(pcd,pct,cmag=None, shift=None):
     lowc = pcd.select_by_index(highc_idxs, invert=True)
     highc = pcd.select_by_index(highc_idxs)
     return lowc,highc
-
-def get_trunk(file_content):
-    breakpoint()
-    seed, pcd, clean_pcd, shift_one = file_content
-    # file_base = f'skels3/skel_{str(contraction).replace('.','pt')}_{str(attraction).replace('.','pt')}_seed{seed}' #_vox{vox}_ds{ds}'0
-    lowc,highc = split_on_pct(clean_pcd,70,shift=shift_one)
-    draw([lowc])
-    breakpoint()
-    stem_pcd = get_stem_pcd(pcd=lowc)
-    breakpoint()
-
-def loop_over_files(func,args = [], kwargs =[],
-                    requested_seeds=[],
-                    skip_seeds = [],
-                    base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm',
-                    detail_ext_folder = 'ext_detail',
-                    data_file_config:dict = { 
-                        'src': {
-                                'folder': 'ext_detail',
-                                'file_pattern': '*orig_detail.pcd',
-                                'load_func': read_pcd, # custom, for pickles
-                            },
-                        'shift_one': {
-                                'folder': 'pepi_shift',
-                                'file_pattern': '*shift*',
-                                'load_func': load, # custom, for pickles
-                                'kwargs': {'root_dir': '/'},
-                            },
-                        'smoothed_feat_data': {
-                                'folder': 'ext_detail/with_all_feats/',
-                                'file_pattern': 'int_color_data_*_smoothed.npz',  
-                                'load_func': np.load,
-                            },
-                        'detail_feat_data': {
-                                'folder': 'ext_detail/with_all_feats/',
-                                'file_pattern': 'int_color_data_*_detail_feats.npz',  
-                                'load_func': np.load,
-                            },
-                    },
-                    seed_pat = re.compile('.*seed([0-9]{1,3}).*'),
-                    parallel = True,
-                    ):
-    # reads in the files from the indicated directories
-    files_by_seed = get_files_by_seed(data_file_config, base_dir, key_pattern=seed_pat)
-    
-    files_by_seed = {seed:finfo for seed, finfo in files_by_seed.items() 
-                            if ((requested_seeds==[] or seed in requested_seeds)
-                              and seed not in skip_seeds)}
-
-    if args ==[]: args = [None]*len(kwargs)
-    inputs = [(arg,kwarg) for arg,kwarg in zip(list_if(args),list_if(kwargs))]
-    if inputs == []:
-        to_run = product(files_by_seed.items(), [([''],{})])
-    else:
-        to_run =  product(files_by_seed.items(), inputs) 
-    results = []
-    errors = []
-    if parallel:
-        content_list = [get_data_from_config(seed_file_info, data_file_config) for seed, seed_file_info in files_by_seed.items()]
-        to_call = product(content_list, inputs)
-        results = Parallel(n_jobs=3)(delayed(func(content.update({'seed':seed}),*arg_tup,**kwarg_dict)) for (seed,content), (arg_tup, kwarg_dict) in to_call)
-    else: 
-        for (seed, seed_file_info), (arg_tup, kwarg_dict) in to_run:
-            try:
-                print(f'{seed=}')
-                content = get_data_from_config(seed_file_info, data_file_config)
-                content['seed'] = seed
-                print(f'running function for {seed} done')
-                result = func(content,*arg_tup,**kwarg_dict)
-                results.append(result)
-            except Exception as e:
-                breakpoint()
-                log.info(f'error {e} when processing seed {seed}')
-                errors.append(seed)
-    print(f'{errors=}')
-    print(f'{results=}')
 
 def expand_features_to_orig(nbr_pcd, orig_pcd, nbr_data):
     # # get neighbors of comp_pcd in the extracted feat pcd
@@ -557,78 +482,6 @@ def project_components_in_clusters(in_pcd, clean_pcd, epis, leaves, wood ,seed, 
     log.info(f'{seed}, {metrics=}')
     return {seed: metrics}
 
-def get_files_by_seed(data_file_config, 
-                        base_dir,
-                        # key_pattern = re.compile('.*seed([0-9]{1,3}).*')
-                        key_pattern = re.compile('.*(skio_[0-9]{1,3}_tl_[0-9]{1,3}).*')
-                        ):
-    seed_to_files = defaultdict[Any, dict](dict)
-    for file_type, file_info in data_file_config.items():
-        # Get all matchig files
-        folder = f'{base_dir}/{file_info["folder"]}'
-        file_pattern = file_info['file_pattern']
-        files = glob(file_pattern,root_dir=folder)
-        # organize files by seed
-        for file in files:
-            file_key = re.match(key_pattern,file)
-            if file_key is None:
-                log.info(f'no seed found in seed_to_content: {file}. Ignoring file...')
-                continue
-            if len(file_key.groups(1)) > 0:
-                file_key = file_key.groups(1)[0]
-            else:
-                file_key = file_key[0]
-            seed_to_files[file_key][file_type] = f'{base_dir}/{file_info["folder"]}/{file}'
-    return seed_to_files
-
-
-def np_feature(feature_name):
-    def my_feature_func(npz_file):
-        npz_data = np.load(npz_file)
-        return npz_data[feature_name]
-    return my_feature_func
-
-def read_and_downsample(file_path, **kwargs):
-    if file_path.endswith('.npz'):
-        pcd = np_to_o3d(file_path)
-    elif file_path.endswith('.las'):
-        pcd = convert_las(file_path)
-    else:
-        pcd = read_pcd(file_path, **kwargs)
-    clean_pcd = get_downsample(pcd=pcd, **kwargs)
-    return pcd, clean_pcd
-
-def get_data_from_config(seed_file_info, data_file_config):
-    seed_to_content = defaultdict(dict)
-    for file_type, file_path in seed_file_info.items():
-        load_func = data_file_config[file_type]['load_func']
-        load_kwargs = data_file_config[file_type].get('kwargs',{})
-        if load_func == read_and_downsample:
-            seed_to_content[file_type], seed_to_content['clean_pcd'] = load_func(file_path, **load_kwargs)
-        else:
-            seed_to_content[file_type] = load_func(file_path, **load_kwargs)
-        seed_to_content[f'{file_type}_file'] = file_path
-    return seed_to_content
-
-def get_features(file, step_through=True):
-    all_nbrs= {}
-    # Get files to add features to
-    # base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/'
-    # glob_pattern = f'{base_dir}/ext_detail/*orig_detail.pcd'
-    # files = glob(glob_pattern)
-    comp_file_name = file.split('/')[-1].replace('.pcd','').replace('full_ext_','').replace('_orig_detail','')
-    log.info(f'{comp_file_name=}')
-    comp_pcd = read_pcd(file)
-    if step_through:
-        draw_view(comp_pcd, comp_file_name)
-    base_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/ext_detail/with_all_feats/'
-    save_file = f'{base_dir}/int_color_data_{comp_file_name}.npz'
-    if os.path.exists(save_file):
-        log.info(f'{save_file=} already exists, loading from file')
-        all_data = np.load(save_file)
-    else:
-        get_nbrs_voxel_grid(comp_pcd, comp_file_name, tile_dir = '/media/penguaman/backupSpace/lidar_sync/pyqsm/skio/ext_detail/with_all_feats/',  tile_pattern = 'SKIO_voxpt05_all*.npz')
-
 def assemble_nbrs(requested_dirs:list[str]=[],
                     nbr_file_pattern='*.npz'):
     """
@@ -744,25 +597,6 @@ def get_smoothed_features(all_data,
     if os.path.exists(smoothed_data_file):
         log.info(f'{smoothed_data_file=} already exists, loading from file')
         smoothed_data = np.load(smoothed_data_file)
-    
-    # for datum_name, datum in tqdm(all_data.items()):
-    #     log.info(f'{datum_name=}')
-    #     if datum_name == 'points' or datum_name == 'colors':
-    #         continue
-    #     log.info(f'{len(points)=} points and {len(datum)=} intensity added to feature pcd')
-
-    #     smoothed_datum = smoothed_data.get(datum_name, None)
-    #     if smoothed_datum is None or smoothed_datum.shape[0] != len(points):
-    #         # breakpoint()
-    #         smoothed_datum = smooth_feature(points, datum, pcd=pcd)
-    #         smoothed_data[datum_name] = smoothed_datum
-
-    #     pcd, _ = color_continuous_map(pcd, smoothed_datum)
-    #     draw_view(pcd, file_name)
-    #     histogram(smoothed_datum, datum_name)
-
-    # if save_file is not None:
-    #     np.savez_compressed(smoothed_data_file, **smoothed_data)
 
     try:
         datum_name = 'intensity'
